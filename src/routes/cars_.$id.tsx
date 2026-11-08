@@ -33,7 +33,7 @@ function CarDetail() {
   const navigate = useNavigate();
   const [start, setStart] = useState(todayBkk(1));
   const [end, setEnd] = useState(todayBkk(3));
-  const [loc, setLoc] = useState(branches[0]);
+  const [loc, setLoc] = useState<string>(branches[0]!);
   const [busy, setBusy] = useState(false);
 
   const { data: car } = useQuery({
