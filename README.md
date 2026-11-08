@@ -1,4 +1,3 @@
-<img width="1063" height="624" alt="Screenshot 2026-09-11 003245" src="https://github.com/user-attachments/assets/6e75f20d-cf93-407a-b41d-89670dd5c443" />
 
 
 # Siam Wheels Rental Hub
