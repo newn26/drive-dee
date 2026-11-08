@@ -1,5 +1,1886 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useMemo } from "react";
+import { toast } from "sonner";
+import {
+  AlertCircle,
+  BarChart3,
+  Calendar,
+  Car as CarIcon,
+  CheckCircle2,
+  ChevronRight,
+  Clock,
+  DollarSign,
+  Download,
+  Edit,
+  ExternalLink,
+  FileCheck2,
+  FileText,
+  Filter,
+  Fuel,
+  LayoutDashboard,
+  Lock,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings2,
+  ShieldAlert,
+  ShieldCheck,
+  Trash2,
+  TrendingUp,
+  Truck,
+  Users,
+  Wrench,
+  X,
+} from "lucide-react";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell,
+  CartesianGrid,
+} from "recharts";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { StatusBadge } from "@/components/status-badge";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
+import { carImage } from "@/lib/car-images";
+import { categoryLabel, fmtDate, fmtDateTime, thb } from "@/lib/format";
+import type { Tables } from "@/integrations/supabase/types";
+
 export const Route = createFileRoute("/admin")({
-  head: () => ({ meta: [{ title: "admin — ไดร์ฟดี รถเช่า" }, { name: "description", content: "ไดร์ฟดี รถเช่า" }, { property: "og:title", content: "ไดร์ฟดี" }, { property: "og:description", content: "ไดร์ฟดี รถเช่า" }] }),
-  component: () => <div className="mx-auto max-w-3xl px-4 py-20 text-center text-muted-foreground">หน้านี้ยังอยู่ระหว่างการพัฒนา</div>,
+  head: () => ({
+    meta: [
+      { title: "ระบบผู้ดูแลระบบ (Admin) — Siam Wheels Rental Hub" },
+      { name: "description", content: "ระบบบริหารจัดการรถเช่า รายการจอง สัญญา และงานซ่อมบำรุง" },
+      { property: "og:title", content: "ระบบผู้ดูแลระบบ — Siam Wheels" },
+    ],
+  }),
+  component: AdminDashboardPage,
 });
+
+type AdminTab = "overview" | "cars" | "bookings" | "contracts" | "maintenance" | "reports";
+
+type BookingWithCar = Tables<"bookings"> & {
+  cars: Tables<"cars"> | null;
+};
+
+type MaintenanceWithCar = Tables<"maintenance"> & {
+  cars: Tables<"cars"> | null;
+};
+
+type ContractWithBooking = Tables<"contracts"> & {
+  bookings: (Tables<"bookings"> & { cars: Tables<"cars"> | null }) | null;
+};
+
+const CATEGORIES = [
+  { value: "eco", label: "อีโคคาร์ (Eco)" },
+  { value: "sedan", label: "ซีดาน (Sedan)" },
+  { value: "suv", label: "SUV" },
+  { value: "van", label: "รถตู้ (Van)" },
+  { value: "ev", label: "รถไฟฟ้า (EV)" },
+];
+
+const CAR_STATUSES = [
+  { value: "available", label: "ว่าง (พร้อมให้บริการ)" },
+  { value: "rented", label: "ถูกเช่า (กำลังให้บริการ)" },
+  { value: "maintenance", label: "ซ่อมบำรุง" },
+  { value: "unavailable", label: "งดให้บริการ" },
+];
+
+const PIE_COLORS = ["#0ea5e9", "#10b981", "#f59e0b", "#6366f1", "#ec4899"];
+
+function AdminDashboardPage() {
+  const { user, isAdmin, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const [activeTab, setActiveTab] = useState<AdminTab>("overview");
+
+  // Filters & Search
+  const [carSearch, setCarSearch] = useState("");
+  const [carCategoryFilter, setCarCategoryFilter] = useState("all");
+  const [carStatusFilter, setCarStatusFilter] = useState("all");
+
+  const [bookingSearch, setBookingSearch] = useState("");
+  const [bookingStatusFilter, setBookingStatusFilter] = useState("all");
+
+  const [contractSearch, setContractSearch] = useState("");
+  const [maintStatusFilter, setMaintStatusFilter] = useState("all");
+
+  // Modals & Forms
+  const [carModalOpen, setCarModalOpen] = useState(false);
+  const [editingCar, setEditingCar] = useState<Tables<"cars"> | null>(null);
+  const [carToDelete, setCarToDelete] = useState<Tables<"cars"> | null>(null);
+  const [deletingCar, setDeletingCar] = useState(false);
+  const [reportDateRange, setReportDateRange] = useState<"all" | "30d" | "90d" | "year">("all");
+  const [carForm, setCarForm] = useState({
+    brand: "",
+    model: "",
+    year: new Date().getFullYear(),
+    category: "sedan",
+    seats: 5,
+    transmission: "อัตโนมัติ",
+    fuel: "เบนซิน",
+    plate_no: "",
+    price_per_day: 1500,
+    mileage: 0,
+    image_url: "",
+    description: "",
+    status: "available" as Tables<"cars">["status"],
+  });
+
+  // Maintenance Modal
+  const [maintModalOpen, setMaintModalOpen] = useState(false);
+  const [maintForm, setMaintForm] = useState({
+    car_id: "",
+    title: "",
+    description: "",
+    scheduled_date: new Date().toISOString().split("T")[0]!,
+    cost: 0,
+    status: "scheduled" as Tables<"maintenance">["status"],
+  });
+
+  // Booking Status Update Dialog
+  const [updatingBooking, setUpdatingBooking] = useState<BookingWithCar | null>(null);
+  const [newBookingStatus, setNewBookingStatus] = useState<Tables<"bookings">["status"]>("confirmed");
+
+  // Contract Terms Update Dialog
+  const [editingContract, setEditingContract] = useState<ContractWithBooking | null>(null);
+  const [contractTerms, setContractTerms] = useState("");
+  const [securityDeposit, setSecurityDeposit] = useState(5000);
+  const [mileageAllowance, setMileageAllowance] = useState("ไม่จำกัดระยะทาง");
+  const [latePenalty, setLatePenalty] = useState("500 บาท / ชั่วโมง");
+
+  // -------------------------------------------------------------
+  // Data Queries
+  // -------------------------------------------------------------
+  const { data: cars = [], isLoading: carsLoading } = useQuery({
+    queryKey: ["admin-cars"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cars")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as Tables<"cars">[];
+    },
+    enabled: !!isAdmin,
+  });
+
+  const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
+    queryKey: ["admin-bookings"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bookings")
+        .select("*, cars(*)")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as BookingWithCar[];
+    },
+    enabled: !!isAdmin,
+  });
+
+  const { data: profiles = [] } = useQuery({
+    queryKey: ["admin-profiles"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("profiles").select("*");
+      if (error) throw error;
+      return data as Tables<"profiles">[];
+    },
+    enabled: !!isAdmin,
+  });
+
+  const { data: maintenanceRecords = [] } = useQuery({
+    queryKey: ["admin-maintenance"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("maintenance")
+        .select("*, cars(*)")
+        .order("scheduled_date", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as MaintenanceWithCar[];
+    },
+    enabled: !!isAdmin,
+  });
+
+  const { data: contracts = [] } = useQuery({
+    queryKey: ["admin-contracts"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("contracts")
+        .select("*, bookings(*, cars(*))")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as ContractWithBooking[];
+    },
+    enabled: !!isAdmin,
+  });
+
+  const profileMap = useMemo(() => {
+    const map: Record<string, Tables<"profiles">> = {};
+    for (const p of profiles) {
+      map[p.id] = p;
+    }
+    return map;
+  }, [profiles]);
+
+  // -------------------------------------------------------------
+  // Handlers
+  // -------------------------------------------------------------
+  const openCarModal = (car?: Tables<"cars">) => {
+    if (car) {
+      setEditingCar(car);
+      setCarForm({
+        brand: car.brand,
+        model: car.model,
+        year: car.year,
+        category: car.category,
+        seats: car.seats,
+        transmission: car.transmission,
+        fuel: car.fuel,
+        plate_no: car.plate_no,
+        price_per_day: car.price_per_day,
+        mileage: car.mileage,
+        image_url: car.image_url || "",
+        description: car.description || "",
+        status: car.status,
+      });
+    } else {
+      setEditingCar(null);
+      setCarForm({
+        brand: "",
+        model: "",
+        year: new Date().getFullYear(),
+        category: "sedan",
+        seats: 5,
+        transmission: "อัตโนมัติ",
+        fuel: "เบนซิน",
+        plate_no: "",
+        price_per_day: 1500,
+        mileage: 0,
+        image_url: "",
+        description: "",
+        status: "available",
+      });
+    }
+    setCarModalOpen(true);
+  };
+
+  const handleSaveCar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!carForm.brand || !carForm.model || !carForm.plate_no) {
+      toast.error("กรุณากรอกยี่ห้อ รุ่น และทะเบียนรถให้ครบถ้วน");
+      return;
+    }
+
+    try {
+      if (editingCar) {
+        const { error } = await supabase
+          .from("cars")
+          .update({
+            brand: carForm.brand.trim(),
+            model: carForm.model.trim(),
+            year: Number(carForm.year),
+            category: carForm.category,
+            seats: Number(carForm.seats),
+            transmission: carForm.transmission,
+            fuel: carForm.fuel,
+            plate_no: carForm.plate_no.trim(),
+            price_per_day: Number(carForm.price_per_day),
+            mileage: Number(carForm.mileage),
+            image_url: carForm.image_url.trim() || null,
+            description: carForm.description.trim() || null,
+            status: carForm.status,
+          })
+          .eq("id", editingCar.id);
+
+        if (error) throw error;
+        toast.success("อัปเดตข้อมูลรถยนต์สำเร็จ");
+      } else {
+        const { error } = await supabase.from("cars").insert({
+          brand: carForm.brand.trim(),
+          model: carForm.model.trim(),
+          year: Number(carForm.year),
+          category: carForm.category,
+          seats: Number(carForm.seats),
+          transmission: carForm.transmission,
+          fuel: carForm.fuel,
+          plate_no: carForm.plate_no.trim(),
+          price_per_day: Number(carForm.price_per_day),
+          mileage: Number(carForm.mileage),
+          image_url: carForm.image_url.trim() || null,
+          description: carForm.description.trim() || null,
+          status: carForm.status,
+        });
+
+        if (error) throw error;
+        toast.success("เพิ่มรถยนต์เข้าสู่ระบบสำเร็จ");
+      }
+
+      setCarModalOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ["admin-cars"] });
+    } catch (err: unknown) {
+      const error = err as Error;
+      toast.error(error.message || "ไม่สามารถบันทึกข้อมูลรถยนต์ได้");
+    }
+  };
+
+  const handleDeleteCar = async () => {
+    if (!carToDelete) return;
+    setDeletingCar(true);
+    try {
+      const hasBooking = bookings.some((b) => b.car_id === carToDelete.id);
+      if (hasBooking) {
+        toast.error("ไม่สามารถลบรถคันนี้ได้เนื่องจากมีประวัติการจองผูกอยู่ในระบบ กรุณาเปลี่ยนสถานะเป็น 'งดให้บริการ' แทน");
+        setCarToDelete(null);
+        return;
+      }
+
+      const { error } = await supabase.from("cars").delete().eq("id", carToDelete.id);
+      if (error) {
+        if (error.code === "23503" || error.message.includes("foreign key") || error.message.includes("violates foreign key constraint")) {
+          toast.error("ไม่สามารถลบรถคันนี้ได้เนื่องจากมีประวัติการจองผูกอยู่ในระบบ กรุณาเปลี่ยนสถานะเป็น 'งดให้บริการ' แทน");
+        } else {
+          toast.error(error.message || "ไม่สามารถลบรถยนต์ได้");
+        }
+        return;
+      }
+
+      toast.success("ลบรถยนต์ออกจากระบบเรียบร้อยแล้ว");
+      setCarToDelete(null);
+      await queryClient.invalidateQueries({ queryKey: ["admin-cars"] });
+    } catch (err: unknown) {
+      const error = err as Error;
+      toast.error(error.message || "เกิดข้อผิดพลาดในการลบรถยนต์");
+    } finally {
+      setDeletingCar(false);
+    }
+  };
+
+  const handleUpdateCarStatus = async (carId: string, status: Tables<"cars">["status"]) => {
+    try {
+      const { error } = await supabase
+        .from("cars")
+        .update({ status })
+        .eq("id", carId);
+
+      if (error) throw error;
+      toast.success("ปรับปรุงสถานะรถยนต์เรียบร้อยแล้ว");
+      await queryClient.invalidateQueries({ queryKey: ["admin-cars"] });
+    } catch (err: unknown) {
+      const error = err as Error;
+      toast.error(error.message || "ไม่สามารถเปลี่ยนสถานะได้");
+    }
+  };
+
+  const handleUpdateBookingStatus = async () => {
+    if (!updatingBooking) return;
+    try {
+      const { error } = await supabase
+        .from("bookings")
+        .update({ status: newBookingStatus })
+        .eq("id", updatingBooking.id);
+
+      if (error) throw error;
+
+      // Auto update car status if marking as active (rented) or completed (available)
+      if (newBookingStatus === "active") {
+        await supabase.from("cars").update({ status: "rented" }).eq("id", updatingBooking.car_id);
+      } else if (newBookingStatus === "completed" || newBookingStatus === "cancelled") {
+        await supabase.from("cars").update({ status: "available" }).eq("id", updatingBooking.car_id);
+      }
+
+      toast.success("ปรับปรุงสถานะการจองเรียบร้อยแล้ว");
+      setUpdatingBooking(null);
+      await queryClient.invalidateQueries({ queryKey: ["admin-bookings"] });
+      await queryClient.invalidateQueries({ queryKey: ["admin-cars"] });
+    } catch (err: unknown) {
+      const error = err as Error;
+      toast.error(error.message || "ไม่สามารถเปลี่ยนสถานะการจองได้");
+    }
+  };
+
+  const handleSaveMaintenance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!maintForm.car_id || !maintForm.title) {
+      toast.error("กรุณาเลือกรถและระบุชื่องานซ่อมบำรุง");
+      return;
+    }
+
+    try {
+      const { error } = await supabase.from("maintenance").insert({
+        car_id: maintForm.car_id,
+        title: maintForm.title.trim(),
+        description: maintForm.description.trim() || null,
+        scheduled_date: maintForm.scheduled_date,
+        cost: Number(maintForm.cost),
+        status: maintForm.status,
+      });
+
+      if (error) throw error;
+
+      // Update car status to maintenance if scheduled/in progress
+      if (maintForm.status === "in_progress") {
+        await supabase.from("cars").update({ status: "maintenance" }).eq("id", maintForm.car_id);
+      }
+
+      toast.success("บันทึกตารางการซ่อมบำรุงเรียบร้อยแล้ว");
+      setMaintModalOpen(false);
+      setMaintForm({
+        car_id: "",
+        title: "",
+        description: "",
+        scheduled_date: new Date().toISOString().split("T")[0]!,
+        cost: 0,
+        status: "scheduled",
+      });
+      await queryClient.invalidateQueries({ queryKey: ["admin-maintenance"] });
+      await queryClient.invalidateQueries({ queryKey: ["admin-cars"] });
+    } catch (err: unknown) {
+      const error = err as Error;
+      toast.error(error.message || "ไม่สามารถบันทึกงานซ่อมบำรุงได้");
+    }
+  };
+
+  const openContractEditor = (c: ContractWithBooking) => {
+    setEditingContract(c);
+    setContractTerms(c.terms);
+    setSecurityDeposit(5000);
+    setMileageAllowance("ไม่จำกัดระยะทาง");
+    setLatePenalty("500 บาท / ชั่วโมง");
+  };
+
+  const handleSaveContractTerms = async () => {
+    if (!editingContract) return;
+
+    try {
+      // Append special terms if customized
+      let updatedTerms = contractTerms;
+      const customClauses = `\n\n[ข้อกำหนดเพิ่มเติมจากผู้ดูแลระบบ]\n- เงินประกันความเสียหาย: ${thb(securityDeposit)}\n- ข้อกำหนดระยะทาง: ${mileageAllowance}\n- ค่าปรับส่งคืนรถล่าช้า: ${latePenalty}`;
+
+      if (!updatedTerms.includes("[ข้อกำหนดเพิ่มเติมจากผู้ดูแลระบบ]")) {
+        updatedTerms += customClauses;
+      }
+
+      const { error } = await supabase
+        .from("contracts")
+        .update({ terms: updatedTerms })
+        .eq("id", editingContract.id);
+
+      if (error) throw error;
+
+      toast.success("อัปเดตข้อกำหนดสัญญาเช่าเรียบร้อยแล้ว");
+      setEditingContract(null);
+      await queryClient.invalidateQueries({ queryKey: ["admin-contracts"] });
+    } catch (err: unknown) {
+      const error = err as Error;
+      toast.error(error.message || "ไม่สามารถบันทึกข้อกำหนดสัญญาได้");
+    }
+  };
+
+  // -------------------------------------------------------------
+  // Filtered Lists & Calculations
+  // -------------------------------------------------------------
+  const filteredCars = useMemo(() => {
+    return cars.filter((c) => {
+      const matchSearch =
+        c.brand.toLowerCase().includes(carSearch.toLowerCase()) ||
+        c.model.toLowerCase().includes(carSearch.toLowerCase()) ||
+        c.plate_no.toLowerCase().includes(carSearch.toLowerCase());
+      const matchCategory = carCategoryFilter === "all" || c.category === carCategoryFilter;
+      const matchStatus = carStatusFilter === "all" || c.status === carStatusFilter;
+      return matchSearch && matchCategory && matchStatus;
+    });
+  }, [cars, carSearch, carCategoryFilter, carStatusFilter]);
+
+  const filteredBookings = useMemo(() => {
+    return bookings.filter((b) => {
+      const car = b.cars;
+      const profile = profileMap[b.user_id];
+      const matchSearch =
+        b.booking_code.toLowerCase().includes(bookingSearch.toLowerCase()) ||
+        (car && `${car.brand} ${car.model} ${car.plate_no}`.toLowerCase().includes(bookingSearch.toLowerCase())) ||
+        (profile && profile.full_name.toLowerCase().includes(bookingSearch.toLowerCase()));
+      const matchStatus = bookingStatusFilter === "all" || b.status === bookingStatusFilter;
+      return matchSearch && matchStatus;
+    });
+  }, [bookings, bookingSearch, bookingStatusFilter, profileMap]);
+
+  const filteredContracts = useMemo(() => {
+    return contracts.filter((c) => {
+      const booking = c.bookings;
+      const matchSearch =
+        c.contract_no.toLowerCase().includes(contractSearch.toLowerCase()) ||
+        (booking && booking.booking_code.toLowerCase().includes(contractSearch.toLowerCase()));
+      return matchSearch;
+    });
+  }, [contracts, contractSearch]);
+
+  const filteredMaintenance = useMemo(() => {
+    return maintenanceRecords.filter((m) => {
+      return maintStatusFilter === "all" || m.status === maintStatusFilter;
+    });
+  }, [maintenanceRecords, maintStatusFilter]);
+
+  // Operational & Revenue Metrics
+  const metrics = useMemo(() => {
+    const totalCustomers = profiles.length;
+    const totalCarsCount = cars.length;
+    const availableCarsCount = cars.filter((c) => c.status === "available").length;
+    const rentedCarsCount = cars.filter((c) => c.status === "rented").length;
+    const maintenanceCarsCount = cars.filter((c) => c.status === "maintenance").length;
+
+    const confirmedOrActiveBookings = bookings.filter((b) => b.status === "confirmed" || b.status === "active");
+    const completedBookings = bookings.filter((b) => b.status === "completed");
+
+    const totalRevenue = bookings
+      .filter((b) => b.status === "confirmed" || b.status === "active" || b.status === "completed")
+      .reduce((sum, b) => sum + Number(b.total_amount), 0);
+
+    const totalMaintenanceCost = maintenanceRecords.reduce((sum, m) => sum + Number(m.cost), 0);
+    const netProfit = totalRevenue - totalMaintenanceCost;
+    const utilizationRate = totalCarsCount > 0 ? Math.round((rentedCarsCount / totalCarsCount) * 100) : 0;
+
+    return {
+      totalCustomers,
+      totalCarsCount,
+      availableCarsCount,
+      rentedCarsCount,
+      maintenanceCarsCount,
+      activeBookingsCount: confirmedOrActiveBookings.length,
+      completedBookingsCount: completedBookings.length,
+      totalRevenue,
+      totalMaintenanceCost,
+      netProfit,
+      utilizationRate,
+    };
+  }, [cars, bookings, profiles, maintenanceRecords]);
+
+  // Date-filtered metrics for Reports tab
+  const reportMetrics = useMemo(() => {
+    let filteredB = bookings.filter((b) => b.status !== "cancelled");
+    let filteredM = [...maintenanceRecords];
+
+    const now = Date.now();
+    if (reportDateRange === "30d") {
+      const cutoff = now - 30 * 86400000;
+      filteredB = filteredB.filter((b) => new Date(b.created_at).getTime() >= cutoff);
+      filteredM = filteredM.filter((m) => new Date(m.scheduled_date).getTime() >= cutoff);
+    } else if (reportDateRange === "90d") {
+      const cutoff = now - 90 * 86400000;
+      filteredB = filteredB.filter((b) => new Date(b.created_at).getTime() >= cutoff);
+      filteredM = filteredM.filter((m) => new Date(m.scheduled_date).getTime() >= cutoff);
+    } else if (reportDateRange === "year") {
+      const startOfYear = new Date(new Date().getFullYear(), 0, 1).getTime();
+      filteredB = filteredB.filter((b) => new Date(b.created_at).getTime() >= startOfYear);
+      filteredM = filteredM.filter((m) => new Date(m.scheduled_date).getTime() >= startOfYear);
+    }
+
+    const revenue = filteredB.reduce((sum, b) => sum + Number(b.total_amount), 0);
+    const maintCost = filteredM.reduce((sum, m) => sum + Number(m.cost), 0);
+    const profit = revenue - maintCost;
+    const completedCount = filteredB.filter((b) => b.status === "completed").length;
+
+    return {
+      revenue,
+      maintCost,
+      profit,
+      completedCount,
+      bookingCount: filteredB.length,
+    };
+  }, [bookings, maintenanceRecords, reportDateRange]);
+
+  // Chart Data: Monthly Revenue
+  const chartData = useMemo(() => {
+    const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+    const dataMap: Record<number, { name: string; revenue: number; bookings: number }> = {};
+
+    months.forEach((m, idx) => {
+      dataMap[idx] = { name: m, revenue: 0, bookings: 0 };
+    });
+
+    bookings.forEach((b) => {
+      if (b.status !== "cancelled") {
+        const d = new Date(b.created_at);
+        const m = d.getMonth();
+        if (dataMap[m]) {
+          dataMap[m].revenue += Number(b.total_amount);
+          dataMap[m].bookings += 1;
+        }
+      }
+    });
+
+    return Object.values(dataMap);
+  }, [bookings]);
+
+  // Fleet distribution for PieChart
+  const categoryData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    cars.forEach((c) => {
+      counts[c.category] = (counts[c.category] || 0) + 1;
+    });
+    return Object.entries(counts).map(([cat, count]) => ({
+      name: categoryLabel[cat] || cat,
+      value: count,
+    }));
+  }, [cars]);
+
+  // -------------------------------------------------------------
+  // Security Guard Check
+  // -------------------------------------------------------------
+  if (authLoading) {
+    return (
+      <div className="mx-auto max-w-5xl px-4 py-20 text-center">
+        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+        <p className="mt-4 text-muted-foreground">กำลังตรวจสอบสิทธิ์ผู้ดูแลระบบ...</p>
+      </div>
+    );
+  }
+
+  if (!user || !isAdmin) {
+    return (
+      <div className="mx-auto max-w-md px-4 py-20 text-center">
+        <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-destructive/10 text-destructive">
+          <ShieldAlert className="h-8 w-8" />
+        </div>
+        <h2 className="text-2xl font-bold">ปฏิเสธการเข้าถึง (Access Denied)</h2>
+        <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+          หน้านี้สงวนไว้สำหรับผู้ดูแลระบบ (Administrator) ของ Siam Wheels Rental Hub เท่านั้น บัญชีของคุณไม่มีสิทธิ์ในการเข้าถึงระบบนี้
+        </p>
+        <div className="mt-6 flex flex-col gap-2">
+          <Button asChild>
+            <Link to="/">กลับสู่หน้าหลัก</Link>
+          </Button>
+          {!user && (
+            <Button variant="outline" asChild>
+              <Link to="/auth">เข้าสู่ระบบด้วยบัญชีผู้ดูแล</Link>
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-8">
+      {/* Admin Top Header */}
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b pb-6">
+        <div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+              <ShieldCheck className="mr-1 h-3.5 w-3.5" /> Administrator Portal
+            </Badge>
+            <span className="text-xs text-muted-foreground">Siam Wheels Operations</span>
+          </div>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight">ศูนย์ควบคุมและบริหารจัดการรถเช่า</h1>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button onClick={() => openCarModal()} className="gap-1.5 shadow-sm">
+            <Plus className="h-4 w-4" /> เพิ่มรถยนต์ใหม่
+          </Button>
+          <Button variant="outline" onClick={() => setMaintModalOpen(true)} className="gap-1.5">
+            <Wrench className="h-4 w-4" /> บันทึกซ่อมบำรุง
+          </Button>
+        </div>
+      </div>
+
+      {/* Main Admin Navigation Tabs (Responsive Sidebar Layout) */}
+      <div className="grid gap-8 lg:grid-cols-12">
+        {/* Navigation Sidebar (3 Cols) */}
+        <aside className="lg:col-span-3">
+          <Card className="shadow-card border sticky top-24">
+            <CardHeader className="pb-3 border-b bg-muted/20">
+              <CardTitle className="text-sm font-semibold text-muted-foreground">เมนูการจัดการระบบ</CardTitle>
+            </CardHeader>
+            <CardContent className="p-2 space-y-1">
+              {[
+                { id: "overview", label: "ภาพรวมระบบ", icon: LayoutDashboard, count: null },
+                { id: "cars", label: "จัดการรถยนต์ในระบบ", icon: CarIcon, count: cars.length },
+                { id: "bookings", label: "รายการจองของลูกค้า", icon: Calendar, count: bookings.length },
+                { id: "contracts", label: "สัญญาเช่าดิจิทัล", icon: FileCheck2, count: contracts.length },
+                { id: "maintenance", label: "งานซ่อมบำรุง", icon: Wrench, count: maintenanceRecords.length },
+                { id: "reports", label: "รายงานและสถิติ", icon: BarChart3, count: null },
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id as AdminTab)}
+                  className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+                    activeTab === item.id
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <item.icon className="h-4 w-4" />
+                    <span>{item.label}</span>
+                  </div>
+                  {item.count !== null && (
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full ${
+                        activeTab === item.id
+                          ? "bg-primary-foreground/20 text-primary-foreground"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {item.count}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </CardContent>
+          </Card>
+        </aside>
+
+        {/* Content Area (9 Cols) */}
+        <main className="space-y-6 lg:col-span-9">
+          {/* TAB 1: OVERVIEW */}
+          {activeTab === "overview" && (
+            <div className="space-y-6">
+              {/* 6 Key Operational Metrics */}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <Card className="shadow-card border">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-xs font-medium text-muted-foreground">รายได้รวมสุทธิ (THB)</CardTitle>
+                    <DollarSign className="h-4 w-4 text-primary" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-primary">{thb(metrics.totalRevenue)}</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      กำไรจากการดำเนินงาน: <span className="font-semibold text-success">{thb(metrics.netProfit)}</span>
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-card border">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-xs font-medium text-muted-foreground">กองยานพาหนะทั้งหมด</CardTitle>
+                    <CarIcon className="h-4 w-4 text-primary" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-foreground">{metrics.totalCarsCount} คัน</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      ว่าง {metrics.availableCarsCount} · ถูกเช่า {metrics.rentedCarsCount} · ซ่อม {metrics.maintenanceCarsCount}
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-card border">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-xs font-medium text-muted-foreground">อัตราการใช้งานรถยนต์</CardTitle>
+                    <TrendingUp className="h-4 w-4 text-primary" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-foreground">{metrics.utilizationRate}%</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      กำลังถูกเช่าจริง {metrics.rentedCarsCount} จาก {metrics.totalCarsCount} คัน
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-card border">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-xs font-medium text-muted-foreground">การจองที่รออนุมัติ / กำลังเช่า</CardTitle>
+                    <Calendar className="h-4 w-4 text-primary" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-foreground">{metrics.activeBookingsCount} รายการ</div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      เสร็จสิ้นทั้งหมด {metrics.completedBookingsCount} ทริป
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-card border">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-xs font-medium text-muted-foreground">ลูกค้าที่ลงทะเบียน</CardTitle>
+                    <Users className="h-4 w-4 text-primary" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-foreground">{metrics.totalCustomers} ท่าน</div>
+                    <p className="text-xs text-muted-foreground mt-1">พร้อมประวัติและเอกสารยืนยันตัวตน</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-card border">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-xs font-medium text-muted-foreground">ค่าใช้จ่ายซ่อมบำรุงสะสม</CardTitle>
+                    <Wrench className="h-4 w-4 text-warning" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-warning-foreground">{thb(metrics.totalMaintenanceCost)}</div>
+                    <p className="text-xs text-muted-foreground mt-1">บันทึกแล้ว {maintenanceRecords.length} รายการ</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Monthly Revenue Chart */}
+              <Card className="shadow-card border">
+                <CardHeader>
+                  <CardTitle className="text-base font-semibold">แนวโน้มรายได้และจำนวนการจองรายเดือน</CardTitle>
+                  <CardDescription>สถิติยอดการจองและรายได้จากระบบตลอดปี</CardDescription>
+                </CardHeader>
+                <CardContent className="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                      <XAxis dataKey="name" fontSize={12} />
+                      <YAxis fontSize={12} tickFormatter={(val) => `฿${(val / 1000).toFixed(0)}k`} />
+                      <Tooltip
+                        formatter={(val: any) => [thb(Number(val) || 0), "รายได้"]}
+                        labelStyle={{ fontWeight: "bold" }}
+                      />
+                      <Bar dataKey="revenue" fill="currentColor" className="fill-primary" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              {/* Recent Bookings Overview Table */}
+              <Card className="shadow-card border">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base font-semibold">รายการจองล่าสุด</CardTitle>
+                    <CardDescription>รายการจองที่เข้ามาในระบบล่าสุด 5 รายการ</CardDescription>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => setActiveTab("bookings")} className="gap-1">
+                    ดูทั้งหมด <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>รหัสการจอง</TableHead>
+                        <TableHead>ลูกค้า</TableHead>
+                        <TableHead>รถยนต์</TableHead>
+                        <TableHead>วันที่เช่า</TableHead>
+                        <TableHead>สถานะ</TableHead>
+                        <TableHead className="text-right">ยอดรวม</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {bookings.slice(0, 5).map((b) => (
+                        <TableRow key={b.id}>
+                          <TableCell className="font-mono text-xs font-semibold">{b.booking_code}</TableCell>
+                          <TableCell className="text-xs">
+                            {profileMap[b.user_id]?.full_name || "ลูกค้าสมาชิก"}
+                          </TableCell>
+                          <TableCell className="text-xs font-medium">
+                            {b.cars?.brand} {b.cars?.model} ({b.cars?.plate_no})
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {fmtDate(b.start_date)} — {fmtDate(b.end_date)}
+                          </TableCell>
+                          <TableCell>
+                            <StatusBadge status={b.status} kind="booking" />
+                          </TableCell>
+                          <TableCell className="text-right font-semibold text-primary">
+                            {thb(b.total_amount)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {bookings.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
+                            ยังไม่มีรายการจองในระบบ
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* TAB 2: CAR FLEET MANAGEMENT */}
+          {activeTab === "cars" && (
+            <Card className="shadow-card border">
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-xl">จัดการรถยนต์ในระบบ ({filteredCars.length} คัน)</CardTitle>
+                    <CardDescription>เพิ่ม ลบ แก้ไข ข้อมูลสเปกและราคาเช่ารายวัน</CardDescription>
+                  </div>
+                  <Button onClick={() => openCarModal()} className="gap-1.5">
+                    <Plus className="h-4 w-4" /> เพิ่มรถยนต์ใหม่
+                  </Button>
+                </div>
+
+                {/* Filter Toolbar */}
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="relative">
+                    <Input
+                      placeholder="ค้นหายี่ห้อ รุ่น หรือทะเบียน..."
+                      value={carSearch}
+                      onChange={(e) => setCarSearch(e.target.value)}
+                      className="pl-9"
+                    />
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  </div>
+
+                  <Select value={carCategoryFilter} onValueChange={setCarCategoryFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="ประเภทรถยนต์" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">ทุกประเภท</SelectItem>
+                      {CATEGORIES.map((cat) => (
+                        <SelectItem key={cat.value} value={cat.value}>
+                          {cat.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={carStatusFilter} onValueChange={setCarStatusFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="สถานะรถยนต์" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">ทุกสถานะ</SelectItem>
+                      {CAR_STATUSES.map((st) => (
+                        <SelectItem key={st.value} value={st.value}>
+                          {st.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>รูปรถ</TableHead>
+                      <TableHead>ยี่ห้อ / รุ่น / ปี</TableHead>
+                      <TableHead>ทะเบียน</TableHead>
+                      <TableHead>ประเภท</TableHead>
+                      <TableHead>ราคา / วัน</TableHead>
+                      <TableHead>เลขไมล์</TableHead>
+                      <TableHead>สถานะ</TableHead>
+                      <TableHead className="text-right">จัดการ</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredCars.map((car) => (
+                      <TableRow key={car.id}>
+                        <TableCell>
+                          <img
+                            src={carImage(car.image_url, car.category)}
+                            alt={car.model}
+                            className="h-10 w-16 object-cover rounded border bg-muted"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-semibold text-foreground">
+                            {car.brand} {car.model}
+                          </span>
+                          <span className="block text-xs text-muted-foreground">ปี {car.year}</span>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs font-semibold">{car.plate_no}</TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="text-xs">
+                            {categoryLabel[car.category] || car.category}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="font-semibold text-primary">{thb(car.price_per_day)}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {car.mileage.toLocaleString("th-TH")} กม.
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            value={car.status}
+                            onValueChange={(val) => handleUpdateCarStatus(car.id, val as Tables<"cars">["status"])}
+                          >
+                            <SelectTrigger className="h-7 text-xs w-36">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CAR_STATUSES.map((st) => (
+                                <SelectItem key={st.value} value={st.value} className="text-xs">
+                                  {st.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => openCarModal(car)} title="แก้ไข">
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-destructive hover:bg-destructive/10"
+                              onClick={() => setCarToDelete(car)}
+                              title="ลบรถยนต์"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {filteredCars.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                          ไม่พบรถยนต์ที่ตรงกับเงื่อนไขการค้นหา
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* TAB 3: BOOKINGS MANAGEMENT */}
+          {activeTab === "bookings" && (
+            <Card className="shadow-card border">
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-xl">รายการจองของลูกค้า ({filteredBookings.length} รายการ)</CardTitle>
+                    <CardDescription>ตรวจสอบ ยืนยันสถานะการเช่า และควบคุมการส่งมอบรถ</CardDescription>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="relative">
+                    <Input
+                      placeholder="ค้นหารหัสการจอง ชื่อลูกค้า หรือทะเบียนรถ..."
+                      value={bookingSearch}
+                      onChange={(e) => setBookingSearch(e.target.value)}
+                      className="pl-9"
+                    />
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  </div>
+
+                  <Select value={bookingStatusFilter} onValueChange={setBookingStatusFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="กรองตามสถานะ" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">ทุกสถานะ</SelectItem>
+                      <SelectItem value="pending">รอชำระเงิน</SelectItem>
+                      <SelectItem value="confirmed">ยืนยันแล้ว</SelectItem>
+                      <SelectItem value="active">กำลังเช่า (รับรถแล้ว)</SelectItem>
+                      <SelectItem value="completed">เสร็จสิ้น</SelectItem>
+                      <SelectItem value="cancelled">ยกเลิก</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>รหัสการจอง</TableHead>
+                      <TableHead>ข้อมูลลูกค้า</TableHead>
+                      <TableHead>รถยนต์</TableHead>
+                      <TableHead>สาขา / วันที่</TableHead>
+                      <TableHead>สถานะ</TableHead>
+                      <TableHead>ยอดรวม</TableHead>
+                      <TableHead className="text-right">การจัดการ</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredBookings.map((b) => {
+                      const profile = profileMap[b.user_id];
+                      return (
+                        <TableRow key={b.id}>
+                          <TableCell className="font-mono text-xs font-bold text-foreground">
+                            {b.booking_code}
+                          </TableCell>
+                          <TableCell>
+                            <span className="font-medium text-xs block text-foreground">
+                              {profile?.full_name || "ลูกค้าสมาชิก"}
+                            </span>
+                            <span className="text-[11px] text-muted-foreground font-mono">
+                              {profile?.phone || "-"}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-xs font-semibold block">
+                              {b.cars?.brand} {b.cars?.model}
+                            </span>
+                            <span className="text-[11px] text-muted-foreground font-mono">
+                              {b.cars?.plate_no}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <span className="block font-medium">{b.pickup_location}</span>
+                            <span className="text-muted-foreground text-[11px]">
+                              {fmtDate(b.start_date)} — {fmtDate(b.end_date)} ({b.days} วัน)
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <StatusBadge status={b.status} kind="booking" />
+                          </TableCell>
+                          <TableCell className="font-semibold text-primary">{thb(b.total_amount)}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-1.5">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => {
+                                  setUpdatingBooking(b);
+                                  setNewBookingStatus(b.status);
+                                }}
+                              >
+                                เปลี่ยนสถานะ
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-7 px-2" asChild>
+                                <Link to="/bookings/$id" params={{ id: b.id }} target="_blank">
+                                  <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                                </Link>
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {filteredBookings.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                          ไม่พบรายการจองที่ตรงกับเงื่อนไข
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* TAB 4: CONTRACTS MANAGEMENT */}
+          {activeTab === "contracts" && (
+            <Card className="shadow-card border">
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-xl">สัญญาเช่าดิจิทัล ({filteredContracts.length} ฉบับ)</CardTitle>
+                    <CardDescription>ตรวจสอบข้อตกลง สภาพการลงนาม และกำหนดเงื่อนไขเพิ่มเติม</CardDescription>
+                  </div>
+                </div>
+
+                <div className="mt-4 relative max-w-sm">
+                  <Input
+                    placeholder="ค้นหาเลขที่สัญญา หรือรหัสการจอง..."
+                    value={contractSearch}
+                    onChange={(e) => setContractSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                </div>
+              </CardHeader>
+
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>เลขที่สัญญา</TableHead>
+                      <TableHead>รหัสการจอง</TableHead>
+                      <TableHead>รถยนต์</TableHead>
+                      <TableHead>สถานะการลงนาม</TableHead>
+                      <TableHead>วันที่สร้างสัญญา</TableHead>
+                      <TableHead className="text-right">จัดการข้อตกลง</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredContracts.map((c) => {
+                      const isSigned = !!c.customer_accepted_at;
+                      return (
+                        <TableRow key={c.id}>
+                          <TableCell className="font-mono text-xs font-bold text-foreground">
+                            {c.contract_no}
+                          </TableCell>
+                          <TableCell className="font-mono text-xs text-muted-foreground">
+                            {c.bookings?.booking_code || "-"}
+                          </TableCell>
+                          <TableCell className="text-xs font-medium">
+                            {c.bookings?.cars?.brand} {c.bookings?.cars?.model} ({c.bookings?.cars?.plate_no})
+                          </TableCell>
+                          <TableCell>
+                            {isSigned ? (
+                              <Badge variant="outline" className="border-success/30 bg-success/10 text-success text-xs">
+                                <CheckCircle2 className="h-3 w-3 mr-1" /> ลงนามแล้ว
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="border-warning/30 bg-warning/10 text-warning text-xs">
+                                <Clock className="h-3 w-3 mr-1" /> รอลูกค้าลงนาม
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{fmtDateTime(c.created_at)}</TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() => openContractEditor(c)}
+                            >
+                              แก้ไขข้อตกลง
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {filteredContracts.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          ไม่พบสัญญาเช่าในระบบ
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* TAB 5: MAINTENANCE TRACKING */}
+          {activeTab === "maintenance" && (
+            <Card className="shadow-card border">
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-xl">งานซ่อมบำรุงและดูแลรักษารถยนต์</CardTitle>
+                    <CardDescription>บันทึกประวัติการเข้าศูนย์ เช็คระยะ และค่าใช้จ่ายการซ่อมบำรุง</CardDescription>
+                  </div>
+                  <Button onClick={() => setMaintModalOpen(true)} className="gap-1.5">
+                    <Plus className="h-4 w-4" /> บันทึกงานซ่อมบำรุง
+                  </Button>
+                </div>
+
+                <div className="mt-4 max-w-xs">
+                  <Select value={maintStatusFilter} onValueChange={setMaintStatusFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="กรองสถานะซ่อมบำรุง" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">ทุกสถานะ</SelectItem>
+                      <SelectItem value="scheduled">นัดหมายแล้ว</SelectItem>
+                      <SelectItem value="in_progress">กำลังดำเนินการ</SelectItem>
+                      <SelectItem value="completed">เสร็จสิ้น</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>รถยนต์ / ทะเบียน</TableHead>
+                      <TableHead>รายการซ่อมบำรุง</TableHead>
+                      <TableHead>วันที่นัดหมาย</TableHead>
+                      <TableHead>ค่าใช้จ่าย</TableHead>
+                      <TableHead>สถานะ</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredMaintenance.map((m) => (
+                      <TableRow key={m.id}>
+                        <TableCell>
+                          <span className="font-semibold text-xs block">
+                            {m.cars?.brand} {m.cars?.model}
+                          </span>
+                          <span className="font-mono text-xs text-muted-foreground">{m.cars?.plate_no}</span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-xs font-medium block text-foreground">{m.title}</span>
+                          <span className="text-[11px] text-muted-foreground">{m.description || "-"}</span>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{fmtDate(m.scheduled_date)}</TableCell>
+                        <TableCell className="font-semibold text-primary text-xs">{thb(m.cost)}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={m.status} kind="maint" />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {filteredMaintenance.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                          ไม่พบประวัติงานซ่อมบำรุง
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* TAB 6: REPORTS & ANALYTICS */}
+          {activeTab === "reports" && (
+            <div className="space-y-6">
+              {/* Date Filter Toolbar */}
+              <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card p-4 shadow-sm">
+                <div>
+                  <h3 className="font-semibold text-sm">ช่วงเวลาสำหรับรายงาน (Date Range Filter)</h3>
+                  <p className="text-xs text-muted-foreground">กรองสถิติรายได้และข้อมูลการใช้งานตามช่วงเวลา</p>
+                </div>
+                <Select value={reportDateRange} onValueChange={(val) => setReportDateRange(val as "all" | "30d" | "90d" | "year")}>
+                  <SelectTrigger className="w-48 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">ข้อมูลทั้งหมด (All Time)</SelectItem>
+                    <SelectItem value="30d">30 วันล่าสุด (Last 30 Days)</SelectItem>
+                    <SelectItem value="90d">90 วันล่าสุด (Last 90 Days)</SelectItem>
+                    <SelectItem value="year">ปีปัจจุบัน (This Year)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-6 md:grid-cols-2">
+                {/* Revenue Overview */}
+                <Card className="shadow-card border">
+                  <CardHeader>
+                    <CardTitle className="text-base font-semibold">สรุปผลประกอบการทางการเงิน</CardTitle>
+                    <CardDescription>วิเคราะห์รายรับ ค่าใช้จ่าย และกำไรสุทธิตามช่วงเวลา</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">รายได้จากการเช่า:</span>
+                        <span className="font-semibold text-primary">{thb(reportMetrics.revenue)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">ค่าใช้จ่ายซ่อมบำรุงรวม:</span>
+                        <span className="font-semibold text-destructive">- {thb(reportMetrics.maintCost)}</span>
+                      </div>
+                      <div className="border-t pt-2 flex justify-between text-base font-bold">
+                        <span>กำไรสุทธิจากการดำเนินงาน:</span>
+                        <span className="text-success">{thb(reportMetrics.profit)}</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t">
+                      <p className="text-xs text-muted-foreground mb-3 font-medium">สัดส่วนประเภทยานพาหนะในระบบ</p>
+                      <div className="h-44">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={categoryData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={40}
+                              outerRadius={65}
+                              paddingAngle={4}
+                              dataKey="value"
+                            >
+                              {categoryData.map((_, index) => (
+                                <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Operational Performance */}
+                <Card className="shadow-card border">
+                  <CardHeader>
+                    <CardTitle className="text-base font-semibold">ดัชนีชี้วัดประสิทธิภาพการดำเนินงาน (KPIs)</CardTitle>
+                    <CardDescription>วิเคราะห์การใช้งานกองยานพาหนะและความคุ้มค่า</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4 text-sm">
+                    <div className="rounded-xl bg-muted/40 p-4 space-y-2.5">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">อัตราการใช้งานรถยนต์ (Utilization):</span>
+                        <span className="font-bold text-foreground">{metrics.utilizationRate}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">ค่าเฉลี่ยรายได้ต่อคัน:</span>
+                        <span className="font-semibold text-foreground">
+                          {metrics.totalCarsCount > 0 ? thb(metrics.totalRevenue / metrics.totalCarsCount) : thb(0)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">จำนวนทริปที่สำเร็จแล้ว:</span>
+                        <span className="font-semibold text-foreground">{metrics.completedBookingsCount} ทริป</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">รถที่พร้อมให้บริการทันที:</span>
+                        <span className="font-semibold text-success">{metrics.availableCarsCount} คัน</span>
+                      </div>
+                    </div>
+
+                    <div className="p-4 border rounded-xl text-xs text-muted-foreground space-y-1.5">
+                      <p className="font-medium text-foreground">💡 ข้อแนะนำสำหรับการดำเนินงาน:</p>
+                      <p>• หากอัตรา Utilization สูงกว่า 80% ควรพิจารณาเพิ่มจำนวนรถในหมวดหมู่ยอดนิยม (Eco/Sedan)</p>
+                      <p>• ตรวจสอบรถยนต์ที่มีกำหนดซ่อมบำรุงสม่ำเสมอเพื่อลดความเสี่ยงต่ออุบัติเหตุ</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* DIALOG 1: ADD / EDIT CAR */}
+      {/* ------------------------------------------------------------- */}
+      <Dialog open={carModalOpen} onOpenChange={setCarModalOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingCar ? "แก้ไขข้อมูลรถยนต์" : "เพิ่มรถยนต์ใหม่เข้าสู่ระบบ"}</DialogTitle>
+            <DialogDescription>
+              ระบุรายละเอียดของตัวรถ หมายเลขทะเบียน และอัตราค่าเช่าต่อวัน
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveCar} className="space-y-4 pt-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="car-brand" className="text-xs">ยี่ห้อ (Brand) *</Label>
+                <Input
+                  id="car-brand"
+                  placeholder="เช่น Toyota, Honda"
+                  value={carForm.brand}
+                  onChange={(e) => setCarForm({ ...carForm, brand: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="car-model" className="text-xs">รุ่น (Model) *</Label>
+                <Input
+                  id="car-model"
+                  placeholder="เช่น Yaris, Camry"
+                  value={carForm.model}
+                  onChange={(e) => setCarForm({ ...carForm, model: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label htmlFor="car-year" className="text-xs">ปีรถ (Year)</Label>
+                <Input
+                  id="car-year"
+                  type="number"
+                  value={carForm.year}
+                  onChange={(e) => setCarForm({ ...carForm, year: Number(e.target.value) })}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="car-category" className="text-xs">หมวดหมู่</Label>
+                <Select
+                  value={carForm.category}
+                  onValueChange={(val) => setCarForm({ ...carForm, category: val })}
+                >
+                  <SelectTrigger id="car-category">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIES.map((cat) => (
+                      <SelectItem key={cat.value} value={cat.value}>
+                        {cat.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="car-plate" className="text-xs">หมายเลขทะเบียน *</Label>
+                <Input
+                  id="car-plate"
+                  placeholder="เช่น 1กข 1234"
+                  value={carForm.plate_no}
+                  onChange={(e) => setCarForm({ ...carForm, plate_no: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label htmlFor="car-seats" className="text-xs">จำนวนที่นั่ง</Label>
+                <Input
+                  id="car-seats"
+                  type="number"
+                  value={carForm.seats}
+                  onChange={(e) => setCarForm({ ...carForm, seats: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="car-trans" className="text-xs">ระบบเกียร์</Label>
+                <Input
+                  id="car-trans"
+                  value={carForm.transmission}
+                  onChange={(e) => setCarForm({ ...carForm, transmission: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="car-fuel" className="text-xs">เชื้อเพลิง</Label>
+                <Input
+                  id="car-fuel"
+                  value={carForm.fuel}
+                  onChange={(e) => setCarForm({ ...carForm, fuel: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label htmlFor="car-price" className="text-xs">ราคาต่อวัน (THB) *</Label>
+                <Input
+                  id="car-price"
+                  type="number"
+                  value={carForm.price_per_day}
+                  onChange={(e) => setCarForm({ ...carForm, price_per_day: Number(e.target.value) })}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="car-mileage" className="text-xs">เลขไมล์สะสม (กม.)</Label>
+                <Input
+                  id="car-mileage"
+                  type="number"
+                  value={carForm.mileage}
+                  onChange={(e) => setCarForm({ ...carForm, mileage: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="car-status-select" className="text-xs">สถานะเริ่มต้น</Label>
+                <Select
+                  value={carForm.status}
+                  onValueChange={(val) => setCarForm({ ...carForm, status: val as Tables<"cars">["status"] })}
+                >
+                  <SelectTrigger id="car-status-select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CAR_STATUSES.map((st) => (
+                      <SelectItem key={st.value} value={st.value}>
+                        {st.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="car-img" className="text-xs">URL รูปภาพรถยนต์ (เว้นว่างไว้เพื่อใช้รูปมาตรฐาน)</Label>
+              <Input
+                id="car-img"
+                placeholder="https://images.unsplash.com/..."
+                value={carForm.image_url}
+                onChange={(e) => setCarForm({ ...carForm, image_url: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="car-desc" className="text-xs">คำอธิบายเพิ่มเติม</Label>
+              <Textarea
+                id="car-desc"
+                rows={2}
+                placeholder="รายละเอียดอุปกรณ์ ความสะดวกสบาย..."
+                value={carForm.description}
+                onChange={(e) => setCarForm({ ...carForm, description: e.target.value })}
+              />
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setCarModalOpen(false)}>
+                ยกเลิก
+              </Button>
+              <Button type="submit">บันทึกข้อมูลรถยนต์</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ------------------------------------------------------------- */}
+      {/* DIALOG 2: UPDATE BOOKING STATUS */}
+      {/* ------------------------------------------------------------- */}
+      <Dialog open={!!updatingBooking} onOpenChange={(open) => !open && setUpdatingBooking(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ปรับปรุงสถานะการจอง</DialogTitle>
+            <DialogDescription>
+              รหัสการจอง: <span className="font-mono font-bold text-foreground">{updatingBooking?.booking_code}</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div>
+              <Label className="text-xs">เลือกสถานะใหม่</Label>
+              <Select
+                value={newBookingStatus}
+                onValueChange={(val) => setNewBookingStatus(val as Tables<"bookings">["status"])}
+              >
+                <SelectTrigger className="mt-1.5">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">รอชำระเงิน (Pending)</SelectItem>
+                  <SelectItem value="confirmed">ยืนยันแล้ว (Confirmed)</SelectItem>
+                  <SelectItem value="active">กำลังเช่า - ส่งมอบรถแล้ว (Active)</SelectItem>
+                  <SelectItem value="completed">เสร็จสิ้น - รับรถคืนแล้ว (Completed)</SelectItem>
+                  <SelectItem value="cancelled">ยกเลิกการจอง (Cancelled)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground space-y-1">
+              <p>• เมื่อเปลี่ยนเป็น <strong>กำลังเช่า (Active)</strong> ระบบจะปรับสถานะรถคันนี้เป็น "ถูกเช่า" อัตโนมัติ</p>
+              <p>• เมื่อเปลี่ยนเป็น <strong>เสร็จสิ้น (Completed)</strong> รถจะกลับสู่สถานะ "ว่าง" พร้อมให้บริการต่อ</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUpdatingBooking(null)}>
+              ยกเลิก
+            </Button>
+            <Button onClick={handleUpdateBookingStatus}>บันทึกสถานะ</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ------------------------------------------------------------- */}
+      {/* DIALOG 3: CREATE MAINTENANCE SCHEDULE */}
+      {/* ------------------------------------------------------------- */}
+      <Dialog open={maintModalOpen} onOpenChange={setMaintModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>บันทึกตารางการซ่อมบำรุง</DialogTitle>
+            <DialogDescription>
+              สร้างงานเช็คระยะ ตรวจสภาพ หรือซ่อมแซมสำหรับรถยนต์ในกองยานพาหนะ
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveMaintenance} className="space-y-3.5 pt-2">
+            <div>
+              <Label className="text-xs">เลือกรถยนต์ที่ต้องการซ่อมบำรุง *</Label>
+              <Select
+                value={maintForm.car_id}
+                onValueChange={(val) => setMaintForm({ ...maintForm, car_id: val })}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="ค้นหาและเลือกรถยนต์..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {cars.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.brand} {c.model} (ทะเบียน {c.plate_no})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="maint-title" className="text-xs">หัวข้องานซ่อมบำรุง *</Label>
+              <Input
+                id="maint-title"
+                placeholder="เช่น เปลี่ยนถ่ายน้ำมันเครื่อง 20,000 กม."
+                value={maintForm.title}
+                onChange={(e) => setMaintForm({ ...maintForm, title: e.target.value })}
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="maint-date" className="text-xs">วันที่นัดหมาย</Label>
+                <Input
+                  id="maint-date"
+                  type="date"
+                  value={maintForm.scheduled_date}
+                  onChange={(e) => setMaintForm({ ...maintForm, scheduled_date: e.target.value })}
+                  required
+                />
+              </div>
+              <div>
+                <Label htmlFor="maint-cost" className="text-xs">ค่าใช้จ่ายโดยประมาณ (THB)</Label>
+                <Input
+                  id="maint-cost"
+                  type="number"
+                  value={maintForm.cost}
+                  onChange={(e) => setMaintForm({ ...maintForm, cost: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">สถานะงานซ่อมบำรุง</Label>
+              <Select
+                value={maintForm.status}
+                onValueChange={(val) => setMaintForm({ ...maintForm, status: val as Tables<"maintenance">["status"] })}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="scheduled">นัดหมายแล้ว</SelectItem>
+                  <SelectItem value="in_progress">กำลังดำเนินการ (รถจะงดให้บริการ)</SelectItem>
+                  <SelectItem value="completed">เสร็จสิ้นเรียบร้อย</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="maint-desc" className="text-xs">รายละเอียดการซ่อมเพิ่มเติม</Label>
+              <Textarea
+                id="maint-desc"
+                rows={2}
+                placeholder="ศูนย์บริการ อะไหล่ที่เปลี่ยน..."
+                value={maintForm.description}
+                onChange={(e) => setMaintForm({ ...maintForm, description: e.target.value })}
+              />
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setMaintModalOpen(false)}>
+                ยกเลิก
+              </Button>
+              <Button type="submit">บันทึกข้อมูลซ่อมบำรุง</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ------------------------------------------------------------- */}
+      {/* DIALOG 4: EDIT CONTRACT TERMS */}
+      {/* ------------------------------------------------------------- */}
+      <Dialog open={!!editingContract} onOpenChange={(open) => !open && setEditingContract(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>ปรับปรุงข้อกำหนดสัญญาเช่า</DialogTitle>
+            <DialogDescription>
+              เลขที่สัญญา: <span className="font-mono font-bold text-foreground">{editingContract?.contract_no}</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label htmlFor="depo-val" className="text-xs">เงินมัดจำประกัน (THB)</Label>
+                <Input
+                  id="depo-val"
+                  type="number"
+                  value={securityDeposit}
+                  onChange={(e) => setSecurityDeposit(Number(e.target.value))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="mile-val" className="text-xs">ระยะทางที่อนุญาต</Label>
+                <Input
+                  id="mile-val"
+                  value={mileageAllowance}
+                  onChange={(e) => setMileageAllowance(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="late-val" className="text-xs">ค่าปรับส่งคืนล่าช้า</Label>
+                <Input
+                  id="late-val"
+                  value={latePenalty}
+                  onChange={(e) => setLatePenalty(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="terms-text" className="text-xs">ข้อความสัญญาฉบับเต็ม</Label>
+              <Textarea
+                id="terms-text"
+                rows={10}
+                className="font-mono text-xs leading-relaxed mt-1.5"
+                value={contractTerms}
+                onChange={(e) => setContractTerms(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingContract(null)}>
+              ยกเลิก
+            </Button>
+            <Button onClick={handleSaveContractTerms}>บันทึกข้อกำหนดสัญญา</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ------------------------------------------------------------- */}
+      {/* DIALOG 5: DELETE CAR CONFIRMATION */}
+      {/* ------------------------------------------------------------- */}
+      <Dialog open={!!carToDelete} onOpenChange={(open) => !open && setCarToDelete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-destructive flex items-center gap-2">
+              <AlertCircle className="h-5 w-5" /> ยืนยันการลบรถยนต์ออกจากระบบ
+            </DialogTitle>
+            <DialogDescription>
+              คุณแน่ใจหรือไม่ว่าต้องการลบรถยนต์{" "}
+              <strong className="text-foreground">
+                {carToDelete?.brand} {carToDelete?.model} (ทะเบียน {carToDelete?.plate_no})
+              </strong>{" "}
+              ออกจากระบบ?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-lg bg-destructive/10 p-3 text-xs text-destructive border border-destructive/20 space-y-1">
+            <p className="font-semibold">⚠️ ข้อกำหนดความปลอดภัยของระบบ:</p>
+            <p>• หากรถยนต์คันนี้เคยมีประวัติการจองหรือสัญญาเช่าในระบบ ระบบจะไม่อนุญาตให้ลบ เพื่อป้องกันข้อมูลสูญหาย</p>
+            <p>• หากต้องการหยุดให้บริการรถคันนี้ กรุณาเปลี่ยนสถานะเป็น "งดให้บริการ" หรือ "ซ่อมบำรุง" แทน</p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCarToDelete(null)}>
+              ยกเลิก
+            </Button>
+            <Button variant="destructive" disabled={deletingCar} onClick={handleDeleteCar}>
+              {deletingCar ? "กำลังลบ..." : "ยืนยันการลบ"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

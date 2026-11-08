@@ -1,45 +1,339 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
+import { Lock, Mail, Phone, User, ArrowLeft, ShieldCheck, KeyRound } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/auth")({
-  head: () => ({ meta: [{ title: "เข้าสู่ระบบ — ไดร์ฟดี รถเช่า" }, { name: "description", content: "เข้าสู่ระบบหรือสมัครสมาชิก" }, { property: "og:title", content: "เข้าสู่ระบบ — ไดร์ฟดี" }, { property: "og:description", content: "เข้าสู่ระบบหรือสมัครสมาชิก" }] }),
+  head: () => ({
+    meta: [
+      { title: "เข้าสู่ระบบและสมัครสมาชิก — Siam Wheels Rental Hub" },
+      { name: "description", content: "เข้าสู่ระบบหรือสมัครสมาชิกเพื่อจองรถเช่าออนไลน์และจัดการการจอง" },
+      { property: "og:title", content: "เข้าสู่ระบบ — Siam Wheels" },
+    ],
+  }),
   component: AuthPage,
 });
 
+type AuthMode = "login" | "register" | "forgot";
+
 function AuthPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"in" | "up">("in");
+  const [mode, setMode] = useState<AuthMode>("login");
+  const [loading, setLoading] = useState(false);
+
+  // Form Fields
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [pw, setPw] = useState("");
-  const submit = async (e: React.FormEvent) => {
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
+  const resetForm = () => {
+    setPassword("");
+    setConfirmPassword("");
+  };
+
+  const switchMode = (newMode: AuthMode) => {
+    setMode(newMode);
+    resetForm();
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (mode === "in") {
-      const { error } = await supabase.auth.signInWithPassword({ email, password: pw });
-      if (error) return toast.error("อีเมลหรือรหัสผ่านไม่ถูกต้อง");
-      navigate({ to: "/" });
-    } else {
-      const { error } = await supabase.auth.signUp({ email, password: pw, options: { emailRedirectTo: window.location.origin, data: { full_name: name } } });
-      if (error) return toast.error(error.message);
-      toast.success("สมัครสำเร็จ กรุณายืนยันอีเมลของคุณ");
+
+    // 1. Password Reset Flow
+    if (mode === "forgot") {
+      if (!email.trim() || !email.includes("@")) {
+        toast.error("กรุณากรอกอีเมลที่ถูกต้อง");
+        return;
+      }
+      setLoading(true);
+      try {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: `${window.location.origin}/auth?reset=true`,
+        });
+        if (error) {
+          toast.error(error.message || "ไม่สามารถส่งคำขอรีเซ็ตรหัสผ่านได้");
+        } else {
+          toast.success("ส่งลิงก์สำหรับรีเซ็ตรหัสผ่านไปยังอีเมลของคุณเรียบร้อยแล้ว");
+          switchMode("login");
+        }
+      } catch (err: unknown) {
+        const error = err as Error;
+        toast.error(error.message || "เกิดข้อผิดพลาดในการเชื่อมต่อ");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // 2. Sign In Flow
+    if (mode === "login") {
+      if (!email.trim() || !password) {
+        toast.error("กรุณากรอกอีเมลและรหัสผ่าน");
+        return;
+      }
+      setLoading(true);
+      try {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+
+        if (error) {
+          if (error.message.includes("Invalid login credentials")) {
+            toast.error("อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง");
+          } else {
+            toast.error(error.message || "เกิดข้อผิดพลาดในการเข้าสู่ระบบ");
+          }
+          return;
+        }
+
+        toast.success("เข้าสู่ระบบสำเร็จ ยินดีต้อนรับกลับมา");
+        navigate({ to: "/" });
+      } catch (err: unknown) {
+        const error = err as Error;
+        toast.error(error.message || "ไม่สามารถเชื่อมต่อระบบได้");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // 3. Registration Flow
+    if (mode === "register") {
+      if (!name.trim()) {
+        toast.error("กรุณากรอกชื่อ-นามสกุลจริง");
+        return;
+      }
+      if (!phone.trim() || phone.replace(/\D/g, "").length < 9) {
+        toast.error("กรุณากรอกเบอร์โทรศัพท์ที่ติดต่อได้ (9-10 หลัก)");
+        return;
+      }
+      if (!email.trim() || !email.includes("@")) {
+        toast.error("กรุณากรอกอีเมลให้ถูกต้อง");
+        return;
+      }
+      if (password.length < 6) {
+        toast.error("รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร");
+        return;
+      }
+      if (password !== confirmPassword) {
+        toast.error("รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน");
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const cleanPhone = phone.replace(/\D/g, "");
+        const { error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: {
+            emailRedirectTo: window.location.origin,
+            data: {
+              full_name: name.trim(),
+              phone: cleanPhone,
+            },
+          },
+        });
+
+        if (error) {
+          if (error.message.toLowerCase().includes("user already registered") || error.message.toLowerCase().includes("already registered")) {
+            toast.error("อีเมลนี้ถูกลงทะเบียนไว้แล้ว กรุณาเข้าสู่ระบบ");
+            switchMode("login");
+          } else {
+            toast.error(error.message || "เกิดข้อผิดพลาดในการลงทะเบียน");
+          }
+          return;
+        }
+
+        toast.success("สมัครสมาชิกสำเร็จ! ยินดีต้อนรับสู่ Siam Wheels");
+        navigate({ to: "/" });
+      } catch (err: unknown) {
+        const error = err as Error;
+        toast.error(error.message || "ไม่สามารถลงทะเบียนได้");
+      } finally {
+        setLoading(false);
+      }
     }
   };
+
   return (
-    <div className="mx-auto max-w-sm px-4 py-16">
-      <h1 className="mb-6 text-2xl font-semibold">{mode === "in" ? "เข้าสู่ระบบ" : "สมัครสมาชิก"}</h1>
-      <form onSubmit={submit} className="space-y-3 rounded-2xl border bg-card p-6 shadow-card">
-        {mode === "up" && <Input placeholder="ชื่อ-นามสกุล" value={name} onChange={(e) => setName(e.target.value)} required />}
-        <Input type="email" placeholder="อีเมล" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <Input type="password" placeholder="รหัสผ่าน" minLength={6} value={pw} onChange={(e) => setPw(e.target.value)} required />
-        <Button className="w-full" type="submit">{mode === "in" ? "เข้าสู่ระบบ" : "สมัครสมาชิก"}</Button>
-        <button type="button" className="w-full text-sm text-primary" onClick={() => setMode(mode === "in" ? "up" : "in")}>
-          {mode === "in" ? "ยังไม่มีบัญชี? สมัครสมาชิก" : "มีบัญชีแล้ว? เข้าสู่ระบบ"}
-        </button>
-      </form>
+    <div className="mx-auto flex min-h-[calc(100vh-8rem)] max-w-md flex-col justify-center px-4 py-12">
+      <Card className="shadow-card border">
+        <CardHeader className="space-y-1 text-center">
+          <div className="mx-auto mb-2 grid h-12 w-12 place-items-center rounded-2xl bg-primary/10 text-primary">
+            {mode === "login" ? <Lock className="h-6 w-6" /> : mode === "register" ? <User className="h-6 w-6" /> : <KeyRound className="h-6 w-6" />}
+          </div>
+          <CardTitle className="text-2xl font-bold">
+            {mode === "login" ? "เข้าสู่ระบบ" : mode === "register" ? "สมัครสมาชิกใหม่" : "รีเซ็ตรหัสผ่าน"}
+          </CardTitle>
+          <CardDescription>
+            {mode === "login"
+              ? "ยินดีต้อนรับกลับสู่ Siam Wheels Rental Hub"
+              : mode === "register"
+                ? "สร้างบัญชีผู้ใช้งานเพื่อเริ่มต้นจองรถเช่าออนไลน์ได้ทันที"
+                : "กรอกอีเมลของคุณเพื่อรับลิงก์สำหรับตั้งรหัสผ่านใหม่"}
+          </CardDescription>
+        </CardHeader>
+
+        <form onSubmit={handleSubmit}>
+          <CardContent className="space-y-4">
+            {/* Registration specific fields */}
+            {mode === "register" && (
+              <>
+                <div className="space-y-1.5">
+                  <Label htmlFor="auth-name" className="text-xs">ชื่อ-นามสกุลจริง</Label>
+                  <div className="relative">
+                    <Input
+                      id="auth-name"
+                      placeholder="นายสมชาย มั่นคง"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      required
+                      className="pl-9"
+                    />
+                    <User className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="auth-phone" className="text-xs">เบอร์โทรศัพท์มือถือ</Label>
+                  <div className="relative">
+                    <Input
+                      id="auth-phone"
+                      type="tel"
+                      placeholder="0812345678"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      required
+                      className="pl-9 font-mono"
+                    />
+                    <Phone className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Email field (All modes) */}
+            <div className="space-y-1.5">
+              <Label htmlFor="auth-email" className="text-xs">อีเมล (Email)</Label>
+              <div className="relative">
+                <Input
+                  id="auth-email"
+                  type="email"
+                  placeholder="customer@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="pl-9"
+                />
+                <Mail className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              </div>
+            </div>
+
+            {/* Password field (Login and Register only) */}
+            {mode !== "forgot" && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="auth-pw" className="text-xs">รหัสผ่าน</Label>
+                  {mode === "login" && (
+                    <button
+                      type="button"
+                      onClick={() => switchMode("forgot")}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      ลืมรหัสผ่าน?
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <Input
+                    id="auth-pw"
+                    type="password"
+                    placeholder="อย่างน้อย 6 ตัวอักษร"
+                    minLength={6}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    className="pl-9"
+                  />
+                  <Lock className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                </div>
+              </div>
+            )}
+
+            {/* Confirm Password (Register only) */}
+            {mode === "register" && (
+              <div className="space-y-1.5">
+                <Label htmlFor="auth-confirm-pw" className="text-xs">ยืนยันรหัสผ่าน</Label>
+                <div className="relative">
+                  <Input
+                    id="auth-confirm-pw"
+                    type="password"
+                    placeholder="กรอกรหัสผ่านซ้ำอีกครั้ง"
+                    minLength={6}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    className="pl-9"
+                  />
+                  <ShieldCheck className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                </div>
+              </div>
+            )}
+          </CardContent>
+
+          <CardFooter className="flex flex-col space-y-3 pt-2">
+            <Button className="w-full text-base" type="submit" disabled={loading}>
+              {loading
+                ? "กำลังดำเนินการ..."
+                : mode === "login"
+                  ? "เข้าสู่ระบบ"
+                  : mode === "register"
+                    ? "สร้างบัญชีผู้ใช้งาน"
+                    : "ส่งลิงก์รีเซ็ตรหัสผ่าน"}
+            </Button>
+
+            {mode === "login" && (
+              <button
+                type="button"
+                className="text-sm text-muted-foreground hover:text-foreground"
+                onClick={() => switchMode("register")}
+              >
+                ยังไม่มีบัญชีผู้ใช้? <span className="text-primary font-medium underline">สมัครสมาชิก</span>
+              </button>
+            )}
+
+            {mode === "register" && (
+              <button
+                type="button"
+                className="text-sm text-muted-foreground hover:text-foreground"
+                onClick={() => switchMode("login")}
+              >
+                มีบัญชีผู้ใช้งานแล้ว? <span className="text-primary font-medium underline">เข้าสู่ระบบ</span>
+              </button>
+            )}
+
+            {mode === "forgot" && (
+              <button
+                type="button"
+                className="inline-flex items-center text-sm text-primary hover:underline"
+                onClick={() => switchMode("login")}
+              >
+                <ArrowLeft className="mr-1 h-3.5 w-3.5" /> กลับสู่หน้าเข้าสู่ระบบ
+              </button>
+            )}
+          </CardFooter>
+        </form>
+      </Card>
     </div>
   );
 }
