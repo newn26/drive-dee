@@ -354,6 +354,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      booked_car_ids: {
+        Args: { _end: string; _start: string }
+        Returns: string[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
