@@ -14,16 +14,373 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      bookings: {
+        Row: {
+          booking_code: string
+          car_id: string
+          created_at: string
+          days: number
+          end_date: string
+          id: string
+          notes: string | null
+          pickup_location: string
+          start_date: string
+          status: Database["public"]["Enums"]["booking_status"]
+          total_amount: number
+          user_id: string
+        }
+        Insert: {
+          booking_code?: string
+          car_id: string
+          created_at?: string
+          days: number
+          end_date: string
+          id?: string
+          notes?: string | null
+          pickup_location?: string
+          start_date: string
+          status?: Database["public"]["Enums"]["booking_status"]
+          total_amount: number
+          user_id: string
+        }
+        Update: {
+          booking_code?: string
+          car_id?: string
+          created_at?: string
+          days?: number
+          end_date?: string
+          id?: string
+          notes?: string | null
+          pickup_location?: string
+          start_date?: string
+          status?: Database["public"]["Enums"]["booking_status"]
+          total_amount?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bookings_car_id_fkey"
+            columns: ["car_id"]
+            isOneToOne: false
+            referencedRelation: "cars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cars: {
+        Row: {
+          brand: string
+          category: string
+          created_at: string
+          description: string | null
+          fuel: string
+          id: string
+          image_url: string | null
+          mileage: number
+          model: string
+          plate_no: string
+          price_per_day: number
+          seats: number
+          status: Database["public"]["Enums"]["car_status"]
+          transmission: string
+          year: number
+        }
+        Insert: {
+          brand: string
+          category?: string
+          created_at?: string
+          description?: string | null
+          fuel?: string
+          id?: string
+          image_url?: string | null
+          mileage?: number
+          model: string
+          plate_no: string
+          price_per_day: number
+          seats?: number
+          status?: Database["public"]["Enums"]["car_status"]
+          transmission?: string
+          year: number
+        }
+        Update: {
+          brand?: string
+          category?: string
+          created_at?: string
+          description?: string | null
+          fuel?: string
+          id?: string
+          image_url?: string | null
+          mileage?: number
+          model?: string
+          plate_no?: string
+          price_per_day?: number
+          seats?: number
+          status?: Database["public"]["Enums"]["car_status"]
+          transmission?: string
+          year?: number
+        }
+        Relationships: []
+      }
+      contracts: {
+        Row: {
+          booking_id: string
+          contract_no: string
+          created_at: string
+          customer_accepted_at: string | null
+          id: string
+          status: string
+          terms: string
+          user_id: string
+        }
+        Insert: {
+          booking_id: string
+          contract_no?: string
+          created_at?: string
+          customer_accepted_at?: string | null
+          id?: string
+          status?: string
+          terms: string
+          user_id: string
+        }
+        Update: {
+          booking_id?: string
+          contract_no?: string
+          created_at?: string
+          customer_accepted_at?: string | null
+          id?: string
+          status?: string
+          terms?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contracts_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: true
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maintenance: {
+        Row: {
+          car_id: string
+          completed_date: string | null
+          cost: number
+          created_at: string
+          description: string | null
+          id: string
+          scheduled_date: string
+          status: Database["public"]["Enums"]["maintenance_status"]
+          title: string
+        }
+        Insert: {
+          car_id: string
+          completed_date?: string | null
+          cost?: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          scheduled_date: string
+          status?: Database["public"]["Enums"]["maintenance_status"]
+          title: string
+        }
+        Update: {
+          car_id?: string
+          completed_date?: string | null
+          cost?: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          scheduled_date?: string
+          status?: Database["public"]["Enums"]["maintenance_status"]
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maintenance_car_id_fkey"
+            columns: ["car_id"]
+            isOneToOne: false
+            referencedRelation: "cars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payments: {
+        Row: {
+          amount: number
+          booking_id: string
+          card_last4: string | null
+          id: string
+          method: Database["public"]["Enums"]["payment_method"]
+          paid_at: string
+          reference: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          booking_id: string
+          card_last4?: string | null
+          id?: string
+          method: Database["public"]["Enums"]["payment_method"]
+          paid_at?: string
+          reference?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          booking_id?: string
+          card_last4?: string | null
+          id?: string
+          method?: Database["public"]["Enums"]["payment_method"]
+          paid_at?: string
+          reference?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          address: string | null
+          created_at: string
+          full_name: string
+          id: string
+          id_card_no: string | null
+          license_no: string | null
+          phone: string | null
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          created_at?: string
+          full_name?: string
+          id: string
+          id_card_no?: string | null
+          license_no?: string | null
+          phone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          created_at?: string
+          full_name?: string
+          id?: string
+          id_card_no?: string | null
+          license_no?: string | null
+          phone?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      reviews: {
+        Row: {
+          booking_id: string
+          car_id: string
+          comment: string | null
+          created_at: string
+          id: string
+          rating: number
+          reviewer_name: string
+          user_id: string
+        }
+        Insert: {
+          booking_id: string
+          car_id: string
+          comment?: string | null
+          created_at?: string
+          id?: string
+          rating: number
+          reviewer_name?: string
+          user_id: string
+        }
+        Update: {
+          booking_id?: string
+          car_id?: string
+          comment?: string | null
+          created_at?: string
+          id?: string
+          rating?: number
+          reviewer_name?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reviews_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: true
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reviews_car_id_fkey"
+            columns: ["car_id"]
+            isOneToOne: false
+            referencedRelation: "cars"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+      pay_booking: {
+        Args: {
+          _booking_id: string
+          _card_last4?: string
+          _method: Database["public"]["Enums"]["payment_method"]
+        }
+        Returns: string
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "customer"
+      booking_status:
+        | "pending"
+        | "confirmed"
+        | "active"
+        | "completed"
+        | "cancelled"
+      car_status: "available" | "rented" | "maintenance" | "unavailable"
+      maintenance_status: "scheduled" | "in_progress" | "completed"
+      payment_method: "qr" | "card"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +507,18 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "customer"],
+      booking_status: [
+        "pending",
+        "confirmed",
+        "active",
+        "completed",
+        "cancelled",
+      ],
+      car_status: ["available", "rented", "maintenance", "unavailable"],
+      maintenance_status: ["scheduled", "in_progress", "completed"],
+      payment_method: ["qr", "card"],
+    },
   },
 } as const
