@@ -9,15 +9,15 @@ import { carsQuery, ratingsQuery } from "@/lib/queries";
 import { categoryLabel, todayBkk } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 
-type S = { q?: string; category?: string; start?: string; end?: string; sort?: string };
+type S = { q?: string | undefined; category?: string | undefined; start?: string | undefined; end?: string | undefined; sort?: string | undefined };
 
 export const Route = createFileRoute("/cars")({
   validateSearch: (s: Record<string, unknown>): S => ({
-    q: typeof s.q === "string" ? s.q : undefined,
-    category: typeof s.category === "string" ? s.category : undefined,
-    start: typeof s.start === "string" ? s.start : undefined,
-    end: typeof s.end === "string" ? s.end : undefined,
-    sort: typeof s.sort === "string" ? s.sort : undefined,
+    q: typeof s["q"] === "string" ? s["q"] : undefined,
+    category: typeof s["category"] === "string" ? s["category"] : undefined,
+    start: typeof s["start"] === "string" ? s["start"] : undefined,
+    end: typeof s["end"] === "string" ? s["end"] : undefined,
+    sort: typeof s["sort"] === "string" ? s["sort"] : undefined,
   }),
   head: () => ({
     meta: [

@@ -5,7 +5,7 @@ import { carImage } from "@/lib/car-images";
 import { categoryLabel, thb } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 
-export function CarCard({ car, rating }: { car: Tables<"cars">; rating?: { avg: number; count: number } }) {
+export function CarCard({ car, rating }: { car: Tables<"cars">; rating?: { avg: number; count: number } | undefined }) {
   return (
     <Link
       to="/cars/$id"
