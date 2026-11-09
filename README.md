@@ -1,5 +1,3 @@
-
-
 # Siam Wheels Rental Hub
 
 Build a web-based Car Rental Management System. The system should support customers and administrators. It should have a modern, clean, professional, and responsive user interface.
