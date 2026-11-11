@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { ResetPasswordForm } from "@/components/reset-password-form";
 import { fetchRole } from "@/hooks/use-auth";
+import { createDemoAccount } from "@/lib/demo.functions";
 import { homeForRole } from "@/lib/roles";
 
 type AuthSearch = { reset?: boolean | undefined; demo?: boolean | undefined };
@@ -65,6 +66,21 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+
+  const startDemo = async () => {
+    setLoading(true);
+    try {
+      const creds = await createDemoAccount();
+      const { error } = await supabase.auth.signInWithPassword(creds);
+      if (error) throw error;
+      toast.success("เข้าสู่ระบบด้วยบัญชีทดลองแล้ว (ข้อมูลสมมติ)");
+      navigate({ to: "/" });
+    } catch {
+      toast.error("ไม่สามารถเริ่มโหมดทดลองได้ กรุณาลองใหม่");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const resetForm = () => {
     setPassword("");
@@ -128,7 +144,7 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
         }
 
         // The role comes from user_roles in the database, never from the form.
-        const role = data.user ? await fetchRole(data.user.id) : "customer";
+        const role = data.user ? await fetchRole(data.user) : "customer";
 
         if (mode === "demo") {
           if (role !== "demo_admin") {
@@ -407,6 +423,20 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
           </CardFooter>
         </form>
       </Card>
+      {/* Demo Customer: separate from the Demo Admin sign-in, so hide it on that screen */}
+      {(mode === "login" || mode === "register") && (
+        <Card className="mt-4 border-dashed border-accent">
+          <CardContent className="space-y-3 pt-6 text-center">
+            <p className="text-sm font-semibold">โหมดทดลองลูกค้า (Demo Customer)</p>
+            <p className="text-xs text-muted-foreground">
+              สร้างบัญชีลูกค้าทดลองพร้อมข้อมูลสมมติทันที ไม่ต้องใช้อีเมลหรือเบอร์โทรจริง บัญชีทดลองเป็นลูกค้าเท่านั้น ไม่สามารถเป็นผู้ดูแลระบบได้ และการชำระเงินเป็นการจำลอง
+            </p>
+            <Button type="button" variant="outline" className="w-full" disabled={loading} onClick={startDemo}>
+              ทดลองใช้งานในฐานะลูกค้าตัวอย่าง
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -15,6 +15,22 @@ export function resolveRole(roles: readonly { role: string }[] | null | undefine
   return "customer";
 }
 
+/**
+ * Demo Customer accounts (created by createDemoAccount) carry app_metadata.demo = true.
+ * Only the server can set app_metadata, so users cannot fake or remove the flag.
+ */
+export function isDemoCustomerAccount(appMetadata: Record<string, unknown> | null | undefined): boolean {
+  return appMetadata?.["demo"] === true;
+}
+
+/**
+ * A Demo Customer is always a plain customer in the app, whatever user_roles says.
+ * The database trigger already blocks "admin" for these accounts; this also covers "demo_admin".
+ */
+export function roleForAccount(role: AppRole, appMetadata: Record<string, unknown> | null | undefined): AppRole {
+  return isDemoCustomerAccount(appMetadata) ? "customer" : role;
+}
+
 export type DashboardPermissions = {
   viewDashboard: boolean;
   addEditCars: boolean;

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { dashboardPermissions, homeForRole, resolveRole } from "@/lib/roles";
+import {
+  dashboardPermissions,
+  homeForRole,
+  isDemoCustomerAccount,
+  resolveRole,
+  roleForAccount,
+} from "@/lib/roles";
 
 describe("resolveRole", () => {
   it("defaults to customer", () => {
@@ -48,5 +54,25 @@ describe("homeForRole", () => {
     expect(homeForRole("admin")).toBe("/admin");
     expect(homeForRole("demo_admin")).toBe("/demo-admin");
     expect(homeForRole("customer")).toBe("/");
+  });
+});
+
+describe("Demo Customer accounts", () => {
+  it("are detected only from the server-set app_metadata flag", () => {
+    expect(isDemoCustomerAccount({ demo: true })).toBe(true);
+    expect(isDemoCustomerAccount({ demo: "true" })).toBe(false);
+    expect(isDemoCustomerAccount({})).toBe(false);
+    expect(isDemoCustomerAccount(null)).toBe(false);
+  });
+
+  it("never get admin or demo_admin in the app", () => {
+    expect(roleForAccount("admin", { demo: true })).toBe("customer");
+    expect(roleForAccount("demo_admin", { demo: true })).toBe("customer");
+  });
+
+  it("leave other accounts' roles unchanged", () => {
+    expect(roleForAccount("admin", {})).toBe("admin");
+    expect(roleForAccount("demo_admin", { provider: "email" })).toBe("demo_admin");
+    expect(roleForAccount("customer", undefined)).toBe("customer");
   });
 });

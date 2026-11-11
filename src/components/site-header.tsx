@@ -13,7 +13,7 @@ const customerNav = [
 ] as const;
 
 export function SiteHeader() {
-  const { user, isAdmin, isDemoAdmin, signOut } = useAuth();
+  const { user, isAdmin, isDemoAdmin, isDemo, signOut } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -56,6 +56,11 @@ export function SiteHeader() {
             </Link>
           ))}
         </nav>
+        {isDemo && (
+          <span className="ml-2 rounded-full border border-accent bg-accent/15 px-2 py-0.5 text-xs font-semibold text-accent-foreground" title="บัญชีทดลอง ข้อมูลสมมติ">
+            บัญชีทดลอง DEMO
+          </span>
+        )}
         <div className="ml-auto hidden items-center gap-2 md:flex">
           {isAdmin && (
             <Button asChild variant="secondary" size="sm">
