@@ -81,7 +81,7 @@ import { cancelExpiredBookings } from "@/lib/payment-window";
 import { syncCarStatus } from "@/lib/car-status";
 import { adminReviewsQuery } from "@/lib/admin-reviews";
 import { AdminReviewsPanel } from "@/components/admin/reviews-panel";
-import { dashboardPermissions } from "@/lib/roles";
+import { DEMO_ADMIN_SIGN_IN_ENABLED, dashboardPermissions } from "@/lib/roles";
 import {
   bookingReportCsv,
   bookingStatusMap,
@@ -777,7 +777,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           <Button variant={user && role !== "customer" ? "outline" : "default"} asChild>
             <Link to="/">กลับสู่หน้าหลัก</Link>
           </Button>
-          {!user && (
+          {!user && (!isDemo || DEMO_ADMIN_SIGN_IN_ENABLED) && (
             <Button variant="outline" asChild>
               <Link to="/auth" search={isDemo ? { demo: true } : {}}>
                 {isDemo ? "เข้าสู่ระบบ Demo Admin" : "เข้าสู่ระบบด้วยบัญชีผู้ดูแล"}

@@ -11,7 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ResetPasswordForm } from "@/components/reset-password-form";
 import { fetchRole, useAuth } from "@/hooks/use-auth";
 import { createDemoAccount } from "@/lib/demo.functions";
-import { homeForRole } from "@/lib/roles";
+import { DEMO_ADMIN_SIGN_IN_ENABLED, homeForRole, initialAuthMode } from "@/lib/roles";
 
 type AuthSearch = { reset?: boolean | undefined; demo?: boolean | undefined };
 
@@ -37,7 +37,7 @@ type AuthMode = "login" | "register" | "forgot" | "demo";
 function AuthPage() {
   const navigate = useNavigate();
   const search = Route.useSearch();
-  const [mode, setMode] = useState<AuthMode>(search.demo ? "demo" : "login");
+  const [mode, setMode] = useState<AuthMode>(initialAuthMode(search.demo));
 
   if (search.reset) {
     return (
@@ -427,7 +427,7 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
               </button>
             )}
 
-            {mode === "login" && (
+            {mode === "login" && DEMO_ADMIN_SIGN_IN_ENABLED && (
               <button
                 type="button"
                 className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground"

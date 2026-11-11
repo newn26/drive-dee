@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEMO_ADMIN_SIGN_IN_ENABLED,
+  initialAuthMode,
   dashboardPermissions,
   homeForRole,
   isDemoCustomerAccount,
@@ -74,5 +76,21 @@ describe("Demo Customer accounts", () => {
     expect(roleForAccount("admin", {})).toBe("admin");
     expect(roleForAccount("demo_admin", { provider: "email" })).toBe("demo_admin");
     expect(roleForAccount("customer", undefined)).toBe("customer");
+  });
+});
+
+describe("Demo Admin sign-in switch", () => {
+  it("is off until the demo_admin migration is applied", () => {
+    expect(DEMO_ADMIN_SIGN_IN_ENABLED).toBe(false);
+  });
+
+  it("ignores ?demo=true while Demo Admin sign-in is off", () => {
+    expect(initialAuthMode(true, false)).toBe("login");
+    expect(initialAuthMode(undefined, false)).toBe("login");
+  });
+
+  it("opens Demo Admin sign-in for ?demo=true once it is turned back on", () => {
+    expect(initialAuthMode(true, true)).toBe("demo");
+    expect(initialAuthMode(undefined, true)).toBe("login");
   });
 });

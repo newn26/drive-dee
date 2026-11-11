@@ -7,6 +7,21 @@
  */
 export type AppRole = "customer" | "admin" | "demo_admin";
 
+/**
+ * Shows the Demo Admin sign-in on /auth (and its link from /demo-admin).
+ * Off until the demo_admin database migration is applied
+ * (docs/database/demo-admin-lovable-prompt.md). Set to true to turn it back on.
+ */
+export const DEMO_ADMIN_SIGN_IN_ENABLED = false;
+
+/** The /auth screen to open first; ?demo=true only opens Demo Admin sign-in when it is enabled. */
+export function initialAuthMode(
+  demoRequested: boolean | undefined,
+  demoSignInEnabled: boolean = DEMO_ADMIN_SIGN_IN_ENABLED,
+): "login" | "demo" {
+  return demoRequested && demoSignInEnabled ? "demo" : "login";
+}
+
 /** The strongest role a user has: admin > demo_admin > customer. */
 export function resolveRole(roles: readonly { role: string }[] | null | undefined): AppRole {
   const names = new Set((roles ?? []).map((r) => r.role));
