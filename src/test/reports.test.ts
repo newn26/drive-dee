@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   bkkMonthKey,
   bookingReportCsv,
@@ -199,5 +199,32 @@ describe("CSV export", () => {
     expect(csv).toContain(
       "Honda City,2กข 5678,เปลี่ยนน้ำมันเครื่อง,,2026-11-01,2026-11-02,เสร็จสิ้น,1200",
     );
+  });
+});
+
+describe("CSV download", () => {
+  it("starts CSV files with a UTF-8 byte order mark so Excel shows Thai text", async () => {
+    const { downloadTextFile } = await import("@/lib/reports");
+    const parts: BlobPart[][] = [];
+    const RealBlob = globalThis.Blob;
+    vi.stubGlobal(
+      "Blob",
+      class extends RealBlob {
+        constructor(p: BlobPart[], o?: BlobPropertyBag) {
+          parts.push(p);
+          super(p, o);
+        }
+      },
+    );
+    const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:test");
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    downloadTextFile("x.csv", "รหัส,ยอด\r\n");
+    expect(String(parts[0]![0]).startsWith("﻿")).toBe(true);
+    expect(click).toHaveBeenCalled();
+    vi.unstubAllGlobals();
+    create.mockRestore();
+    revoke.mockRestore();
+    click.mockRestore();
   });
 });

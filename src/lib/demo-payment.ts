@@ -11,6 +11,19 @@ export const DEMO_CARD = {
   cvv: "123",
 } as const;
 
+/** Test card that is always declined, to demo a failed payment. */
+export const DEMO_DECLINED_CARD = {
+  name: "DEMO DECLINED",
+  number: "4000 0000 0000 0002",
+  expiry: "12/30",
+  cvv: "123",
+} as const;
+
+/** Demo rule: any card number ending in 0002 is declined (the database is never called). */
+export function isDemoDeclinedCard(cardNumber: string): boolean {
+  return cardNumber.replace(/\D/g, "").endsWith("0002");
+}
+
 /**
  * QR content for the demo. Deliberately NOT a PromptPay/EMVCo payload or payment link,
  * so a real banking app cannot turn a scan into a transfer.

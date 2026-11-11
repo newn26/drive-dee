@@ -36,7 +36,7 @@ import { categoryLabel, fmtDate, fmtDateTime, thb } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 import { invalidateBookingData } from "@/lib/queries";
 import { cancelExpiredBookings, formatCountdown, paymentSecondsLeft } from "@/lib/payment-window";
-import { DEMO_CARD, demoQrValue, isValidCardExpiry } from "@/lib/demo-payment";
+import { DEMO_CARD, DEMO_DECLINED_CARD, demoQrValue, isDemoDeclinedCard, isValidCardExpiry } from "@/lib/demo-payment";
 import { LoadError } from "@/components/load-error";
 
 export const Route = createFileRoute("/bookings_/$id")({
@@ -182,6 +182,16 @@ function BookingDetailsPage() {
       }
       if (cardCvv.length < 3) {
         toast.error("กรุณากรอกรหัส CVV 3 หลัก");
+        return;
+      }
+      // Demo decline: nothing is sent to the database and the booking stays unpaid.
+      if (isDemoDeclinedCard(rawNumber)) {
+        const msg = "บัตรถูกปฏิเสธ (DEMO) — ไม่มีการตัดเงิน การจองยังรอชำระเงิน กรุณาลองใหม่ด้วยบัตรอื่นหรือ QR Code";
+        setPaymentError(msg);
+        toast.error(msg);
+        setCardNumber("");
+        setCardExpiry("");
+        setCardCvv("");
         return;
       }
     }
@@ -611,6 +621,20 @@ function BookingDetailsPage() {
                         }}
                       >
                         กรอกบัตรทดสอบ ({DEMO_CARD.number})
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="ml-2 h-7 border-amber-400 bg-white text-xs"
+                        onClick={() => {
+                          setCardName(DEMO_DECLINED_CARD.name);
+                          setCardNumber(DEMO_DECLINED_CARD.number);
+                          setCardExpiry(DEMO_DECLINED_CARD.expiry);
+                          setCardCvv(DEMO_DECLINED_CARD.cvv);
+                        }}
+                      >
+                        บัตรทดสอบถูกปฏิเสธ (…0002)
                       </Button>
                     </div>
 

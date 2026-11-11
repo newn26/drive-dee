@@ -302,7 +302,9 @@ export function downloadTextFile(
   content: string,
   mime = "text/csv;charset=utf-8",
 ) {
-  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  // UTF-8 byte order mark so Excel shows Thai text correctly instead of garbled characters
+  const body = mime.startsWith("text/csv") && !content.startsWith("﻿") ? "﻿" + content : content;
+  const url = URL.createObjectURL(new Blob([body], { type: mime }));
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;

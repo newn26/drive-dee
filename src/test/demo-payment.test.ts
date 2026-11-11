@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { DEMO_CARD, demoQrValue, isValidCardExpiry } from "@/lib/demo-payment";
+import {
+  DEMO_CARD,
+  DEMO_DECLINED_CARD,
+  demoQrValue,
+  isDemoDeclinedCard,
+  isValidCardExpiry,
+} from "@/lib/demo-payment";
+
+describe("isDemoDeclinedCard", () => {
+  it("declines the 0002 test card, formatted or not", () => {
+    expect(isDemoDeclinedCard(DEMO_DECLINED_CARD.number)).toBe(true);
+    expect(isDemoDeclinedCard("4000000000000002")).toBe(true);
+  });
+
+  it("does not decline the success test card", () => {
+    expect(isDemoDeclinedCard(DEMO_CARD.number)).toBe(false);
+    expect(isDemoDeclinedCard("4242 4242 4242 0020")).toBe(false);
+  });
+});
 
 describe("demoQrValue", () => {
   it("is clearly marked as a demo and is not a payment link or PromptPay payload", () => {

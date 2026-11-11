@@ -851,9 +851,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       </div>
 
       {/* Main Admin Navigation Tabs (Responsive Sidebar Layout) */}
-      <div className="grid gap-8 lg:grid-cols-12">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
         {/* Navigation Sidebar (3 Cols) */}
-        <aside className="lg:col-span-3">
+        <aside className="min-w-0 lg:col-span-3">
           <Card className="shadow-card border lg:sticky lg:top-24">
             <CardHeader className="pb-3 border-b bg-muted/20">
               <CardTitle className="text-sm font-semibold text-muted-foreground">เมนูการจัดการระบบ</CardTitle>
@@ -901,7 +901,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
         </aside>
 
         {/* Content Area (9 Cols) */}
-        <main className="space-y-6 lg:col-span-9">
+        <main className="min-w-0 space-y-6 lg:col-span-9">
           {/* TAB 1: OVERVIEW */}
           {activeTab === "overview" && (
             <div className="space-y-6">
