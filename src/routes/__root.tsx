@@ -21,16 +21,16 @@ function NotFoundComponent() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
+        <h2 className="mt-4 text-xl font-semibold text-foreground">ไม่พบหน้าที่คุณต้องการ</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved.
+          หน้านี้ไม่มีอยู่ในระบบ หรืออาจถูกย้ายไปแล้ว
         </p>
         <div className="mt-6">
           <Link
             to="/"
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Go home
+            กลับสู่หน้าหลัก
           </Link>
         </div>
       </div>
@@ -49,10 +49,10 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
+          หน้านี้โหลดไม่สำเร็จ
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
+          เกิดข้อผิดพลาดบางอย่าง กรุณาลองใหม่อีกครั้ง หรือกลับไปที่หน้าหลัก
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
@@ -62,13 +62,13 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
             }}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Try again
+            ลองใหม่
           </button>
           <a
             href="/"
             className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
-            Go home
+            กลับสู่หน้าหลัก
           </a>
         </div>
       </div>
@@ -78,18 +78,30 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
 
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   head: () => ({
-    // Replace these placeholders with the app's name and description when first building the app.
-    // Each content route, / included, must still set its own head(). Never add og:image or
-    // twitter:image here: every page without its own would inherit the root's preview image.
+    // Site-wide defaults. Each page sets its own title and description in its head().
+    // Do not add og:image or twitter:image here, or every page would inherit the same preview image.
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "ไดร์ฟดี รถเช่า" },
-      { name: "description", content: "ระบบเช่ารถออนไลน์ จองง่าย ชำระเงินสะดวก" },
-      { property: "og:title", content: "ไดร์ฟดี รถเช่า" },
-      { property: "og:description", content: "ระบบเช่ารถออนไลน์ จองง่าย ชำระเงินสะดวก" },
+      { title: "Drive Dee (ไดร์ฟดี รถเช่า) — Siam Wheels Rental Hub" },
+      {
+        name: "description",
+        content:
+          "Drive Dee รถเช่า — Siam Wheels Rental Hub ระบบบริหารจัดการรถเช่า จองรถออนไลน์ สัญญาเช่าดิจิทัล และรายงานสำหรับผู้ดูแลระบบ",
+      },
+      { name: "application-name", content: "Drive Dee" },
+      { name: "apple-mobile-web-app-title", content: "Drive Dee" },
+      { name: "theme-color", content: "#005a64" },
+      { property: "og:site_name", content: "Drive Dee" },
+      { property: "og:title", content: "Drive Dee (ไดร์ฟดี รถเช่า) — Siam Wheels Rental Hub" },
+      {
+        property: "og:description",
+        content:
+          "Siam Wheels Rental Hub, the Drive Dee car rental management system: จองรถออนไลน์ สัญญาเช่าดิจิทัล งานซ่อมบำรุง และรายงานผลประกอบการ",
+      },
       { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
+      { property: "og:locale", content: "th_TH" },
+      { name: "twitter:card", content: "summary" },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -102,7 +114,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
     ],
   }),
   shellComponent: RootShell,

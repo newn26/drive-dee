@@ -1,12 +1,13 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertCircle,
   ArrowRight,
   Calendar,
   Car as CarIcon,
+  Clock,
   CreditCard,
   FileCheck2,
   MapPin,
@@ -16,6 +17,8 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { LoadError } from "@/components/load-error";
+import { formatCountdown, paymentSecondsLeft } from "@/lib/payment-window";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -35,23 +38,20 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
 import { categoryLabel, fmtDate, thb } from "@/lib/format";
-import type { Tables } from "@/integrations/supabase/types";
+import { bookingReview, customerBookingsQuery, invalidateBookingData, type CustomerBooking } from "@/lib/queries";
 
 export const Route = createFileRoute("/bookings")({
   head: () => ({
     meta: [
-      { title: "ประวัติการจองของฉัน — Siam Wheels Rental Hub" },
+      { title: "ประวัติการจองของฉัน — Drive Dee" },
       { name: "description", content: "ตรวจสอบประวัติการเช่ารถยนต์ รายละเอียดการชำระเงิน และสัญญาเช่าดิจิทัล" },
-      { property: "og:title", content: "การจองของฉัน — Siam Wheels" },
+      { property: "og:title", content: "การจองของฉัน — Drive Dee" },
     ],
   }),
   component: BookingsHistoryPage,
 });
 
-type BookingWithCarAndReview = Tables<"bookings"> & {
-  cars: Tables<"cars"> | null;
-  reviews: Tables<"reviews"> | null;
-};
+type BookingWithCarAndReview = CustomerBooking;
 
 function BookingsHistoryPage() {
   const { user, loading: authLoading } = useAuth();
@@ -63,25 +63,25 @@ function BookingsHistoryPage() {
   const [cancelling, setCancelling] = useState(false);
 
   // Review modal state
+  // Ticks the payment countdown shown on unpaid bookings
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const [reviewBooking, setReviewBooking] = useState<BookingWithCarAndReview | null>(null);
   const [reviewRating, setReviewRating] = useState<number>(5);
   const [reviewComment, setReviewComment] = useState("");
   const [submittingReview, setSubmittingReview] = useState(false);
 
   // Fetch all customer bookings with car and review
-  const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
-    queryKey: ["customer-bookings", user?.id],
-    queryFn: async () => {
-      if (!user) return [];
-      const { data, error } = await supabase
-        .from("bookings")
-        .select("*, cars(*), reviews(*)")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return (data ?? []) as unknown as BookingWithCarAndReview[];
-    },
+  const {
+    data: bookings = [],
+    isLoading: bookingsLoading,
+    isError: bookingsError,
+    refetch: refetchBookings,
+  } = useQuery({
+    ...customerBookingsQuery(user?.id ?? ""),
     enabled: !!user,
   });
 
@@ -100,7 +100,8 @@ function BookingsHistoryPage() {
 
       toast.success("ยกเลิกการจองเรียบร้อยแล้ว");
       setCancellingId(null);
-      await queryClient.invalidateQueries({ queryKey: ["customer-bookings", user.id] });
+      // Cancelling frees the car, so availability caches must refresh too
+      await invalidateBookingData(queryClient);
     } catch (err: unknown) {
       const error = err as Error;
       toast.error(error.message || "ไม่สามารถยกเลิกการจองได้");
@@ -133,7 +134,11 @@ function BookingsHistoryPage() {
       setReviewBooking(null);
       setReviewComment("");
       setReviewRating(5);
-      await queryClient.invalidateQueries({ queryKey: ["customer-bookings", user.id] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["customer-bookings", user.id] }),
+        queryClient.invalidateQueries({ queryKey: ["ratings"] }),
+        queryClient.invalidateQueries({ queryKey: ["reviews", reviewBooking.car_id] }),
+      ]);
     } catch (err: unknown) {
       const error = err as Error;
       toast.error(error.message || "ไม่สามารถบันทึกรีวิวได้");
@@ -176,6 +181,10 @@ function BookingsHistoryPage() {
     );
   }
 
+  if (bookingsError) {
+    return <LoadError title="โหลดประวัติการจองไม่สำเร็จ" onRetry={() => void refetchBookings()} />;
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
       {/* Page Header */}
@@ -195,7 +204,7 @@ function BookingsHistoryPage() {
 
       {/* Status Filter Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-5">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5 [&>button]:whitespace-normal">
           <TabsTrigger value="all">ทั้งหมด ({bookings.length})</TabsTrigger>
           <TabsTrigger value="pending">รอชำระเงิน ({bookings.filter((b) => b.status === "pending").length})</TabsTrigger>
           <TabsTrigger value="active">กำลังเช่า/ยืนยันแล้ว ({bookings.filter((b) => b.status === "confirmed" || b.status === "active").length})</TabsTrigger>
@@ -224,7 +233,7 @@ function BookingsHistoryPage() {
         <div className="space-y-4">
           {filteredBookings.map((b) => {
             const car = b.cars;
-            const review = b.reviews;
+            const review = bookingReview(b);
             const canCancel = b.status === "pending" || b.status === "confirmed";
             const canReview = b.status === "completed" && !review;
 
@@ -268,6 +277,15 @@ function BookingsHistoryPage() {
                         <span className="truncate">{b.pickup_location}</span>
                       </div>
                     </div>
+
+                    {b.status === "pending" && (
+                      <p className="flex items-center gap-1.5 text-xs font-medium text-warning" role="timer">
+                        <Clock className="h-3.5 w-3.5 shrink-0" />
+                        {paymentSecondsLeft(b.created_at, now) > 0
+                          ? `ชำระเงินภายใน ${formatCountdown(paymentSecondsLeft(b.created_at, now))} นาที`
+                          : "หมดเวลาชำระเงิน การจองจะถูกยกเลิก"}
+                      </p>
+                    )}
 
                     {/* Review Badge if already reviewed */}
                     {review && (

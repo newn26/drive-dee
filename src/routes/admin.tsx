@@ -20,6 +20,7 @@ import {
   Fuel,
   LayoutDashboard,
   Lock,
+  MessageSquareWarning,
   Plus,
   RefreshCw,
   Search,
@@ -73,21 +74,49 @@ import { StatusBadge } from "@/components/status-badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
-import { categoryLabel, fmtDate, fmtDateTime, thb } from "@/lib/format";
+import { bookingStatusLabel, categoryLabel, fmtDate, fmtDateTime, maintStatusLabel, thb, todayBkk } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
+import { invalidateBookingData } from "@/lib/queries";
+import { cancelExpiredBookings } from "@/lib/payment-window";
+import { syncCarStatus } from "@/lib/car-status";
+import { adminReviewsQuery } from "@/lib/admin-reviews";
+import { AdminReviewsPanel } from "@/components/admin/reviews-panel";
+import { DEMO_ADMIN_SIGN_IN_ENABLED, dashboardPermissions } from "@/lib/roles";
+import {
+  bookingReportCsv,
+  bookingStatusMap,
+  computeReport,
+  countCustomers,
+  downloadTextFile,
+  maintenanceReportCsv,
+  monthlyRevenueSeries,
+  type ReportRange,
+} from "@/lib/reports";
+import {
+  DEFAULT_ADMIN_CLAUSES,
+  buildContractTerms,
+  splitContractTerms,
+  validateContractEdit,
+} from "@/lib/contract-terms";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
     meta: [
-      { title: "ระบบผู้ดูแลระบบ (Admin) — Siam Wheels Rental Hub" },
+      { title: "ระบบผู้ดูแลระบบ (Admin) — Drive Dee" },
       { name: "description", content: "ระบบบริหารจัดการรถเช่า รายการจอง สัญญา และงานซ่อมบำรุง" },
-      { property: "og:title", content: "ระบบผู้ดูแลระบบ — Siam Wheels" },
+      { property: "og:title", content: "ระบบผู้ดูแลระบบ — Drive Dee" },
     ],
   }),
-  component: AdminDashboardPage,
+  component: () => <AdminDashboard mode="admin" />,
 });
 
-type AdminTab = "overview" | "cars" | "bookings" | "contracts" | "maintenance" | "reports";
+/**
+ * "admin": full administrator dashboard at /admin.
+ * "demo": restricted demonstration dashboard at /demo-admin (demo_admin role only).
+ */
+export type DashboardMode = "admin" | "demo";
+
+type AdminTab = "overview" | "cars" | "bookings" | "contracts" | "maintenance" | "reviews" | "reports";
 
 type BookingWithCar = Tables<"bookings"> & {
   cars: Tables<"cars"> | null;
@@ -118,8 +147,12 @@ const CAR_STATUSES = [
 
 const PIE_COLORS = ["#0ea5e9", "#10b981", "#f59e0b", "#6366f1", "#ec4899"];
 
-function AdminDashboardPage() {
-  const { user, isAdmin, loading: authLoading } = useAuth();
+export function AdminDashboard({ mode }: { mode: DashboardMode }) {
+  const { user, role, loading: authLoading } = useAuth();
+  const isDemo = mode === "demo";
+  // Each dashboard only opens for its own role: admins use /admin, demo admins use /demo-admin.
+  const allowed = isDemo ? role === "demo_admin" : role === "admin";
+  const perms = dashboardPermissions(allowed ? role : "customer");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -141,7 +174,7 @@ function AdminDashboardPage() {
   const [editingCar, setEditingCar] = useState<Tables<"cars"> | null>(null);
   const [carToDelete, setCarToDelete] = useState<Tables<"cars"> | null>(null);
   const [deletingCar, setDeletingCar] = useState(false);
-  const [reportDateRange, setReportDateRange] = useState<"all" | "30d" | "90d" | "year">("all");
+  const [reportDateRange, setReportDateRange] = useState<ReportRange>("all");
   const [carForm, setCarForm] = useState({
     brand: "",
     model: "",
@@ -164,7 +197,7 @@ function AdminDashboardPage() {
     car_id: "",
     title: "",
     description: "",
-    scheduled_date: new Date().toISOString().split("T")[0]!,
+    scheduled_date: todayBkk(),
     cost: 0,
     status: "scheduled" as Tables<"maintenance">["status"],
   });
@@ -175,15 +208,17 @@ function AdminDashboardPage() {
 
   // Contract Terms Update Dialog
   const [editingContract, setEditingContract] = useState<ContractWithBooking | null>(null);
+  const [viewingContract, setViewingContract] = useState<ContractWithBooking | null>(null);
   const [contractTerms, setContractTerms] = useState("");
-  const [securityDeposit, setSecurityDeposit] = useState(5000);
-  const [mileageAllowance, setMileageAllowance] = useState("ไม่จำกัดระยะทาง");
-  const [latePenalty, setLatePenalty] = useState("500 บาท / ชั่วโมง");
+  const [securityDeposit, setSecurityDeposit] = useState(DEFAULT_ADMIN_CLAUSES.securityDeposit);
+  const [mileageAllowance, setMileageAllowance] = useState(DEFAULT_ADMIN_CLAUSES.mileageAllowance);
+  const [latePenalty, setLatePenalty] = useState(DEFAULT_ADMIN_CLAUSES.latePenalty);
+  const [savingContract, setSavingContract] = useState(false);
 
   // -------------------------------------------------------------
   // Data Queries
   // -------------------------------------------------------------
-  const { data: cars = [], isLoading: carsLoading } = useQuery({
+  const carsQ = useQuery({
     queryKey: ["admin-cars"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -193,10 +228,12 @@ function AdminDashboardPage() {
       if (error) throw error;
       return data as Tables<"cars">[];
     },
-    enabled: !!isAdmin,
+    enabled: perms.viewDashboard,
   });
+  const cars = carsQ.data ?? [];
+  const carsLoading = carsQ.isLoading;
 
-  const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
+  const bookingsQ = useQuery({
     queryKey: ["admin-bookings"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -204,22 +241,26 @@ function AdminDashboardPage() {
         .select("*, cars(*)")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as unknown as BookingWithCar[];
+      // Unpaid bookings older than 15 minutes are cancelled here (app-level expiry).
+      return cancelExpiredBookings((data ?? []) as unknown as BookingWithCar[]);
     },
-    enabled: !!isAdmin,
+    enabled: perms.viewDashboard,
   });
+  const bookings = bookingsQ.data ?? [];
+  const bookingsLoading = bookingsQ.isLoading;
 
-  const { data: profiles = [] } = useQuery({
+  const profilesQ = useQuery({
     queryKey: ["admin-profiles"],
     queryFn: async () => {
       const { data, error } = await supabase.from("profiles").select("*");
       if (error) throw error;
       return data as Tables<"profiles">[];
     },
-    enabled: !!isAdmin,
+    enabled: perms.viewDashboard,
   });
+  const profiles = profilesQ.data ?? [];
 
-  const { data: maintenanceRecords = [] } = useQuery({
+  const maintQ = useQuery({
     queryKey: ["admin-maintenance"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -229,10 +270,11 @@ function AdminDashboardPage() {
       if (error) throw error;
       return (data ?? []) as unknown as MaintenanceWithCar[];
     },
-    enabled: !!isAdmin,
+    enabled: perms.viewDashboard,
   });
+  const maintenanceRecords = maintQ.data ?? [];
 
-  const { data: contracts = [] } = useQuery({
+  const contractsQ = useQuery({
     queryKey: ["admin-contracts"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -242,8 +284,47 @@ function AdminDashboardPage() {
       if (error) throw error;
       return (data ?? []) as unknown as ContractWithBooking[];
     },
-    enabled: !!isAdmin,
+    enabled: perms.viewDashboard,
   });
+  const contracts = contractsQ.data ?? [];
+
+  // Payments are the source of truth for revenue (unpaid bookings are never revenue)
+  const paymentsQ = useQuery({
+    queryKey: ["admin-payments"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("payments").select("*").order("paid_at", { ascending: false });
+      if (error) throw error;
+      return data as Tables<"payments">[];
+    },
+    enabled: perms.viewDashboard,
+  });
+  const payments = paymentsQ.data ?? [];
+
+  // Roles, so admins are not counted as customers
+  const rolesQ = useQuery({
+    queryKey: ["admin-roles"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("user_roles").select("user_id, role");
+      if (error) throw error;
+      return data;
+    },
+    enabled: perms.viewDashboard,
+  });
+  const roles = rolesQ.data ?? [];
+
+  const { data: reviewsForCount = [] } = useQuery({ ...adminReviewsQuery(), enabled: perms.moderateReviews });
+
+  // A failed load must not look like "no data", so failures are listed in a banner with a retry
+  const failedQueries = [
+    { label: "รถยนต์", q: carsQ },
+    { label: "การจอง", q: bookingsQ },
+    { label: "ลูกค้า", q: profilesQ },
+    { label: "ซ่อมบำรุง", q: maintQ },
+    { label: "สัญญาเช่า", q: contractsQ },
+    { label: "การชำระเงิน", q: paymentsQ },
+    { label: "สิทธิ์ผู้ใช้", q: rolesQ },
+  ].filter((x) => x.q.isError);
+  const retryFailedQueries = () => failedQueries.forEach((x) => void x.q.refetch());
 
   const profileMap = useMemo(() => {
     const map: Record<string, Tables<"profiles">> = {};
@@ -356,6 +437,11 @@ function AdminDashboardPage() {
 
   const handleDeleteCar = async () => {
     if (!carToDelete) return;
+    if (!perms.deleteCars) {
+      toast.error("โหมดสาธิตไม่สามารถลบรถยนต์ได้");
+      setCarToDelete(null);
+      return;
+    }
     setDeletingCar(true);
     try {
       const hasBooking = bookings.some((b) => b.car_id === carToDelete.id);
@@ -412,17 +498,12 @@ function AdminDashboardPage() {
 
       if (error) throw error;
 
-      // Auto update car status if marking as active (rented) or completed (available)
-      if (newBookingStatus === "active") {
-        await supabase.from("cars").update({ status: "rented" }).eq("id", updatingBooking.car_id);
-      } else if (newBookingStatus === "completed" || newBookingStatus === "cancelled") {
-        await supabase.from("cars").update({ status: "available" }).eq("id", updatingBooking.car_id);
-      }
+      // Car status follows its bookings and maintenance (rented / maintenance / available)
+      await syncCarStatus(updatingBooking.car_id);
 
       toast.success("ปรับปรุงสถานะการจองเรียบร้อยแล้ว");
       setUpdatingBooking(null);
-      await queryClient.invalidateQueries({ queryKey: ["admin-bookings"] });
-      await queryClient.invalidateQueries({ queryKey: ["admin-cars"] });
+      await invalidateBookingData(queryClient);
     } catch (err: unknown) {
       const error = err as Error;
       toast.error(error.message || "ไม่สามารถเปลี่ยนสถานะการจองได้");
@@ -444,14 +525,13 @@ function AdminDashboardPage() {
         scheduled_date: maintForm.scheduled_date,
         cost: Number(maintForm.cost),
         status: maintForm.status,
+        completed_date: maintForm.status === "completed" ? todayBkk() : null,
       });
 
       if (error) throw error;
 
-      // Update car status to maintenance if scheduled/in progress
-      if (maintForm.status === "in_progress") {
-        await supabase.from("cars").update({ status: "maintenance" }).eq("id", maintForm.car_id);
-      }
+      // Car goes to "maintenance" when the job is in progress or due today
+      await syncCarStatus(maintForm.car_id);
 
       toast.success("บันทึกตารางการซ่อมบำรุงเรียบร้อยแล้ว");
       setMaintModalOpen(false);
@@ -459,7 +539,7 @@ function AdminDashboardPage() {
         car_id: "",
         title: "",
         description: "",
-        scheduled_date: new Date().toISOString().split("T")[0]!,
+        scheduled_date: todayBkk(),
         cost: 0,
         status: "scheduled",
       });
@@ -471,39 +551,76 @@ function AdminDashboardPage() {
     }
   };
 
+  const handleMaintenanceStatus = async (m: MaintenanceWithCar, status: Tables<"maintenance">["status"]) => {
+    try {
+      const { error } = await supabase
+        .from("maintenance")
+        .update({ status, completed_date: status === "completed" ? todayBkk() : null })
+        .eq("id", m.id);
+      if (error) throw error;
+
+      await syncCarStatus(m.car_id);
+      toast.success(status === "completed" ? "ปิดงานซ่อมบำรุงเรียบร้อยแล้ว" : "เริ่มงานซ่อมบำรุงแล้ว");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin-maintenance"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin-cars"] }),
+        queryClient.invalidateQueries({ queryKey: ["cars"] }),
+        queryClient.invalidateQueries({ queryKey: ["car"] }),
+      ]);
+    } catch (err: unknown) {
+      const error = err as Error;
+      toast.error(error.message || "ไม่สามารถเปลี่ยนสถานะงานซ่อมบำรุงได้");
+    }
+  };
+
   const openContractEditor = (c: ContractWithBooking) => {
+    // Load the current values of the admin clauses instead of resetting them to defaults
+    const { base, clauses } = splitContractTerms(c.terms);
+    const values = clauses ?? DEFAULT_ADMIN_CLAUSES;
     setEditingContract(c);
-    setContractTerms(c.terms);
-    setSecurityDeposit(5000);
-    setMileageAllowance("ไม่จำกัดระยะทาง");
-    setLatePenalty("500 บาท / ชั่วโมง");
+    setContractTerms(base);
+    setSecurityDeposit(values.securityDeposit);
+    setMileageAllowance(values.mileageAllowance);
+    setLatePenalty(values.latePenalty);
   };
 
   const handleSaveContractTerms = async () => {
     if (!editingContract) return;
+    if (!perms.editContracts) {
+      toast.error("โหมดสาธิตดูสัญญาได้อย่างเดียว");
+      return;
+    }
+    const clauses = { securityDeposit, mileageAllowance, latePenalty };
+    const problem = validateContractEdit(contractTerms, clauses);
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
 
+    setSavingContract(true);
     try {
-      // Append special terms if customized
-      let updatedTerms = contractTerms;
-      const customClauses = `\n\n[ข้อกำหนดเพิ่มเติมจากผู้ดูแลระบบ]\n- เงินประกันความเสียหาย: ${thb(securityDeposit)}\n- ข้อกำหนดระยะทาง: ${mileageAllowance}\n- ค่าปรับส่งคืนรถล่าช้า: ${latePenalty}`;
-
-      if (!updatedTerms.includes("[ข้อกำหนดเพิ่มเติมจากผู้ดูแลระบบ]")) {
-        updatedTerms += customClauses;
-      }
-
-      const { error } = await supabase
+      // Replace (never duplicate) the admin clause block with the current values
+      const updatedTerms = buildContractTerms(contractTerms, clauses);
+      const { data, error } = await supabase
         .from("contracts")
         .update({ terms: updatedTerms })
-        .eq("id", editingContract.id);
+        .eq("id", editingContract.id)
+        .select("id");
 
       if (error) throw error;
+      if (!data || data.length === 0) throw new Error("ไม่สามารถบันทึกสัญญาได้ (ไม่พบสัญญาหรือไม่มีสิทธิ์)");
 
       toast.success("อัปเดตข้อกำหนดสัญญาเช่าเรียบร้อยแล้ว");
       setEditingContract(null);
-      await queryClient.invalidateQueries({ queryKey: ["admin-contracts"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin-contracts"] }),
+        queryClient.invalidateQueries({ queryKey: ["contract", editingContract.booking_id] }),
+      ]);
     } catch (err: unknown) {
       const error = err as Error;
       toast.error(error.message || "ไม่สามารถบันทึกข้อกำหนดสัญญาได้");
+    } finally {
+      setSavingContract(false);
     }
   };
 
@@ -552,95 +669,63 @@ function AdminDashboardPage() {
   }, [maintenanceRecords, maintStatusFilter]);
 
   // Operational & Revenue Metrics
+  const statusByBooking = useMemo(() => bookingStatusMap(bookings), [bookings]);
+
   const metrics = useMemo(() => {
-    const totalCustomers = profiles.length;
     const totalCarsCount = cars.length;
     const availableCarsCount = cars.filter((c) => c.status === "available").length;
     const rentedCarsCount = cars.filter((c) => c.status === "rented").length;
     const maintenanceCarsCount = cars.filter((c) => c.status === "maintenance").length;
 
-    const confirmedOrActiveBookings = bookings.filter((b) => b.status === "confirmed" || b.status === "active");
-    const completedBookings = bookings.filter((b) => b.status === "completed");
-
-    const totalRevenue = bookings
-      .filter((b) => b.status === "confirmed" || b.status === "active" || b.status === "completed")
-      .reduce((sum, b) => sum + Number(b.total_amount), 0);
-
-    const totalMaintenanceCost = maintenanceRecords.reduce((sum, m) => sum + Number(m.cost), 0);
-    const netProfit = totalRevenue - totalMaintenanceCost;
-    const utilizationRate = totalCarsCount > 0 ? Math.round((rentedCarsCount / totalCarsCount) * 100) : 0;
+    const allTime = computeReport({ bookings, payments, maintenance: maintenanceRecords, range: "all" });
 
     return {
-      totalCustomers,
+      totalCustomers: countCustomers(roles),
       totalCarsCount,
       availableCarsCount,
       rentedCarsCount,
       maintenanceCarsCount,
-      activeBookingsCount: confirmedOrActiveBookings.length,
-      completedBookingsCount: completedBookings.length,
-      totalRevenue,
-      totalMaintenanceCost,
-      netProfit,
-      utilizationRate,
+      activeBookingsCount: bookings.filter((b) => b.status === "confirmed" || b.status === "active").length,
+      completedBookingsCount: bookings.filter((b) => b.status === "completed").length,
+      totalRevenue: allTime.revenue,
+      totalMaintenanceCost: allTime.maintCost,
+      netProfit: allTime.profit,
+      utilizationRate: totalCarsCount > 0 ? Math.round((rentedCarsCount / totalCarsCount) * 100) : 0,
     };
-  }, [cars, bookings, profiles, maintenanceRecords]);
+  }, [cars, bookings, payments, maintenanceRecords, roles]);
 
   // Date-filtered metrics for Reports tab
-  const reportMetrics = useMemo(() => {
-    let filteredB = bookings.filter((b) => b.status !== "cancelled");
-    let filteredM = [...maintenanceRecords];
+  const reportMetrics = useMemo(
+    () => computeReport({ bookings, payments, maintenance: maintenanceRecords, range: reportDateRange }),
+    [bookings, payments, maintenanceRecords, reportDateRange],
+  );
 
-    const now = Date.now();
-    if (reportDateRange === "30d") {
-      const cutoff = now - 30 * 86400000;
-      filteredB = filteredB.filter((b) => new Date(b.created_at).getTime() >= cutoff);
-      filteredM = filteredM.filter((m) => new Date(m.scheduled_date).getTime() >= cutoff);
-    } else if (reportDateRange === "90d") {
-      const cutoff = now - 90 * 86400000;
-      filteredB = filteredB.filter((b) => new Date(b.created_at).getTime() >= cutoff);
-      filteredM = filteredM.filter((m) => new Date(m.scheduled_date).getTime() >= cutoff);
-    } else if (reportDateRange === "year") {
-      const startOfYear = new Date(new Date().getFullYear(), 0, 1).getTime();
-      filteredB = filteredB.filter((b) => new Date(b.created_at).getTime() >= startOfYear);
-      filteredM = filteredM.filter((m) => new Date(m.scheduled_date).getTime() >= startOfYear);
-    }
+  // Chart Data: revenue for the last 12 months (by payment date, Bangkok time)
+  const chartData = useMemo(() => monthlyRevenueSeries(payments, statusByBooking), [payments, statusByBooking]);
 
-    const revenue = filteredB.reduce((sum, b) => sum + Number(b.total_amount), 0);
-    const maintCost = filteredM.reduce((sum, m) => sum + Number(m.cost), 0);
-    const profit = revenue - maintCost;
-    const completedCount = filteredB.filter((b) => b.status === "completed").length;
-
-    return {
-      revenue,
-      maintCost,
-      profit,
-      completedCount,
-      bookingCount: filteredB.length,
-    };
-  }, [bookings, maintenanceRecords, reportDateRange]);
-
-  // Chart Data: Monthly Revenue
-  const chartData = useMemo(() => {
-    const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
-    const dataMap: Record<number, { name: string; revenue: number; bookings: number }> = {};
-
-    months.forEach((m, idx) => {
-      dataMap[idx] = { name: m, revenue: 0, bookings: 0 };
+  const exportBookingsCsv = () => {
+    const names: Record<string, string> = {};
+    for (const p of profiles) names[p.id] = p.full_name;
+    const csv = bookingReportCsv({
+      bookings,
+      payments,
+      customerNames: names,
+      statusLabels: bookingStatusLabel,
+      range: reportDateRange,
     });
+    downloadTextFile(`siam-wheels-bookings-${reportDateRange}-${todayBkk()}.csv`, csv);
+    toast.success("ดาวน์โหลดรายงานการจองและรายได้ (CSV) แล้ว");
+  };
 
-    bookings.forEach((b) => {
-      if (b.status !== "cancelled") {
-        const d = new Date(b.created_at);
-        const m = d.getMonth();
-        if (dataMap[m]) {
-          dataMap[m].revenue += Number(b.total_amount);
-          dataMap[m].bookings += 1;
-        }
-      }
+  const exportMaintenanceCsv = () => {
+    const csv = maintenanceReportCsv({
+      maintenance: maintenanceRecords,
+      statusLabels: maintStatusLabel,
+      range: reportDateRange,
     });
-
-    return Object.values(dataMap);
-  }, [bookings]);
+    downloadTextFile(`siam-wheels-maintenance-${reportDateRange}-${todayBkk()}.csv`, csv);
+    toast.success("ดาวน์โหลดรายงานซ่อมบำรุง (CSV) แล้ว");
+  };
 
   // Fleet distribution for PieChart
   const categoryData = useMemo(() => {
@@ -666,7 +751,7 @@ function AdminDashboardPage() {
     );
   }
 
-  if (!user || !isAdmin) {
+  if (!user || !allowed) {
     return (
       <div className="mx-auto max-w-md px-4 py-20 text-center">
         <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-destructive/10 text-destructive">
@@ -674,15 +759,29 @@ function AdminDashboardPage() {
         </div>
         <h2 className="text-2xl font-bold">ปฏิเสธการเข้าถึง (Access Denied)</h2>
         <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-          หน้านี้สงวนไว้สำหรับผู้ดูแลระบบ (Administrator) ของ Siam Wheels Rental Hub เท่านั้น บัญชีของคุณไม่มีสิทธิ์ในการเข้าถึงระบบนี้
+          {isDemo
+            ? "หน้านี้สงวนไว้สำหรับบัญชีผู้ดูแลระบบสาธิต (Demo Admin) เท่านั้น"
+            : "หน้านี้สงวนไว้สำหรับผู้ดูแลระบบ (Administrator) ของ Siam Wheels Rental Hub เท่านั้น บัญชีของคุณไม่มีสิทธิ์ในการเข้าถึงระบบนี้"}
         </p>
         <div className="mt-6 flex flex-col gap-2">
-          <Button asChild>
+          {user && role === "demo_admin" && !isDemo && (
+            <Button asChild>
+              <Link to="/demo-admin">ไปที่แดชบอร์ดสาธิต (Demo Admin)</Link>
+            </Button>
+          )}
+          {user && role === "admin" && isDemo && (
+            <Button asChild>
+              <Link to="/admin">ไปที่ระบบผู้ดูแล (Admin)</Link>
+            </Button>
+          )}
+          <Button variant={user && role !== "customer" ? "outline" : "default"} asChild>
             <Link to="/">กลับสู่หน้าหลัก</Link>
           </Button>
-          {!user && (
+          {!user && (!isDemo || DEMO_ADMIN_SIGN_IN_ENABLED) && (
             <Button variant="outline" asChild>
-              <Link to="/auth">เข้าสู่ระบบด้วยบัญชีผู้ดูแล</Link>
+              <Link to="/auth" search={isDemo ? { demo: true } : {}}>
+                {isDemo ? "เข้าสู่ระบบ Demo Admin" : "เข้าสู่ระบบด้วยบัญชีผู้ดูแล"}
+              </Link>
             </Button>
           )}
         </div>
@@ -692,19 +791,56 @@ function AdminDashboardPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
+      {isDemo && (
+        <div
+          role="status"
+          className="mb-6 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">โหมดสาธิต (Demo Admin)</p>
+            <p className="mt-0.5">
+              เพิ่ม/แก้ไขรถ เปลี่ยนสถานะการจอง และบันทึกงานซ่อมบำรุงได้ ดูสัญญาเช่าและรายงานได้
+              แต่ลบข้อมูล แก้ไขสัญญา จัดการรีวิว หรือเปลี่ยนสิทธิ์ผู้ใช้ไม่ได้
+            </p>
+          </div>
+        </div>
+      )}
+      {failedQueries.length > 0 && (
+        <div
+          role="alert"
+          className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+        >
+          <div className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              โหลดข้อมูลบางส่วนไม่สำเร็จ: {failedQueries.map((x) => x.label).join(", ")} — ตัวเลขที่แสดงอาจไม่ครบถ้วน
+            </span>
+          </div>
+          <Button size="sm" variant="outline" onClick={retryFailedQueries}>
+            ลองใหม่
+          </Button>
+        </div>
+      )}
       {/* Admin Top Header */}
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b pb-6">
         <div>
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
-              <ShieldCheck className="mr-1 h-3.5 w-3.5" /> Administrator Portal
-            </Badge>
+            {isDemo ? (
+              <Badge variant="outline" className="border-amber-400 bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+                <ShieldAlert className="mr-1 h-3.5 w-3.5" /> Demo Admin Portal
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                <ShieldCheck className="mr-1 h-3.5 w-3.5" /> Administrator Portal
+              </Badge>
+            )}
             <span className="text-xs text-muted-foreground">Siam Wheels Operations</span>
           </div>
           <h1 className="mt-1 text-3xl font-bold tracking-tight">ศูนย์ควบคุมและบริหารจัดการรถเช่า</h1>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Button onClick={() => openCarModal()} className="gap-1.5 shadow-sm">
             <Plus className="h-4 w-4" /> เพิ่มรถยนต์ใหม่
           </Button>
@@ -715,10 +851,10 @@ function AdminDashboardPage() {
       </div>
 
       {/* Main Admin Navigation Tabs (Responsive Sidebar Layout) */}
-      <div className="grid gap-8 lg:grid-cols-12">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
         {/* Navigation Sidebar (3 Cols) */}
-        <aside className="lg:col-span-3">
-          <Card className="shadow-card border sticky top-24">
+        <aside className="min-w-0 lg:col-span-3">
+          <Card className="shadow-card border lg:sticky lg:top-24">
             <CardHeader className="pb-3 border-b bg-muted/20">
               <CardTitle className="text-sm font-semibold text-muted-foreground">เมนูการจัดการระบบ</CardTitle>
             </CardHeader>
@@ -729,8 +865,11 @@ function AdminDashboardPage() {
                 { id: "bookings", label: "รายการจองของลูกค้า", icon: Calendar, count: bookings.length },
                 { id: "contracts", label: "สัญญาเช่าดิจิทัล", icon: FileCheck2, count: contracts.length },
                 { id: "maintenance", label: "งานซ่อมบำรุง", icon: Wrench, count: maintenanceRecords.length },
+                { id: "reviews", label: "รีวิวจากลูกค้า", icon: MessageSquareWarning, count: reviewsForCount.length },
                 { id: "reports", label: "รายงานและสถิติ", icon: BarChart3, count: null },
-              ].map((item) => (
+              ]
+                .filter((item) => item.id !== "reviews" || perms.moderateReviews)
+                .map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id as AdminTab)}
@@ -762,7 +901,7 @@ function AdminDashboardPage() {
         </aside>
 
         {/* Content Area (9 Cols) */}
-        <main className="space-y-6 lg:col-span-9">
+        <main className="min-w-0 space-y-6 lg:col-span-9">
           {/* TAB 1: OVERVIEW */}
           {activeTab === "overview" && (
             <div className="space-y-6">
@@ -778,6 +917,7 @@ function AdminDashboardPage() {
                     <p className="text-xs text-muted-foreground mt-1">
                       กำไรจากการดำเนินงาน: <span className="font-semibold text-success">{thb(metrics.netProfit)}</span>
                     </p>
+                    <p className="text-[11px] text-muted-foreground">นับจากยอดชำระเงินจริง (DEMO) ไม่รวมรายการรอชำระ</p>
                   </CardContent>
                 </Card>
 
@@ -847,7 +987,7 @@ function AdminDashboardPage() {
               <Card className="shadow-card border">
                 <CardHeader>
                   <CardTitle className="text-base font-semibold">แนวโน้มรายได้และจำนวนการจองรายเดือน</CardTitle>
-                  <CardDescription>สถิติยอดการจองและรายได้จากระบบตลอดปี</CardDescription>
+                  <CardDescription>รายได้จากการชำระเงิน 12 เดือนล่าสุด (ตามวันที่ชำระ เวลาประเทศไทย)</CardDescription>
                 </CardHeader>
                 <CardContent className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
@@ -856,7 +996,7 @@ function AdminDashboardPage() {
                       <XAxis dataKey="name" fontSize={12} />
                       <YAxis fontSize={12} tickFormatter={(val) => `฿${(val / 1000).toFixed(0)}k`} />
                       <Tooltip
-                        formatter={(val: any) => [thb(Number(val) || 0), "รายได้"]}
+                        formatter={(val: unknown) => [thb(Number(val) || 0), "รายได้"]}
                         labelStyle={{ fontWeight: "bold" }}
                       />
                       <Bar dataKey="revenue" fill="currentColor" className="fill-primary" radius={[4, 4, 0, 0]} />
@@ -1041,15 +1181,17 @@ function AdminDashboardPage() {
                             <Button variant="ghost" size="sm" onClick={() => openCarModal(car)} title="แก้ไข">
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-destructive hover:bg-destructive/10"
-                              onClick={() => setCarToDelete(car)}
-                              title="ลบรถยนต์"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {perms.deleteCars && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:bg-destructive/10"
+                                onClick={() => setCarToDelete(car)}
+                                title="ลบรถยนต์"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1249,14 +1391,25 @@ function AdminDashboardPage() {
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{fmtDateTime(c.created_at)}</TableCell>
                           <TableCell className="text-right">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-xs"
-                              onClick={() => openContractEditor(c)}
-                            >
-                              แก้ไขข้อตกลง
-                            </Button>
+                            {perms.editContracts ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => openContractEditor(c)}
+                              >
+                                แก้ไขข้อตกลง
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => setViewingContract(c)}
+                              >
+                                ดูสัญญา
+                              </Button>
+                            )}
                           </TableCell>
                         </TableRow>
                       );
@@ -1312,6 +1465,7 @@ function AdminDashboardPage() {
                       <TableHead>วันที่นัดหมาย</TableHead>
                       <TableHead>ค่าใช้จ่าย</TableHead>
                       <TableHead>สถานะ</TableHead>
+                      <TableHead className="text-right">จัดการ</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1331,12 +1485,33 @@ function AdminDashboardPage() {
                         <TableCell className="font-semibold text-primary text-xs">{thb(m.cost)}</TableCell>
                         <TableCell>
                           <StatusBadge status={m.status} kind="maint" />
+                          {m.completed_date && (
+                            <span className="block text-[11px] text-muted-foreground mt-1">
+                              เสร็จ {fmtDate(m.completed_date)}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1.5">
+                            {m.status === "scheduled" && (
+                              <Button size="sm" variant="outline" className="text-xs h-7"
+                                onClick={() => handleMaintenanceStatus(m, "in_progress")}>
+                                เริ่มซ่อม
+                              </Button>
+                            )}
+                            {m.status !== "completed" && (
+                              <Button size="sm" className="text-xs h-7"
+                                onClick={() => handleMaintenanceStatus(m, "completed")}>
+                                เสร็จสิ้น
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
                     {filteredMaintenance.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                           ไม่พบประวัติงานซ่อมบำรุง
                         </TableCell>
                       </TableRow>
@@ -1347,6 +1522,9 @@ function AdminDashboardPage() {
             </Card>
           )}
 
+          {/* TAB: CUSTOMER REVIEWS (moderation) */}
+          {activeTab === "reviews" && <AdminReviewsPanel isAdmin={perms.moderateReviews} />}
+
           {/* TAB 6: REPORTS & ANALYTICS */}
           {activeTab === "reports" && (
             <div className="space-y-6">
@@ -1356,17 +1534,25 @@ function AdminDashboardPage() {
                   <h3 className="font-semibold text-sm">ช่วงเวลาสำหรับรายงาน (Date Range Filter)</h3>
                   <p className="text-xs text-muted-foreground">กรองสถิติรายได้และข้อมูลการใช้งานตามช่วงเวลา</p>
                 </div>
-                <Select value={reportDateRange} onValueChange={(val) => setReportDateRange(val as "all" | "30d" | "90d" | "year")}>
-                  <SelectTrigger className="w-48 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">ข้อมูลทั้งหมด (All Time)</SelectItem>
-                    <SelectItem value="30d">30 วันล่าสุด (Last 30 Days)</SelectItem>
-                    <SelectItem value="90d">90 วันล่าสุด (Last 90 Days)</SelectItem>
-                    <SelectItem value="year">ปีปัจจุบัน (This Year)</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select value={reportDateRange} onValueChange={(val) => setReportDateRange(val as ReportRange)}>
+                    <SelectTrigger className="w-48 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">ข้อมูลทั้งหมด (All Time)</SelectItem>
+                      <SelectItem value="30d">30 วันล่าสุด (Last 30 Days)</SelectItem>
+                      <SelectItem value="90d">90 วันล่าสุด (Last 90 Days)</SelectItem>
+                      <SelectItem value="year">ปีปัจจุบัน (This Year)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={exportBookingsCsv}>
+                    <Download className="h-3.5 w-3.5" /> ส่งออกการจองและรายได้ (CSV)
+                  </Button>
+                  <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={exportMaintenanceCsv}>
+                    <Download className="h-3.5 w-3.5" /> ส่งออกงานซ่อมบำรุง (CSV)
+                  </Button>
+                </div>
               </div>
 
               <div className="grid gap-6 md:grid-cols-2">
@@ -1388,9 +1574,28 @@ function AdminDashboardPage() {
                       </div>
                       <div className="border-t pt-2 flex justify-between text-base font-bold">
                         <span>กำไรสุทธิจากการดำเนินงาน:</span>
-                        <span className="text-success">{thb(reportMetrics.profit)}</span>
+                        <span className={reportMetrics.profit < 0 ? "text-destructive" : "text-success"}>
+                          {thb(reportMetrics.profit)}
+                        </span>
                       </div>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-3 text-xs">
+                      <span className="text-muted-foreground">รายการชำระเงิน:</span>
+                      <span className="text-right font-medium">{reportMetrics.paidCount} รายการ</span>
+                      <span className="text-muted-foreground">การจองใหม่ (ไม่รวมยกเลิก):</span>
+                      <span className="text-right font-medium">{reportMetrics.bookingCount} รายการ</span>
+                      <span className="text-muted-foreground">รอชำระเงิน:</span>
+                      <span className="text-right font-medium">{reportMetrics.pendingCount} รายการ</span>
+                      <span className="text-muted-foreground">เสร็จสิ้น / ยกเลิก:</span>
+                      <span className="text-right font-medium">
+                        {reportMetrics.completedCount} / {reportMetrics.cancelledCount}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      รายได้นับจากการชำระเงิน (โหมด DEMO) ของการจองที่ยืนยันแล้ว กำลังเช่า หรือเสร็จสิ้น ตามวันที่ชำระ
+                      ไม่รวมการจองที่รอชำระหรือถูกยกเลิก
+                    </p>
 
                     <div className="pt-4 border-t">
                       <p className="text-xs text-muted-foreground mb-3 font-medium">สัดส่วนประเภทยานพาหนะในระบบ</p>
@@ -1798,12 +2003,22 @@ function AdminDashboardPage() {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
+            {editingContract?.customer_accepted_at && (
+              <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs" role="alert">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                <span>
+                  ลูกค้าลงนามยอมรับสัญญาฉบับเดิมแล้วเมื่อ {fmtDateTime(editingContract.customer_accepted_at)}
+                  การแก้ไขจะเปลี่ยนข้อความที่ลูกค้าเห็น กรุณาแจ้งลูกค้าทุกครั้ง
+                </span>
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label htmlFor="depo-val" className="text-xs">เงินมัดจำประกัน (THB)</Label>
                 <Input
                   id="depo-val"
                   type="number"
+                  min={0}
                   value={securityDeposit}
                   onChange={(e) => setSecurityDeposit(Number(e.target.value))}
                 />
@@ -1827,7 +2042,7 @@ function AdminDashboardPage() {
             </div>
 
             <div>
-              <Label htmlFor="terms-text" className="text-xs">ข้อความสัญญาฉบับเต็ม</Label>
+              <Label htmlFor="terms-text" className="text-xs">ข้อความสัญญา (ข้อกำหนดเพิ่มเติมด้านบนจะถูกแนบท้ายให้อัตโนมัติ)</Label>
               <Textarea
                 id="terms-text"
                 rows={10}
@@ -1842,7 +2057,9 @@ function AdminDashboardPage() {
             <Button variant="outline" onClick={() => setEditingContract(null)}>
               ยกเลิก
             </Button>
-            <Button onClick={handleSaveContractTerms}>บันทึกข้อกำหนดสัญญา</Button>
+            <Button onClick={handleSaveContractTerms} disabled={savingContract}>
+              {savingContract ? "กำลังบันทึก..." : "บันทึกข้อกำหนดสัญญา"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1850,7 +2067,26 @@ function AdminDashboardPage() {
       {/* ------------------------------------------------------------- */}
       {/* DIALOG 5: DELETE CAR CONFIRMATION */}
       {/* ------------------------------------------------------------- */}
-      <Dialog open={!!carToDelete} onOpenChange={(open) => !open && setCarToDelete(null)}>
+      <Dialog open={!!viewingContract} onOpenChange={(open) => !open && setViewingContract(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>สัญญาเช่า {viewingContract?.contract_no}</DialogTitle>
+            <DialogDescription>
+              การจอง {viewingContract?.bookings?.booking_code ?? "-"} · ดูได้อย่างเดียว (โหมดสาธิต)
+            </DialogDescription>
+          </DialogHeader>
+          <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-lg border bg-muted/30 p-4 font-sans text-sm leading-relaxed">
+            {viewingContract?.terms}
+          </pre>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewingContract(null)}>
+              ปิด
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!carToDelete && perms.deleteCars} onOpenChange={(open) => !open && setCarToDelete(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="text-destructive flex items-center gap-2">

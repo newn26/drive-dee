@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { LoadError } from "@/components/load-error";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
@@ -25,22 +26,18 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
 import { categoryLabel, fmtDate, thb } from "@/lib/format";
-import type { Tables } from "@/integrations/supabase/types";
+import { customerBookingsQuery } from "@/lib/queries";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
     meta: [
-      { title: "แดชบอร์ดลูกค้า — Siam Wheels Rental Hub" },
+      { title: "แดชบอร์ดลูกค้า — Drive Dee" },
       { name: "description", content: "ศูนย์รวมข้อมูลการเช่ารถยนต์ การจองที่กำลังดำเนินอยู่ และสถานะเอกสารผู้ขับขี่" },
-      { property: "og:title", content: "แดชบอร์ดของฉัน — Siam Wheels" },
+      { property: "og:title", content: "แดชบอร์ดของฉัน — Drive Dee" },
     ],
   }),
   component: CustomerDashboardPage,
 });
-
-type BookingWithCar = Tables<"bookings"> & {
-  cars: Tables<"cars"> | null;
-};
 
 function CustomerDashboardPage() {
   const { user, loading: authLoading } = useAuth();
@@ -62,17 +59,14 @@ function CustomerDashboardPage() {
   });
 
   // 2. Fetch Customer Bookings
-  const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
-    queryKey: ["customer-bookings", user?.id],
-    queryFn: async () => {
-      if (!user) return [];
-      const { data } = await supabase
-        .from("bookings")
-        .select("*, cars(*)")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
-      return (data ?? []) as unknown as BookingWithCar[];
-    },
+  // Same query (key and shape) as /bookings, so the two pages never read each other's cache wrongly
+  const {
+    data: bookings = [],
+    isLoading: bookingsLoading,
+    isError: bookingsError,
+    refetch: refetchBookings,
+  } = useQuery({
+    ...customerBookingsQuery(user?.id ?? ""),
     enabled: !!user,
   });
 
@@ -98,6 +92,10 @@ function CustomerDashboardPage() {
         </Button>
       </div>
     );
+  }
+
+  if (bookingsError) {
+    return <LoadError title="โหลดข้อมูลแดชบอร์ดไม่สำเร็จ" onRetry={() => void refetchBookings()} />;
   }
 
   const activeRentals = bookings.filter((b) => b.status === "confirmed" || b.status === "active");

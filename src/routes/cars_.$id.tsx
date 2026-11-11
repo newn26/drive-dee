@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Fuel, Gauge, Settings2, Star, Users } from "lucide-react";
 import { toast } from "sonner";
@@ -8,17 +8,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
+import { LoadError } from "@/components/load-error";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
 import { categoryLabel, daysBetween, fmtDate, thb, todayBkk } from "@/lib/format";
+import { bookedCarIdsQuery, invalidateBookingData } from "@/lib/queries";
+import { adjustEndForStart, rentalDateError } from "@/lib/date-range";
 
 export const Route = createFileRoute("/cars_/$id")({
   head: () => ({
     meta: [
-      { title: "รายละเอียดรถเช่า — ไดร์ฟดี" },
+      { title: "รายละเอียดรถเช่า — Drive Dee" },
       { name: "description", content: "ดูรายละเอียด รีวิว และจองรถเช่าออนไลน์" },
-      { property: "og:title", content: "รายละเอียดรถเช่า — ไดร์ฟดี" },
+      { property: "og:title", content: "รายละเอียดรถเช่า — Drive Dee" },
       { property: "og:description", content: "ดูรายละเอียด รีวิว และจองรถเช่าออนไลน์" },
     ],
   }),
@@ -31,28 +34,67 @@ function CarDetail() {
   const { id } = Route.useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [start, setStart] = useState(todayBkk(1));
   const [end, setEnd] = useState(todayBkk(3));
   const [loc, setLoc] = useState<string>(branches[0]!);
   const [busy, setBusy] = useState(false);
 
-  const { data: car } = useQuery({
+  const carQ = useQuery({
     queryKey: ["car", id],
-    queryFn: async () => (await supabase.from("cars").select("*").eq("id", id).maybeSingle()).data,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cars").select("*").eq("id", id).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
   });
+  const car = carQ.data;
   const { data: reviews = [] } = useQuery({
     queryKey: ["reviews", id],
     queryFn: async () =>
       (await supabase.from("reviews").select("*").eq("car_id", id).order("created_at", { ascending: false })).data ?? [],
   });
 
-  if (!car) return <div className="mx-auto max-w-7xl px-4 py-20 text-muted-foreground">กำลังโหลด...</div>;
-  const days = start && end && end >= start ? daysBetween(start, end) : 0;
+  const dateError = rentalDateError(start, end, todayBkk());
+  const datesValid = !dateError;
+  const bookedQ = useQuery({ ...bookedCarIdsQuery(start, end), enabled: datesValid });
+  // Fresh result for exactly these dates only; the database re-checks on insert anyway
+  const checkingDates = datesValid && (bookedQ.isFetching || !bookedQ.data) && !bookedQ.isError;
+  const bookedForDates = datesValid && !bookedQ.isFetching && !!bookedQ.data?.includes(id);
+
+  if (carQ.isLoading) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-20 text-center" role="status">
+        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+        <p className="mt-4 text-muted-foreground">กำลังโหลดข้อมูลรถ...</p>
+      </div>
+    );
+  }
+  if (carQ.isError) {
+    return (
+      <LoadError title="โหลดข้อมูลรถไม่สำเร็จ" onRetry={() => void carQ.refetch()}>
+        <Button variant="outline" asChild>
+          <Link to="/cars">กลับสู่หน้ารถเช่า</Link>
+        </Button>
+      </LoadError>
+    );
+  }
+  if (!car) {
+    return (
+      <LoadError title="ไม่พบรถคันนี้" message="รถคันนี้อาจถูกนำออกจากระบบแล้ว หรือลิงก์ไม่ถูกต้อง">
+        <Button asChild>
+          <Link to="/cars">เลือกดูรถคันอื่น</Link>
+        </Button>
+      </LoadError>
+    );
+  }
+  const days = datesValid ? daysBetween(start, end) : 0;
   const avg = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
 
   const book = async () => {
     if (!user) return navigate({ to: "/auth" });
-    if (days <= 0) return toast.error("กรุณาเลือกวันที่ให้ถูกต้อง");
+    if (dateError || days <= 0) return toast.error(dateError ?? "กรุณาเลือกวันที่ให้ถูกต้อง");
+    if (bookedForDates) return toast.error("รถคันนี้ไม่ว่างในช่วงวันที่เลือก");
     setBusy(true);
     const { data, error } = await supabase
       .from("bookings")
@@ -60,7 +102,12 @@ function CarDetail() {
       .select("id")
       .single();
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) {
+      // Someone may have booked these dates first: refresh what this page believes
+      void queryClient.invalidateQueries({ queryKey: ["booked"] });
+      return toast.error(error.message || "ไม่สามารถสร้างการจองได้ กรุณาลองใหม่อีกครั้ง");
+    }
+    await invalidateBookingData(queryClient);
     toast.success("สร้างการจองแล้ว กรุณาชำระเงิน");
     navigate({ to: "/bookings/$id", params: { id: data.id } });
   };
@@ -113,7 +160,7 @@ function CarDetail() {
           <span className="text-sm text-muted-foreground">/ วัน</span>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><Label>วันรับรถ</Label><Input type="date" min={todayBkk()} value={start} onChange={(e) => setStart(e.target.value)} /></div>
+          <div><Label>วันรับรถ</Label><Input type="date" min={todayBkk()} value={start} onChange={(e) => { setStart(e.target.value); setEnd((prev) => adjustEndForStart(e.target.value, prev)); }} /></div>
           <div><Label>วันคืนรถ</Label><Input type="date" min={start} value={end} onChange={(e) => setEnd(e.target.value)} /></div>
         </div>
         <div>
@@ -127,7 +174,23 @@ function CarDetail() {
           <div className="flex justify-between"><span>{thb(car.price_per_day)} × {days} วัน</span><span>{thb(car.price_per_day * days)}</span></div>
           <div className="flex justify-between border-t pt-2 font-semibold"><span>ยอดรวม</span><span>{thb(car.price_per_day * days)}</span></div>
         </div>
-        <Button className="w-full" size="lg" disabled={busy || car.status === "maintenance" || car.status === "unavailable"} onClick={book}>
+        {dateError && (
+          <p className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs" role="alert">
+            {dateError}
+          </p>
+        )}
+        {bookedForDates && (
+          <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive" role="alert">
+            รถคันนี้ไม่ว่างในช่วงวันที่เลือก กรุณาเลือกวันอื่น
+          </p>
+        )}
+        {checkingDates && <p className="text-xs text-muted-foreground" role="status">กำลังตรวจสอบวันว่าง...</p>}
+        <Button
+          className="w-full"
+          size="lg"
+          disabled={busy || (!!user && !!dateError) || bookedForDates || car.status === "maintenance" || car.status === "unavailable"}
+          onClick={book}
+        >
           {user ? "จองและชำระเงิน" : "เข้าสู่ระบบเพื่อจอง"}
         </Button>
         {!user && <p className="text-center text-xs text-muted-foreground">ยังไม่มีบัญชี? <Link to="/auth" className="text-primary underline">สมัครสมาชิก</Link></p>}

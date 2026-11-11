@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { LoadError } from "@/components/load-error";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,9 +32,9 @@ import type { Tables } from "@/integrations/supabase/types";
 export const Route = createFileRoute("/profile")({
   head: () => ({
     meta: [
-      { title: "โปรไฟล์และข้อมูลผู้ขับขี่ — Siam Wheels Rental Hub" },
+      { title: "โปรไฟล์และข้อมูลผู้ขับขี่ — Drive Dee" },
       { name: "description", content: "จัดการข้อมูลส่วนตัว ข้อมูลใบอนุญาตขับขี่ และความปลอดภัยของบัญชีผู้ใช้งาน" },
-      { property: "og:title", content: "โปรไฟล์ของฉัน — Siam Wheels" },
+      { property: "og:title", content: "โปรไฟล์ของฉัน — Drive Dee" },
     ],
   }),
   component: ProfilePage,
@@ -59,7 +60,12 @@ function ProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState("");
 
   // Fetch current user profile
-  const { data: profile, isLoading: profileLoading } = useQuery({
+  const {
+    data: profile,
+    isLoading: profileLoading,
+    isError: profileError,
+    refetch: refetchProfile,
+  } = useQuery({
     queryKey: ["profile", user?.id],
     queryFn: async () => {
       if (!user) return null;
@@ -180,6 +186,11 @@ function ProfilePage() {
         </Button>
       </div>
     );
+  }
+
+  // Never show the form with empty fields after a failed load: saving it would wipe saved details
+  if (profileError) {
+    return <LoadError title="โหลดข้อมูลโปรไฟล์ไม่สำเร็จ" onRetry={() => void refetchProfile()} />;
   }
 
   const isLicenseComplete = !!licenseNo.trim();
