@@ -1,7 +1,11 @@
 # Assigning the real administrator – owner-only procedure
 
-Status: **NOT DONE.** There are 0 admins today. This is done by the project owner by hand,
-never by an AI agent, a Lovable prompt, a migration, or app code.
+Status: **DONE (2026-11-11).** The project owner granted `admin` to their own verified account
+with the SQL below and confirmed sign-in and access to `/admin`. Keep this procedure for
+replacing or revoking the administrator later.
+
+This is done by the project owner by hand, never by an AI agent, a Lovable prompt, a
+migration, or app code.
 
 Why by hand: `admin` has full access (delete cars, edit contracts, moderate reviews, read every
 customer). Public sign-up only ever creates `customer`, and the browser cannot write to

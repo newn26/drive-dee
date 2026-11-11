@@ -1,6 +1,26 @@
 # Phase 4 – Database integration & security: proposed Lovable changes
 
-Status: **PROPOSAL – not applied.** Lovable MCP is not connected, so nothing here has
+Status: **SUPERSEDED – not applied as written. Do not run the SQL below.** The project
+switched to the smaller `prototype-lovable-prompt.md` (applied as migration
+`0002_prototype_function_fixes.sql`) plus app-level logic. Outcome of each issue as of
+2026-11-11, checked against migrations 0000–0003 and the application code:
+
+| # | Issue | Outcome |
+|---|-------|---------|
+| A | Customer payment blocked by `validate_booking` | **Completed** in 0002: `pending → confirmed` is allowed once a paid payment exists. Verified live. |
+| B | Customers can update their own `contracts` row, including `terms` | **Postponed.** The `contracts update` policy is unchanged; the app only writes acceptance fields. Open item. |
+| C | Booking updates do not lock `days`, `booking_code`, `user_id` | **Postponed** to the Demo Admin migration (`demo-admin-lovable-prompt.md`, Step 2). Not applied. |
+| D | Pending bookings hold a car forever | **Completed (simplified)** in 0002: 15-minute hold in `validate_booking`, `booked_car_ids` and `pay_booking`, plus app-level cancellation. No cron job. |
+| E | Cars in maintenance can be booked | **Partly done.** The app hides them from date searches and disables booking; the database still rejects only `unavailable`. Database check postponed. |
+| F | First sign-up becomes admin | **Completed** in 0002: `handle_new_user` gives `customer` only; the admin is granted by hand (`admin-account-procedure.md`). |
+| G | Maintenance does not update car status or `completed_date` | **Completed in the app** (admin dashboard sets `completed_date` and syncs car status). Database triggers postponed. |
+| H | Payment status, card digits, double payment, demo flag | **Mostly completed** in 0002: `pay_booking` validates the last four digits, records `paid` with a `DEMO-` reference and refuses a booking that is no longer pending. Postponed: a unique `payments.booking_id` and check constraints on the table. |
+
+The original proposal follows unchanged, for reference.
+
+---
+
+Original status: PROPOSAL – not applied. Lovable MCP is not connected, so nothing here has
 been run. Apply through the Lovable editor (Cloud → SQL / chat), one step at a time,
 after the read-only pre-checks.
 

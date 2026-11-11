@@ -1,7 +1,13 @@
 # Prototype database fix – concise Lovable prompt
 
-Status: **NOT APPLIED.** Replaces the larger Phase 4 plan (`phase-4-*.md`), which is
-shelved because this is a client-demo prototype.
+Status: **APPLIED (2026-11-11)** by Lovable as
+`drizzle/migrations/0002_prototype_function_fixes.sql`, which contains the four functions
+below unchanged. Verified in the live end-to-end rehearsal on 2026-11-11 (QR and card demo
+payment, declined card, duplicate payment refused, 15-minute hold, expiry and car release).
+The "Admin account" step below is also done (see `admin-account-procedure.md`).
+
+This prompt replaced the larger Phase 4 plan (`phase-4-*.md`), which was set aside because
+this is a client-demo prototype.
 
 What it changes: function bodies only. No new tables, columns, indexes, policies or cron jobs.
 No rows are touched; the 8 cars are kept.

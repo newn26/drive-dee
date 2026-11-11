@@ -190,7 +190,7 @@ PostgreSQL schema (`public`), created by the migrations in `drizzle/migrations/`
 | `user_roles` | Role assignments (`admin`, `customer`) |
 | `cars` | Fleet: brand, model, year, plate number, category, seats, transmission, fuel, mileage, daily price, image, status |
 | `bookings` | Booking code, customer, car, dates, days, pickup branch, amount, status |
-| `payments` | One demo payment per booking: method, amount, status, reference, card last four digits |
+| `payments` | Demo payments: method, amount, status, reference, card last four digits. Only `pay_booking` can create them, once per booking |
 | `contracts` | One contract per paid booking: contract number, terms, status, acceptance time |
 | `reviews` | One review per booking: rating 1–5 and comment |
 | `maintenance` | Maintenance jobs per car: title, description, dates, cost, status |

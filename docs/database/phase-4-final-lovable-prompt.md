@@ -1,7 +1,12 @@
 # Phase 4 – Final Lovable prompt (ready to paste)
 
-Status: **AWAITING FINAL CONFIRMATION – not applied.**
-Supersedes the step-by-step draft in `phase-4-lovable-db-changes.md`.
+Status: **SUPERSEDED – never applied. Do not paste this prompt.** On 2026-11-11 the project
+switched to the smaller `prototype-lovable-prompt.md`, applied as migration
+`0002_prototype_function_fixes.sql`. Applying this prompt now would overwrite those live
+functions. Kept for reference only; the item-by-item outcome (completed, superseded or
+postponed) is in `phase-4-lovable-db-changes.md`.
+
+(Originally: supersedes the step-by-step draft in `phase-4-lovable-db-changes.md`.)
 
 Baseline (confirmed 2026-11-11): 8 cars; 0 bookings, payments, contracts, maintenance;
 no admin. Payment status in code: `paid`. Contract status in code: `active`, `accepted`.
