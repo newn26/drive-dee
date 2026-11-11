@@ -30,6 +30,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-.env
+# .env is committed on purpose: it holds only the public Supabase URL and publishable key
+# that the browser build needs (Lovable builds from this repository). Never put secrets in it.
+# Private local values (e.g. SUPABASE_SERVICE_ROLE_KEY) go in .env.local, which stays ignored.
 .env.*
 !.env.example

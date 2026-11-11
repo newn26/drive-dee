@@ -256,7 +256,8 @@ cd drive-dee
 npm install
 ```
 
-Create a `.env` file in the project root (see below), then start the development server:
+The repository already contains the public `.env` (see below). Private values, if you need
+them locally, go in `.env.local`. Start the development server:
 
 ```sh
 npm run dev
@@ -266,21 +267,25 @@ The application runs at http://localhost:8080.
 
 ## Environment variables
 
-The values come from the Lovable Cloud project. Never commit `.env`; it is listed in
-`.gitignore`.
+Values come from the Lovable Cloud project. There are two places:
 
-| Variable | Used by | Purpose |
-| --- | --- | --- |
-| `VITE_SUPABASE_URL` | Browser | Supabase project URL |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Browser | Public (anon) key; access is limited by RLS |
-| `VITE_SUPABASE_PROJECT_ID` | Browser | Supabase project reference |
-| `SUPABASE_URL` | Server | Supabase project URL for server-side rendering |
-| `SUPABASE_PUBLISHABLE_KEY` | Server | Public key for server-side rendering |
-| `SUPABASE_PROJECT_ID` | Server | Supabase project reference |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server only | Needed only by the Demo Customer server function. Lovable provides it in hosted environments. Without it, local Demo Customer sign-in fails; everything else works. |
+- **`.env` (committed).** Only the two public values the browser build needs. Vite embeds
+  them in the JavaScript at build time, and Lovable builds from this repository, so the file
+  must be in git. Both values are designed to be public; database access is limited by RLS.
+- **`.env.local` (gitignored) or the hosting environment.** Everything else. Lovable Cloud
+  provides the server-side values at runtime.
 
-`SUPABASE_SERVICE_ROLE_KEY` bypasses all database security. Keep it out of the repository,
-out of browser code and out of chat or issue trackers.
+| Variable | Where | Used by | Purpose |
+| --- | --- | --- | --- |
+| `VITE_SUPABASE_URL` | `.env` (public) | Browser build | Supabase project URL |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | `.env` (public) | Browser build | Publishable (`sb_publishable_…`) key; access is limited by RLS |
+| `SUPABASE_URL` | Runtime / `.env.local` | Server | Supabase URL for server-side requests |
+| `SUPABASE_PUBLISHABLE_KEY` | Runtime / `.env.local` | Server | Publishable key for server-side requests |
+| `SUPABASE_SERVICE_ROLE_KEY` | Runtime / `.env.local` only | Server only | Needed only by the Demo Customer server function. Lovable provides it in hosted environments. Without it, local Demo Customer sign-in fails; everything else works. |
+
+**Never put `SUPABASE_SERVICE_ROLE_KEY` or any other secret in `.env`.** It bypasses all
+database security. Keep it in `.env.local` (ignored by git), out of browser code and out of
+chat or issue trackers.
 
 ## Development commands
 
