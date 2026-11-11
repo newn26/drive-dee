@@ -15,7 +15,7 @@ export const createDemoAccount = createServerFn({ method: "POST" }).handler(asyn
   const email = `demo-${id}@${DEMO_EMAIL_DOMAIN}`;
   const bytes = crypto.getRandomValues(new Uint8Array(18));
   const password = btoa(String.fromCharCode(...bytes));
-  const pick = (a: string[]) => a[bytes[0] % a.length];
+  const pick = (a: string[]) => a[(bytes[0] ?? 0) % a.length] ?? a[0]!;
   const full_name = `[DEMO] คุณ${pick(FIRST)} ${pick(LAST)}`;
 
   const { error } = await supabaseAdmin.auth.admin.createUser({
