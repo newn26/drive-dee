@@ -24,9 +24,9 @@ export const Route = createFileRoute("/auth")({
   }),
   head: () => ({
     meta: [
-      { title: "เข้าสู่ระบบและสมัครสมาชิก — Siam Wheels Rental Hub" },
+      { title: "เข้าสู่ระบบและสมัครสมาชิก — Drive Dee" },
       { name: "description", content: "เข้าสู่ระบบหรือสมัครสมาชิกเพื่อจองรถเช่าออนไลน์และจัดการการจอง" },
-      { property: "og:title", content: "เข้าสู่ระบบ — Siam Wheels" },
+      { property: "og:title", content: "เข้าสู่ระบบ — Drive Dee" },
     ],
   }),
   component: AuthPage,

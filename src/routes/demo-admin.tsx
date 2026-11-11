@@ -6,7 +6,7 @@ import { AdminDashboard } from "./admin";
 export const Route = createFileRoute("/demo-admin")({
   head: () => ({
     meta: [
-      { title: "แดชบอร์ดสาธิต (Demo Admin) — Siam Wheels Rental Hub" },
+      { title: "แดชบอร์ดสาธิต (Demo Admin) — Drive Dee" },
       { name: "robots", content: "noindex" },
     ],
   }),

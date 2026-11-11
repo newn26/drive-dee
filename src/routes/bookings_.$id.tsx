@@ -42,9 +42,9 @@ import { LoadError } from "@/components/load-error";
 export const Route = createFileRoute("/bookings_/$id")({
   head: () => ({
     meta: [
-      { title: "ชำระเงินและสัญญาเช่า — Siam Wheels Rental Hub" },
+      { title: "ชำระเงินและสัญญาเช่า — Drive Dee" },
       { name: "description", content: "ชำระเงินค่าเช่ารถออนไลน์และตรวจสอบสัญญาเช่าดิจิทัล" },
-      { property: "og:title", content: "ชำระเงินและสัญญาเช่า — Siam Wheels" },
+      { property: "og:title", content: "ชำระเงินและสัญญาเช่า — Drive Dee" },
     ],
   }),
   component: BookingDetailsPage,

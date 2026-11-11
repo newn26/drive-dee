@@ -14,9 +14,9 @@ import heroImg from "@/assets/car-sedan.jpg";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "ไดร์ฟดี รถเช่า — เช่ารถออนไลน์ จองง่าย จ่ายสะดวก" },
+      { title: "Drive Dee (ไดร์ฟดี รถเช่า) — Siam Wheels Rental Hub | Car Rental Management System" },
       { name: "description", content: "ค้นหาและจองรถเช่าออนไลน์ ชำระผ่าน QR Code หรือบัตรเครดิต ราคาเป็นเงินบาท" },
-      { property: "og:title", content: "ไดร์ฟดี รถเช่า" },
+      { property: "og:title", content: "Drive Dee (ไดร์ฟดี รถเช่า) — Siam Wheels Rental Hub" },
       { property: "og:description", content: "ค้นหาและจองรถเช่าออนไลน์ ชำระผ่าน QR Code หรือบัตรเครดิต" },
     ],
   }),

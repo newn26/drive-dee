@@ -43,9 +43,9 @@ import { bookingReview, customerBookingsQuery, invalidateBookingData, type Custo
 export const Route = createFileRoute("/bookings")({
   head: () => ({
     meta: [
-      { title: "ประวัติการจองของฉัน — Siam Wheels Rental Hub" },
+      { title: "ประวัติการจองของฉัน — Drive Dee" },
       { name: "description", content: "ตรวจสอบประวัติการเช่ารถยนต์ รายละเอียดการชำระเงิน และสัญญาเช่าดิจิทัล" },
-      { property: "og:title", content: "การจองของฉัน — Siam Wheels" },
+      { property: "og:title", content: "การจองของฉัน — Drive Dee" },
     ],
   }),
   component: BookingsHistoryPage,

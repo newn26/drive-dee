@@ -19,9 +19,9 @@ import { adjustEndForStart, rentalDateError } from "@/lib/date-range";
 export const Route = createFileRoute("/cars_/$id")({
   head: () => ({
     meta: [
-      { title: "รายละเอียดรถเช่า — ไดร์ฟดี" },
+      { title: "รายละเอียดรถเช่า — Drive Dee" },
       { name: "description", content: "ดูรายละเอียด รีวิว และจองรถเช่าออนไลน์" },
-      { property: "og:title", content: "รายละเอียดรถเช่า — ไดร์ฟดี" },
+      { property: "og:title", content: "รายละเอียดรถเช่า — Drive Dee" },
       { property: "og:description", content: "ดูรายละเอียด รีวิว และจองรถเช่าออนไลน์" },
     ],
   }),

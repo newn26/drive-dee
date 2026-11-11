@@ -24,9 +24,9 @@ export const Route = createFileRoute("/cars")({
   }),
   head: () => ({
     meta: [
-      { title: "ค้นหารถเช่า — ไดร์ฟดี รถเช่า" },
+      { title: "ค้นหารถเช่า — Drive Dee" },
       { name: "description", content: "ค้นหารถเช่าว่างตามวันที่ ประเภท และราคา" },
-      { property: "og:title", content: "ค้นหารถเช่า — ไดร์ฟดี" },
+      { property: "og:title", content: "ค้นหารถเช่า — Drive Dee" },
       { property: "og:description", content: "ค้นหารถเช่าว่างตามวันที่ ประเภท และราคา" },
     ],
   }),

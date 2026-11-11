@@ -1,5 +1,6 @@
 {
-  "name": "tanstack_start_ts",
+  "name": "siam-wheels-rental-hub",
+  "description": "Car rental management system: online booking, fleet management, digital rental contracts, maintenance tracking and reporting.",
   "private": true,
   "sideEffects": false,
   "type": "module",

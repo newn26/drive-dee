@@ -102,9 +102,9 @@ import {
 export const Route = createFileRoute("/admin")({
   head: () => ({
     meta: [
-      { title: "ระบบผู้ดูแลระบบ (Admin) — Siam Wheels Rental Hub" },
+      { title: "ระบบผู้ดูแลระบบ (Admin) — Drive Dee" },
       { name: "description", content: "ระบบบริหารจัดการรถเช่า รายการจอง สัญญา และงานซ่อมบำรุง" },
-      { property: "og:title", content: "ระบบผู้ดูแลระบบ — Siam Wheels" },
+      { property: "og:title", content: "ระบบผู้ดูแลระบบ — Drive Dee" },
     ],
   }),
   component: () => <AdminDashboard mode="admin" />,

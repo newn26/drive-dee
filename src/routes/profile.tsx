@@ -32,9 +32,9 @@ import type { Tables } from "@/integrations/supabase/types";
 export const Route = createFileRoute("/profile")({
   head: () => ({
     meta: [
-      { title: "โปรไฟล์และข้อมูลผู้ขับขี่ — Siam Wheels Rental Hub" },
+      { title: "โปรไฟล์และข้อมูลผู้ขับขี่ — Drive Dee" },
       { name: "description", content: "จัดการข้อมูลส่วนตัว ข้อมูลใบอนุญาตขับขี่ และความปลอดภัยของบัญชีผู้ใช้งาน" },
-      { property: "og:title", content: "โปรไฟล์ของฉัน — Siam Wheels" },
+      { property: "og:title", content: "โปรไฟล์ของฉัน — Drive Dee" },
     ],
   }),
   component: ProfilePage,

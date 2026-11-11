@@ -31,9 +31,9 @@ import { customerBookingsQuery } from "@/lib/queries";
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
     meta: [
-      { title: "แดชบอร์ดลูกค้า — Siam Wheels Rental Hub" },
+      { title: "แดชบอร์ดลูกค้า — Drive Dee" },
       { name: "description", content: "ศูนย์รวมข้อมูลการเช่ารถยนต์ การจองที่กำลังดำเนินอยู่ และสถานะเอกสารผู้ขับขี่" },
-      { property: "og:title", content: "แดชบอร์ดของฉัน — Siam Wheels" },
+      { property: "og:title", content: "แดชบอร์ดของฉัน — Drive Dee" },
     ],
   }),
   component: CustomerDashboardPage,
