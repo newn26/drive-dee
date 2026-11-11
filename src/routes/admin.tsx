@@ -840,7 +840,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           <h1 className="mt-1 text-3xl font-bold tracking-tight">ศูนย์ควบคุมและบริหารจัดการรถเช่า</h1>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Button onClick={() => openCarModal()} className="gap-1.5 shadow-sm">
             <Plus className="h-4 w-4" /> เพิ่มรถยนต์ใหม่
           </Button>
@@ -854,7 +854,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       <div className="grid gap-8 lg:grid-cols-12">
         {/* Navigation Sidebar (3 Cols) */}
         <aside className="lg:col-span-3">
-          <Card className="shadow-card border sticky top-24">
+          <Card className="shadow-card border lg:sticky lg:top-24">
             <CardHeader className="pb-3 border-b bg-muted/20">
               <CardTitle className="text-sm font-semibold text-muted-foreground">เมนูการจัดการระบบ</CardTitle>
             </CardHeader>

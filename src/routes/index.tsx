@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { CarCard } from "@/components/car-card";
 import { carsQuery, ratingsQuery } from "@/lib/queries";
 import { todayBkk } from "@/lib/format";
+import { adjustEndForStart, rentalDateError } from "@/lib/date-range";
+import { LoadError } from "@/components/load-error";
 import heroImg from "@/assets/car-sedan.jpg";
 
 export const Route = createFileRoute("/")({
@@ -25,7 +27,10 @@ function Index() {
   const navigate = useNavigate();
   const [start, setStart] = useState(todayBkk(1));
   const [end, setEnd] = useState(todayBkk(3));
-  const { data: cars } = useQuery(carsQuery());
+  const [dateError, setDateError] = useState<string | null>(null);
+  const carsQ = useQuery(carsQuery());
+  const cars = carsQ.data;
+  const featured = cars?.filter((c) => c.status === "available").slice(0, 4) ?? [];
   const { data: ratings } = useQuery(ratingsQuery());
 
   return (
@@ -40,16 +45,31 @@ function Index() {
               className="grid gap-3 rounded-2xl bg-card p-4 text-card-foreground shadow-lift sm:grid-cols-[1fr_1fr_auto]"
               onSubmit={(e) => {
                 e.preventDefault();
+                const err = rentalDateError(start, end, todayBkk());
+                setDateError(err);
+                if (err) return;
                 navigate({ to: "/cars", search: { start, end } });
               }}
             >
               <label className="text-xs text-muted-foreground">วันรับรถ
-                <Input type="date" min={todayBkk()} value={start} onChange={(e) => setStart(e.target.value)} />
+                <Input type="date" min={todayBkk()} value={start} onChange={(e) => {
+                    setStart(e.target.value);
+                    setEnd((prev) => adjustEndForStart(e.target.value, prev));
+                    setDateError(null);
+                  }} />
               </label>
               <label className="text-xs text-muted-foreground">วันคืนรถ
-                <Input type="date" min={start} value={end} onChange={(e) => setEnd(e.target.value)} />
+                <Input type="date" min={start} value={end} onChange={(e) => {
+                    setEnd(e.target.value);
+                    setDateError(null);
+                  }} />
               </label>
               <Button type="submit" size="lg" className="self-end">ค้นหารถว่าง</Button>
+              {dateError && (
+                <p role="alert" className="text-sm text-destructive sm:col-span-3">
+                  {dateError}
+                </p>
+              )}
             </form>
           </div>
           <img src={heroImg} alt="รถเช่า" width={1024} height={640} className="rounded-3xl shadow-lift" />
@@ -76,11 +96,21 @@ function Index() {
           <h2 className="text-2xl font-semibold">รถแนะนำ</h2>
           <Link to="/cars" className="text-sm font-medium text-primary hover:underline">ดูทั้งหมด →</Link>
         </div>
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          {cars?.filter((c) => c.status === "available").slice(0, 4).map((c) => (
-            <CarCard key={c.id} car={c} rating={ratings?.[c.id]} />
-          ))}
-        </div>
+        {carsQ.isLoading ? (
+          <p role="status" className="py-10 text-center text-sm text-muted-foreground">กำลังโหลดรถแนะนำ...</p>
+        ) : carsQ.isError ? (
+          <LoadError title="โหลดรายการรถไม่สำเร็จ" onRetry={() => void carsQ.refetch()} />
+        ) : featured.length === 0 ? (
+          <p className="rounded-2xl border bg-card py-10 text-center text-sm text-muted-foreground">
+            ขณะนี้ยังไม่มีรถว่างให้แนะนำ กรุณาลองใหม่ภายหลัง
+          </p>
+        ) : (
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {featured.map((c) => (
+              <CarCard key={c.id} car={c} rating={ratings?.[c.id]} />
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );

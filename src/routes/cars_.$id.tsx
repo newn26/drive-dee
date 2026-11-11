@@ -14,6 +14,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
 import { categoryLabel, daysBetween, fmtDate, thb, todayBkk } from "@/lib/format";
 import { bookedCarIdsQuery, invalidateBookingData } from "@/lib/queries";
+import { adjustEndForStart, rentalDateError } from "@/lib/date-range";
 
 export const Route = createFileRoute("/cars_/$id")({
   head: () => ({
@@ -54,7 +55,8 @@ function CarDetail() {
       (await supabase.from("reviews").select("*").eq("car_id", id).order("created_at", { ascending: false })).data ?? [],
   });
 
-  const datesValid = !!start && !!end && end >= start;
+  const dateError = rentalDateError(start, end, todayBkk());
+  const datesValid = !dateError;
   const bookedQ = useQuery({ ...bookedCarIdsQuery(start, end), enabled: datesValid });
   // Fresh result for exactly these dates only; the database re-checks on insert anyway
   const checkingDates = datesValid && (bookedQ.isFetching || !bookedQ.data) && !bookedQ.isError;
@@ -91,7 +93,7 @@ function CarDetail() {
 
   const book = async () => {
     if (!user) return navigate({ to: "/auth" });
-    if (days <= 0) return toast.error("กรุณาเลือกวันที่ให้ถูกต้อง");
+    if (dateError || days <= 0) return toast.error(dateError ?? "กรุณาเลือกวันที่ให้ถูกต้อง");
     if (bookedForDates) return toast.error("รถคันนี้ไม่ว่างในช่วงวันที่เลือก");
     setBusy(true);
     const { data, error } = await supabase
@@ -158,7 +160,7 @@ function CarDetail() {
           <span className="text-sm text-muted-foreground">/ วัน</span>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div><Label>วันรับรถ</Label><Input type="date" min={todayBkk()} value={start} onChange={(e) => setStart(e.target.value)} /></div>
+          <div><Label>วันรับรถ</Label><Input type="date" min={todayBkk()} value={start} onChange={(e) => { setStart(e.target.value); setEnd((prev) => adjustEndForStart(e.target.value, prev)); }} /></div>
           <div><Label>วันคืนรถ</Label><Input type="date" min={start} value={end} onChange={(e) => setEnd(e.target.value)} /></div>
         </div>
         <div>
@@ -172,6 +174,11 @@ function CarDetail() {
           <div className="flex justify-between"><span>{thb(car.price_per_day)} × {days} วัน</span><span>{thb(car.price_per_day * days)}</span></div>
           <div className="flex justify-between border-t pt-2 font-semibold"><span>ยอดรวม</span><span>{thb(car.price_per_day * days)}</span></div>
         </div>
+        {dateError && (
+          <p className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs" role="alert">
+            {dateError}
+          </p>
+        )}
         {bookedForDates && (
           <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive" role="alert">
             รถคันนี้ไม่ว่างในช่วงวันที่เลือก กรุณาเลือกวันอื่น
@@ -181,7 +188,7 @@ function CarDetail() {
         <Button
           className="w-full"
           size="lg"
-          disabled={busy || bookedForDates || car.status === "maintenance" || car.status === "unavailable"}
+          disabled={busy || (!!user && !!dateError) || bookedForDates || car.status === "maintenance" || car.status === "unavailable"}
           onClick={book}
         >
           {user ? "จองและชำระเงิน" : "เข้าสู่ระบบเพื่อจอง"}

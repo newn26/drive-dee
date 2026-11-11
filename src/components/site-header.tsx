@@ -28,7 +28,7 @@ export function SiteHeader() {
   const links = user ? customerNav : ([{ to: "/cars", label: "ค้นหารถเช่า" }] as const);
 
   return (
-    <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur print:hidden">
       {isDemoAdmin && (
         <div
           role="status"

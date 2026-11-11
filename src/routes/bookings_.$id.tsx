@@ -70,6 +70,7 @@ function BookingDetailsPage() {
   const [cardNumber, setCardNumber] = useState("");
   const [cardExpiry, setCardExpiry] = useState("");
   const [cardCvv, setCardCvv] = useState("");
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   // Payment countdown: 15 minutes from when the booking was created
   const [now, setNow] = useState(() => Date.now());
@@ -185,6 +186,7 @@ function BookingDetailsPage() {
       }
     }
 
+    setPaymentError(null);
     setSubmittingPayment(true);
     try {
       const last4 = method === "card" ? cardNumber.replace(/\s/g, "").slice(-4) : undefined;
@@ -206,18 +208,21 @@ function BookingDetailsPage() {
         throw error;
       }
 
-      // Demo only: card details never leave the browser except the last 4 digits; clear them now
       setCardName("");
-      setCardNumber("");
-      setCardExpiry("");
-      setCardCvv("");
       toast.success("ชำระเงินสำเร็จ (DEMO)! สัญญาเช่าได้รับการสร้างเรียบร้อยแล้ว");
       // Refresh this booking plus every list and availability cache that depends on it
       await invalidateBookingData(queryClient);
     } catch (err: unknown) {
       const error = err as Error;
-      toast.error(error.message || "เกิดข้อผิดพลาดในการชำระเงิน กรุณาลองใหม่อีกครั้ง");
+      const msg = error.message || "เกิดข้อผิดพลาดในการชำระเงิน กรุณาลองใหม่อีกครั้ง";
+      setPaymentError(msg);
+      toast.error(msg);
     } finally {
+      // Demo only: card details never leave the browser except the last 4 digits.
+      // Clear them after every attempt, successful or not.
+      setCardNumber("");
+      setCardExpiry("");
+      setCardCvv("");
       setSubmittingPayment(false);
     }
   };
@@ -319,7 +324,7 @@ function BookingDetailsPage() {
         <div>
           <Link
             to="/cars"
-            className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground mb-2"
+            className="inline-flex items-center text-sm font-medium text-muted-foreground hover:text-foreground mb-2 print:hidden"
           >
             <ArrowLeft className="mr-1.5 h-4 w-4" /> เลือกดูรถคันอื่น
           </Link>
@@ -338,7 +343,7 @@ function BookingDetailsPage() {
       {/* Main Grid Content */}
       <div className="grid gap-8 lg:grid-cols-12">
         {/* Left Column: Vehicle & Booking Information (5 Cols) */}
-        <div className="space-y-6 lg:col-span-5">
+        <div className="space-y-6 lg:col-span-5 print:hidden">
           <Card className="overflow-hidden shadow-card border">
             {car && (
               <div className="relative aspect-[16/10] bg-muted">
@@ -442,7 +447,7 @@ function BookingDetailsPage() {
           {!isPaid && booking.status !== "cancelled" && isOwner && (
             <Card className="shadow-card border">
               <CardHeader>
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <CardTitle className="text-xl">เลือกช่องทางชำระเงิน</CardTitle>
                   <Badge variant="outline" className="border-amber-400 bg-amber-100 text-amber-900">
                     DEMO · ไม่มีการตัดเงินจริง
@@ -461,12 +466,21 @@ function BookingDetailsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {paymentError && (
+                  <div role="alert" className="mb-4 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>
+                      <p className="font-semibold">ชำระเงินไม่สำเร็จ (DEMO)</p>
+                      <p className="text-xs">{paymentError} — ยังไม่มีการตัดเงิน กรุณาลองใหม่อีกครั้ง</p>
+                    </div>
+                  </div>
+                )}
                 <Tabs value={paymentTab} onValueChange={(v) => setPaymentTab(v as "qr" | "card")}>
-                  <TabsList className="grid w-full grid-cols-2 mb-6">
-                    <TabsTrigger value="qr" className="flex items-center gap-2">
+                  <TabsList className="mb-6 grid h-auto w-full grid-cols-2">
+                    <TabsTrigger value="qr" className="flex items-center gap-2 whitespace-normal text-xs sm:text-sm">
                       <QrCode className="h-4 w-4" /> Thai QR PromptPay
                     </TabsTrigger>
-                    <TabsTrigger value="card" className="flex items-center gap-2">
+                    <TabsTrigger value="card" className="flex items-center gap-2 whitespace-normal text-xs sm:text-sm">
                       <CreditCard className="h-4 w-4" /> บัตรเครดิต / เดบิต
                     </TabsTrigger>
                   </TabsList>
@@ -618,7 +632,7 @@ function BookingDetailsPage() {
           {isPaid && (
             <div className="space-y-6">
               {/* Payment Success Receipt Card */}
-              <Card className="border-success/30 bg-success/5 shadow-card">
+              <Card className="border-success/30 bg-success/5 shadow-card print:hidden">
                 <CardHeader className="pb-3">
                   <div className="flex items-center gap-3">
                     <CheckCircle2 className="h-6 w-6 text-success" />
@@ -649,7 +663,7 @@ function BookingDetailsPage() {
                     </div>
                     <div>
                       <span className="text-xs text-muted-foreground">รหัสอ้างอิงการชำระ:</span>
-                      <p className="font-mono text-foreground">{payment.reference ?? "-"}</p>
+                      <p className="break-all font-mono text-foreground">{payment.reference ?? "-"}</p>
                     </div>
                     <div>
                       <span className="text-xs text-muted-foreground">ยอดเงินที่ชำระ:</span>
@@ -665,8 +679,8 @@ function BookingDetailsPage() {
               </Card>
 
               {/* Digital Rental Contract Card */}
-              <Card className="shadow-card border">
-                <CardHeader className="flex flex-row items-start justify-between">
+              <Card className="shadow-card border print:border-0 print:shadow-none">
+                <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <FileCheck2 className="h-5 w-5 text-primary" />
@@ -682,7 +696,7 @@ function BookingDetailsPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {/* Contract Text Body */}
-                  <div className="rounded-xl border bg-muted/40 p-4 font-mono text-xs leading-relaxed max-h-80 overflow-y-auto whitespace-pre-wrap">
+                  <div className="rounded-xl border bg-muted/40 p-4 font-mono text-xs leading-relaxed max-h-80 overflow-y-auto whitespace-pre-wrap print:max-h-none print:overflow-visible print:bg-transparent">
                     {contract?.terms || "กำลังจัดเตรียมสัญญาเช่า..."}
                   </div>
 
@@ -700,7 +714,7 @@ function BookingDetailsPage() {
                       <span>รอลูกค้าลงนามยอมรับสัญญา (เฉพาะลูกค้าเจ้าของการจองเท่านั้นที่ลงนามได้)</span>
                     </div>
                   ) : (
-                    <div className="space-y-3 rounded-xl border border-warning/30 bg-warning/5 p-4">
+                    <div className="space-y-3 rounded-xl border border-warning/30 bg-warning/5 p-4 print:hidden">
                       <div className="flex items-start gap-2 text-warning-foreground">
                         <AlertCircle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
                         <div>

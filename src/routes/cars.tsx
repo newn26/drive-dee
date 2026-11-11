@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { bookedCarIdsQuery, carsQuery, ratingsQuery } from "@/lib/queries";
 import { categoryLabel, todayBkk } from "@/lib/format";
 import { filterCarsForSearch, type Availability } from "@/lib/availability";
+import { rentalDateError } from "@/lib/date-range";
+import { LoadError } from "@/components/load-error";
 
 type S = { q?: string | undefined; category?: string | undefined; start?: string | undefined; end?: string | undefined; sort?: string | undefined };
 
@@ -35,10 +37,12 @@ function CarsPage() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: "/cars" });
   const set = (patch: Partial<S>) => navigate({ search: (p: S) => ({ ...p, ...patch }), replace: true });
-  const { data: cars = [] } = useQuery(carsQuery());
+  const carsQ = useQuery(carsQuery());
+  const cars = useMemo(() => carsQ.data ?? [], [carsQ.data]);
   const { data: ratings } = useQuery(ratingsQuery());
   const hasDates = !!search.start && !!search.end;
-  const datesValid = hasDates && search.end! >= search.start!;
+  const dateError = hasDates ? rentalDateError(search.start!, search.end!, todayBkk()) : null;
+  const datesValid = hasDates && !dateError;
   const bookedQ = useQuery({
     ...bookedCarIdsQuery(search.start ?? "", search.end ?? ""),
     enabled: datesValid,
@@ -71,9 +75,9 @@ function CarsPage() {
         <Input type="date" min={todayBkk()} value={search.start ?? ""} onChange={(e) => set({ start: e.target.value || undefined })} aria-label="วันรับรถ" />
         <Input type="date" min={search.start ?? todayBkk()} value={search.end ?? ""} onChange={(e) => set({ end: e.target.value || undefined })} aria-label="วันคืนรถ" />
       </div>
-      {hasDates && !datesValid && (
+      {dateError && (
         <p className="mb-4 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm" role="alert">
-          วันคืนรถต้องไม่ก่อนวันรับรถ
+          {dateError}
         </p>
       )}
       {availability.kind === "error" && (
@@ -84,9 +88,11 @@ function CarsPage() {
           </Button>
         </div>
       )}
-      <div className="mb-4 flex items-center justify-between text-sm text-muted-foreground">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
         <span role="status">
-          {availability.kind === "loading"
+          {carsQ.isLoading
+            ? "กำลังโหลดรายการรถ..."
+            : availability.kind === "loading"
             ? "กำลังตรวจสอบรถว่าง..."
             : availability.kind === "error"
               ? "ไม่สามารถแสดงผลรถว่างได้"
@@ -100,9 +106,21 @@ function CarsPage() {
           </SelectContent>
         </Select>
       </div>
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {list.map((c) => <CarCard key={c.id} car={c} rating={ratings?.[c.id]} />)}
-      </div>
+      {carsQ.isError ? (
+        <LoadError title="โหลดรายการรถไม่สำเร็จ" onRetry={() => void carsQ.refetch()} />
+      ) : !carsQ.isLoading && availability.kind !== "loading" && availability.kind !== "error" && list.length === 0 ? (
+        <div className="rounded-2xl border bg-card px-4 py-14 text-center">
+          <p className="font-medium">ไม่พบรถที่ตรงกับเงื่อนไข</p>
+          <p className="mt-1 text-sm text-muted-foreground">ลองเปลี่ยนคำค้นหา ประเภทรถ หรือช่วงวันที่</p>
+          <Button variant="outline" className="mt-4" onClick={() => navigate({ search: {}, replace: true })}>
+            ล้างตัวกรองทั้งหมด
+          </Button>
+        </div>
+      ) : (
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {list.map((c) => <CarCard key={c.id} car={c} rating={ratings?.[c.id]} />)}
+        </div>
+      )}
     </div>
   );
 }

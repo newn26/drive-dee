@@ -1,12 +1,13 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertCircle,
   ArrowRight,
   Calendar,
   Car as CarIcon,
+  Clock,
   CreditCard,
   FileCheck2,
   MapPin,
@@ -17,6 +18,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { LoadError } from "@/components/load-error";
+import { formatCountdown, paymentSecondsLeft } from "@/lib/payment-window";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -61,6 +63,12 @@ function BookingsHistoryPage() {
   const [cancelling, setCancelling] = useState(false);
 
   // Review modal state
+  // Ticks the payment countdown shown on unpaid bookings
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const [reviewBooking, setReviewBooking] = useState<BookingWithCarAndReview | null>(null);
   const [reviewRating, setReviewRating] = useState<number>(5);
   const [reviewComment, setReviewComment] = useState("");
@@ -196,7 +204,7 @@ function BookingsHistoryPage() {
 
       {/* Status Filter Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-5">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5 [&>button]:whitespace-normal">
           <TabsTrigger value="all">ทั้งหมด ({bookings.length})</TabsTrigger>
           <TabsTrigger value="pending">รอชำระเงิน ({bookings.filter((b) => b.status === "pending").length})</TabsTrigger>
           <TabsTrigger value="active">กำลังเช่า/ยืนยันแล้ว ({bookings.filter((b) => b.status === "confirmed" || b.status === "active").length})</TabsTrigger>
@@ -269,6 +277,15 @@ function BookingsHistoryPage() {
                         <span className="truncate">{b.pickup_location}</span>
                       </div>
                     </div>
+
+                    {b.status === "pending" && (
+                      <p className="flex items-center gap-1.5 text-xs font-medium text-warning" role="timer">
+                        <Clock className="h-3.5 w-3.5 shrink-0" />
+                        {paymentSecondsLeft(b.created_at, now) > 0
+                          ? `ชำระเงินภายใน ${formatCountdown(paymentSecondsLeft(b.created_at, now))} นาที`
+                          : "หมดเวลาชำระเงิน การจองจะถูกยกเลิก"}
+                      </p>
+                    )}
 
                     {/* Review Badge if already reviewed */}
                     {review && (

@@ -60,6 +60,8 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
   const navigate = useNavigate();
   const { user, role, isDemo, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
+  // Shown after sign-up when Supabase still needs the user to confirm their email
+  const [confirmEmailFor, setConfirmEmailFor] = useState<string | null>(null);
 
   // Form Fields
   const [name, setName] = useState("");
@@ -90,6 +92,7 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
 
   const switchMode = (newMode: AuthMode) => {
     setMode(newMode);
+    if (newMode !== "login") setConfirmEmailFor(null);
     resetForm();
   };
 
@@ -138,6 +141,8 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
         if (error) {
           if (error.message.includes("Invalid login credentials")) {
             toast.error("อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง");
+          } else if (error.message.toLowerCase().includes("email not confirmed")) {
+            toast.error("อีเมลนี้ยังไม่ได้ยืนยัน กรุณากดลิงก์ยืนยันในอีเมลของคุณก่อนเข้าสู่ระบบ");
           } else {
             toast.error(error.message || "เกิดข้อผิดพลาดในการเข้าสู่ระบบ");
           }
@@ -196,7 +201,7 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
       setLoading(true);
       try {
         const cleanPhone = phone.replace(/\D/g, "");
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
           options: {
@@ -218,6 +223,13 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
           return;
         }
 
+        if (!data.session) {
+          // Email confirmation is on: the account exists but cannot sign in until confirmed
+          switchMode("login");
+          setConfirmEmailFor(email.trim());
+          toast.success("สมัครสมาชิกสำเร็จ กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ");
+          return;
+        }
         toast.success("สมัครสมาชิกสำเร็จ! ยินดีต้อนรับสู่ Siam Wheels");
         navigate({ to: "/" });
       } catch (err: unknown) {
@@ -243,6 +255,15 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
           <Button size="sm" className="mt-3" onClick={() => navigate({ to: homeForRole(role) })}>
             ไปที่หน้าหลักของบัญชีนี้
           </Button>
+        </div>
+      )}
+      {confirmEmailFor && mode === "login" && (
+        <div role="status" className="mb-4 rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm">
+          <p className="font-semibold">กรุณายืนยันอีเมลของคุณ</p>
+          <p className="mt-1 text-muted-foreground">
+            เราได้ส่งลิงก์ยืนยันไปที่ <strong className="break-all text-foreground">{confirmEmailFor}</strong> แล้ว
+            กดลิงก์ในอีเมลก่อน แล้วจึงเข้าสู่ระบบด้านล่าง (หากไม่พบ โปรดตรวจสอบโฟลเดอร์สแปม)
+          </p>
         </div>
       )}
       <Card className="shadow-card border">
