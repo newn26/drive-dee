@@ -40,7 +40,7 @@ export const Route = createFileRoute("/profile")({
 });
 
 function ProfilePage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, isDemo, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -186,6 +186,11 @@ function ProfilePage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
+      {isDemo && (
+        <div className="mb-6 rounded-lg border border-dashed border-accent bg-accent/10 p-4 text-sm">
+          <strong>บัญชีทดลอง (DEMO):</strong> ข้อมูลในบัญชีนี้เป็นข้อมูลสมมติ กรุณาอย่ากรอกข้อมูลส่วนตัวจริง เช่น เบอร์โทร เลขบัตรประชาชน หรือเลขใบขับขี่
+        </div>
+      )}
       {/* Header */}
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>

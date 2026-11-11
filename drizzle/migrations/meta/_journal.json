@@ -22,6 +22,13 @@
       "when": 1794400495994,
       "tag": "0002_prototype_function_fixes",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794400889396,
+      "tag": "0003_block_admin_for_demo_accounts",
+      "breakpoints": true
     }
   ]
 }

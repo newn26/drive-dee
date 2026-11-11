@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { createDemoAccount } from "@/lib/demo.functions";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -33,6 +34,21 @@ function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+
+  const startDemo = async () => {
+    setLoading(true);
+    try {
+      const creds = await createDemoAccount();
+      const { error } = await supabase.auth.signInWithPassword(creds);
+      if (error) throw error;
+      toast.success("เข้าสู่ระบบด้วยบัญชีทดลองแล้ว (ข้อมูลสมมติ)");
+      navigate({ to: "/" });
+    } catch {
+      toast.error("ไม่สามารถเริ่มโหมดทดลองได้ กรุณาลองใหม่");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const resetForm = () => {
     setPassword("");
@@ -334,6 +350,19 @@ function AuthPage() {
           </CardFooter>
         </form>
       </Card>
+      {mode !== "forgot" && (
+        <Card className="mt-4 border-dashed border-accent">
+          <CardContent className="space-y-3 pt-6 text-center">
+            <p className="text-sm font-semibold">โหมดทดลอง (DEMO)</p>
+            <p className="text-xs text-muted-foreground">
+              สร้างบัญชีลูกค้าทดลองพร้อมข้อมูลสมมติทันที ไม่ต้องใช้อีเมลหรือเบอร์โทรจริง บัญชีทดลองเป็นลูกค้าเท่านั้น ไม่สามารถเป็นผู้ดูแลระบบได้ และการชำระเงินเป็นการจำลอง
+            </p>
+            <Button type="button" variant="outline" className="w-full" disabled={loading} onClick={startDemo}>
+              ทดลองใช้งานในฐานะลูกค้าตัวอย่าง
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

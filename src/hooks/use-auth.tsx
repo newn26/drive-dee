@@ -6,6 +6,7 @@ type AuthState = {
   user: User | null;
   session: Session | null;
   isAdmin: boolean;
+  isDemo: boolean;
   loading: boolean;
   signOut: () => Promise<void>;
 };
@@ -14,6 +15,7 @@ const Ctx = createContext<AuthState>({
   user: null,
   session: null,
   isAdmin: false,
+  isDemo: false,
   loading: true,
   signOut: async () => {},
 });
@@ -45,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         session,
         user: session?.user ?? null,
         isAdmin,
+        isDemo: session?.user?.app_metadata?.["demo"] === true,
         loading,
         signOut: async () => {
           await supabase.auth.signOut();
