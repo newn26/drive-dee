@@ -178,7 +178,7 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
     // 3. Registration Flow
     if (mode === "register") {
       if (!name.trim()) {
-        toast.error("กรุณากรอกชื่อ-นามสกุลจริง");
+        toast.error("กรุณากรอกชื่อ-นามสกุล");
         return;
       }
       if (!phone.trim() || phone.replace(/\D/g, "").length < 9) {
@@ -305,7 +305,7 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
             {mode === "register" && (
               <>
                 <div className="space-y-1.5">
-                  <Label htmlFor="auth-name" className="text-xs">ชื่อ-นามสกุลจริง</Label>
+                  <Label htmlFor="auth-name" className="text-xs">ชื่อ-นามสกุล</Label>
                   <div className="relative">
                     <Input
                       id="auth-name"

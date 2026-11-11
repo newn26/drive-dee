@@ -101,7 +101,7 @@ function ProfilePage() {
     if (!user) return;
 
     if (!fullName.trim()) {
-      toast.error("กรุณาระบุชื่อ-นามสกุลจริง");
+      toast.error("กรุณาระบุชื่อ-นามสกุล");
       return;
     }
 
@@ -242,7 +242,7 @@ function ProfilePage() {
                 {/* Full Name & Email */}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label htmlFor="prof-name" className="text-xs">ชื่อ-นามสกุลจริง *</Label>
+                    <Label htmlFor="prof-name" className="text-xs">ชื่อ-นามสกุล *</Label>
                     <Input
                       id="prof-name"
                       placeholder="นายสมชาย มั่นคง"

@@ -14,6 +14,10 @@ Asia/Bangkok time zone.
 > **Prototype status.** This system is a working prototype built for client demonstration.
 > All payments are **simulated (DEMO)**: no money is charged and no real payment gateway is
 > connected. See [Demo payments](#demo-payments).
+>
+> **Do not use real customer data.** Do not enter real names, ID card numbers, driving
+> licence numbers, phone numbers or card details. Every page shows a Thai prototype notice
+> saying the same.
 
 ---
 
