@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { ResetPasswordForm } from "@/components/reset-password-form";
-import { fetchRole } from "@/hooks/use-auth";
+import { fetchRole, useAuth } from "@/hooks/use-auth";
 import { createDemoAccount } from "@/lib/demo.functions";
 import { homeForRole } from "@/lib/roles";
 
@@ -58,6 +58,7 @@ function AuthPage() {
 
 function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) => void }) {
   const navigate = useNavigate();
+  const { user, role, isDemo, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
 
   // Form Fields
@@ -230,6 +231,20 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
 
   return (
     <div className="mx-auto flex min-h-[calc(100vh-8rem)] max-w-md flex-col justify-center px-4 py-12">
+      {!authLoading && user && (
+        <div role="status" className="mb-4 rounded-lg border bg-muted/40 p-4 text-sm">
+          <p>
+            คุณเข้าสู่ระบบอยู่แล้ว{isDemo ? " (บัญชีทดลอง DEMO)" : ""}
+            {user.email && !isDemo ? <> ในชื่อ <strong>{user.email}</strong></> : null}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            การเข้าสู่ระบบด้วยบัญชีอื่นด้านล่างจะออกจากบัญชีปัจจุบันโดยอัตโนมัติ
+          </p>
+          <Button size="sm" className="mt-3" onClick={() => navigate({ to: homeForRole(role) })}>
+            ไปที่หน้าหลักของบัญชีนี้
+          </Button>
+        </div>
+      )}
       <Card className="shadow-card border">
         <CardHeader className="space-y-1 text-center">
           <div className="mx-auto mb-2 grid h-12 w-12 place-items-center rounded-2xl bg-primary/10 text-primary">
@@ -431,8 +446,11 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
             <p className="text-xs text-muted-foreground">
               สร้างบัญชีลูกค้าทดลองพร้อมข้อมูลสมมติทันที ไม่ต้องใช้อีเมลหรือเบอร์โทรจริง บัญชีทดลองเป็นลูกค้าเท่านั้น ไม่สามารถเป็นผู้ดูแลระบบได้ และการชำระเงินเป็นการจำลอง
             </p>
+            <p className="text-xs text-muted-foreground">
+              หมายเหตุ: เมื่อออกจากระบบแล้วจะกลับเข้าบัญชีทดลองเดิมไม่ได้ ต้องสร้างบัญชีทดลองใหม่
+            </p>
             <Button type="button" variant="outline" className="w-full" disabled={loading} onClick={startDemo}>
-              ทดลองใช้งานในฐานะลูกค้าตัวอย่าง
+              {loading ? "กำลังสร้างบัญชีทดลอง..." : "ทดลองใช้งานในฐานะลูกค้าตัวอย่าง"}
             </Button>
           </CardContent>
         </Card>
