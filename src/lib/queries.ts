@@ -1,6 +1,7 @@
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
+import { cancelExpiredBookings } from "@/lib/payment-window";
 
 export const carsQuery = () =>
   queryOptions({
@@ -55,7 +56,8 @@ export const customerBookingsQuery = (userId: string) =>
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as unknown as CustomerBooking[];
+      // Unpaid bookings older than 15 minutes are cancelled here (app-level expiry).
+      return cancelExpiredBookings((data ?? []) as unknown as CustomerBooking[]);
     },
   });
 

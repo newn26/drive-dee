@@ -77,6 +77,8 @@ import { carImage } from "@/lib/car-images";
 import { bookingStatusLabel, categoryLabel, fmtDate, fmtDateTime, maintStatusLabel, thb, todayBkk } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 import { invalidateBookingData } from "@/lib/queries";
+import { cancelExpiredBookings } from "@/lib/payment-window";
+import { syncCarStatus } from "@/lib/car-status";
 import { adminReviewsQuery } from "@/lib/admin-reviews";
 import { AdminReviewsPanel } from "@/components/admin/reviews-panel";
 import { dashboardPermissions } from "@/lib/roles";
@@ -237,7 +239,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
         .select("*, cars(*)")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as unknown as BookingWithCar[];
+      // Unpaid bookings older than 15 minutes are cancelled here (app-level expiry).
+      return cancelExpiredBookings((data ?? []) as unknown as BookingWithCar[]);
     },
     enabled: perms.viewDashboard,
   });
@@ -474,12 +477,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
       if (error) throw error;
 
-      // Auto update car status if marking as active (rented) or completed (available)
-      if (newBookingStatus === "active") {
-        await supabase.from("cars").update({ status: "rented" }).eq("id", updatingBooking.car_id);
-      } else if (newBookingStatus === "completed" || newBookingStatus === "cancelled") {
-        await supabase.from("cars").update({ status: "available" }).eq("id", updatingBooking.car_id);
-      }
+      // Car status follows its bookings and maintenance (rented / maintenance / available)
+      await syncCarStatus(updatingBooking.car_id);
 
       toast.success("ปรับปรุงสถานะการจองเรียบร้อยแล้ว");
       setUpdatingBooking(null);
@@ -505,14 +504,13 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
         scheduled_date: maintForm.scheduled_date,
         cost: Number(maintForm.cost),
         status: maintForm.status,
+        completed_date: maintForm.status === "completed" ? todayBkk() : null,
       });
 
       if (error) throw error;
 
-      // Update car status to maintenance if scheduled/in progress
-      if (maintForm.status === "in_progress") {
-        await supabase.from("cars").update({ status: "maintenance" }).eq("id", maintForm.car_id);
-      }
+      // Car goes to "maintenance" when the job is in progress or due today
+      await syncCarStatus(maintForm.car_id);
 
       toast.success("บันทึกตารางการซ่อมบำรุงเรียบร้อยแล้ว");
       setMaintModalOpen(false);
@@ -529,6 +527,28 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     } catch (err: unknown) {
       const error = err as Error;
       toast.error(error.message || "ไม่สามารถบันทึกงานซ่อมบำรุงได้");
+    }
+  };
+
+  const handleMaintenanceStatus = async (m: MaintenanceWithCar, status: Tables<"maintenance">["status"]) => {
+    try {
+      const { error } = await supabase
+        .from("maintenance")
+        .update({ status, completed_date: status === "completed" ? todayBkk() : null })
+        .eq("id", m.id);
+      if (error) throw error;
+
+      await syncCarStatus(m.car_id);
+      toast.success(status === "completed" ? "ปิดงานซ่อมบำรุงเรียบร้อยแล้ว" : "เริ่มงานซ่อมบำรุงแล้ว");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin-maintenance"] }),
+        queryClient.invalidateQueries({ queryKey: ["admin-cars"] }),
+        queryClient.invalidateQueries({ queryKey: ["cars"] }),
+        queryClient.invalidateQueries({ queryKey: ["car"] }),
+      ]);
+    } catch (err: unknown) {
+      const error = err as Error;
+      toast.error(error.message || "ไม่สามารถเปลี่ยนสถานะงานซ่อมบำรุงได้");
     }
   };
 
@@ -1408,6 +1428,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       <TableHead>วันที่นัดหมาย</TableHead>
                       <TableHead>ค่าใช้จ่าย</TableHead>
                       <TableHead>สถานะ</TableHead>
+                      <TableHead className="text-right">จัดการ</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1427,12 +1448,33 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                         <TableCell className="font-semibold text-primary text-xs">{thb(m.cost)}</TableCell>
                         <TableCell>
                           <StatusBadge status={m.status} kind="maint" />
+                          {m.completed_date && (
+                            <span className="block text-[11px] text-muted-foreground mt-1">
+                              เสร็จ {fmtDate(m.completed_date)}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1.5">
+                            {m.status === "scheduled" && (
+                              <Button size="sm" variant="outline" className="text-xs h-7"
+                                onClick={() => handleMaintenanceStatus(m, "in_progress")}>
+                                เริ่มซ่อม
+                              </Button>
+                            )}
+                            {m.status !== "completed" && (
+                              <Button size="sm" className="text-xs h-7"
+                                onClick={() => handleMaintenanceStatus(m, "completed")}>
+                                เสร็จสิ้น
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
                     {filteredMaintenance.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                           ไม่พบประวัติงานซ่อมบำรุง
                         </TableCell>
                       </TableRow>

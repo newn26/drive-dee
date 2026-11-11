@@ -35,6 +35,7 @@ import { carImage } from "@/lib/car-images";
 import { categoryLabel, fmtDate, fmtDateTime, thb } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 import { invalidateBookingData } from "@/lib/queries";
+import { cancelExpiredBookings, formatCountdown, paymentSecondsLeft } from "@/lib/payment-window";
 
 export const Route = createFileRoute("/bookings_/$id")({
   head: () => ({
@@ -68,21 +69,13 @@ function BookingDetailsPage() {
   const [cardExpiry, setCardExpiry] = useState("");
   const [cardCvv, setCardCvv] = useState("");
 
-  // PromptPay Countdown Timer (15 minutes simulation)
-  const [timeLeft, setTimeLeft] = useState(15 * 60);
+  // Payment countdown: 15 minutes from when the booking was created
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
-
-  const formatCountdown = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-  };
 
   // 1. Fetch Booking and Vehicle Data
   const {
@@ -136,6 +129,15 @@ function BookingDetailsPage() {
     enabled: !!id && (booking?.status === "confirmed" || booking?.status === "active" || booking?.status === "completed"),
   });
 
+  const timeLeft = booking ? paymentSecondsLeft(booking.created_at, now) : 0;
+  const paymentExpired = booking?.status === "pending" && timeLeft === 0;
+
+  // When the payment time runs out, cancel the booking so the car is released
+  useEffect(() => {
+    if (!booking || !paymentExpired) return;
+    cancelExpiredBookings([booking]).then(() => invalidateBookingData(queryClient));
+  }, [booking, paymentExpired, queryClient]);
+
   // Handle Card input format
   const handleCardNumberChange = (val: string) => {
     const cleaned = val.replace(/\D/g, "").slice(0, 16);
@@ -155,6 +157,10 @@ function BookingDetailsPage() {
   // Payment Submission
   const handlePayment = async (method: "qr" | "card") => {
     if (!booking) return;
+    if (paymentExpired) {
+      toast.error("หมดเวลาชำระเงิน กรุณาจองใหม่อีกครั้ง");
+      return;
+    }
 
     if (method === "card") {
       const rawNumber = cardNumber.replace(/\s/g, "");
@@ -197,7 +203,12 @@ function BookingDetailsPage() {
         throw error;
       }
 
-      toast.success("ชำระเงินสำเร็จ! สัญญาเช่าได้รับการสร้างเรียบร้อยแล้ว");
+      // Demo only: card details never leave the browser except the last 4 digits; clear them now
+      setCardName("");
+      setCardNumber("");
+      setCardExpiry("");
+      setCardCvv("");
+      toast.success("ชำระเงินสำเร็จ (DEMO)! สัญญาเช่าได้รับการสร้างเรียบร้อยแล้ว");
       // Refresh this booking plus every list and availability cache that depends on it
       await invalidateBookingData(queryClient);
     } catch (err: unknown) {
@@ -408,6 +419,14 @@ function BookingDetailsPage() {
                 </div>
                 <CardDescription>
                   ยอดที่ต้องชำระ: <strong className="text-foreground">{thb(booking.total_amount)}</strong>
+                  {" · "}
+                  {paymentExpired ? (
+                    <span className="font-semibold text-destructive">หมดเวลาชำระเงินแล้ว</span>
+                  ) : (
+                    <span>
+                      กรุณาชำระภายใน <span className="font-mono font-bold text-warning">{formatCountdown(timeLeft)}</span> นาที
+                    </span>
+                  )}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -464,7 +483,7 @@ function BookingDetailsPage() {
                     <Button
                       size="lg"
                       className="w-full text-base font-medium shadow-md"
-                      disabled={submittingPayment}
+                      disabled={submittingPayment || paymentExpired}
                       onClick={() => handlePayment("qr")}
                     >
                       {submittingPayment ? "กำลังตรวจสอบการชำระเงิน..." : "จำลองยืนยันการชำระเงินผ่าน QR Code"}
@@ -532,7 +551,7 @@ function BookingDetailsPage() {
                     <Button
                       size="lg"
                       className="w-full text-base font-medium shadow-md"
-                      disabled={submittingPayment}
+                      disabled={submittingPayment || paymentExpired}
                       onClick={() => handlePayment("card")}
                     >
                       {submittingPayment ? "กำลังประมวลผลบัตรเครดิต..." : `ชำระเงิน ${thb(booking.total_amount)}`}
