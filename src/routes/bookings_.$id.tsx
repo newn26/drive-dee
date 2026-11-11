@@ -36,6 +36,8 @@ import { categoryLabel, fmtDate, fmtDateTime, thb } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 import { invalidateBookingData } from "@/lib/queries";
 import { cancelExpiredBookings, formatCountdown, paymentSecondsLeft } from "@/lib/payment-window";
+import { DEMO_CARD, demoQrValue, isValidCardExpiry } from "@/lib/demo-payment";
+import { LoadError } from "@/components/load-error";
 
 export const Route = createFileRoute("/bookings_/$id")({
   head: () => ({
@@ -82,6 +84,7 @@ function BookingDetailsPage() {
     data: booking,
     isLoading: bookingLoading,
     error: bookingError,
+    refetch: refetchBooking,
   } = useQuery({
     queryKey: ["booking", id],
     queryFn: async () => {
@@ -98,7 +101,7 @@ function BookingDetailsPage() {
   });
 
   // 2. Fetch Payment Information (if exists)
-  const { data: payment } = useQuery({
+  const { data: payment, isLoading: paymentLoading } = useQuery({
     queryKey: ["payment", id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -172,8 +175,8 @@ function BookingDetailsPage() {
         toast.error("กรุณากรอกชื่อบนบัตร");
         return;
       }
-      if (cardExpiry.length < 5) {
-        toast.error("กรุณากรอกวันหมดอายุให้ถูกต้อง (MM/YY)");
+      if (!isValidCardExpiry(cardExpiry)) {
+        toast.error("กรุณากรอกวันหมดอายุให้ถูกต้อง (MM/YY) และบัตรต้องยังไม่หมดอายุ");
         return;
       }
       if (cardCvv.length < 3) {
@@ -273,8 +276,21 @@ function BookingDetailsPage() {
     );
   }
 
+  if (bookingError) {
+    return (
+      <LoadError
+        title="โหลดข้อมูลการจองไม่สำเร็จ"
+        onRetry={() => void refetchBooking()}
+      >
+        <Button variant="outline" asChild>
+          <Link to="/bookings">ไปที่การจองของฉัน</Link>
+        </Button>
+      </LoadError>
+    );
+  }
+
   // Not Found or Unauthorized
-  if (bookingError || !booking) {
+  if (!booking) {
     return (
       <div className="mx-auto max-w-md px-4 py-20 text-center">
         <AlertCircle className="mx-auto h-12 w-12 text-destructive" />
@@ -293,6 +309,8 @@ function BookingDetailsPage() {
 
   const car = booking.cars;
   const isPaid = booking.status !== "pending" && booking.status !== "cancelled";
+  // Admins can open any booking, but only the customer who made it can pay or sign
+  const isOwner = booking.user_id === user.id;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
@@ -408,13 +426,26 @@ function BookingDetailsPage() {
         {/* Right Column: Dynamic View (Payment Interface OR Confirmed Contract View) (7 Cols) */}
         <div className="space-y-6 lg:col-span-7">
           {/* SCENARIO 1: BOOKING IS PENDING PAYMENT */}
-          {!isPaid && booking.status !== "cancelled" && (
+          {!isPaid && booking.status !== "cancelled" && !isOwner && (
             <Card className="shadow-card border">
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <CardTitle className="text-xl">รอลูกค้าชำระเงิน</CardTitle>
+                <CardDescription>
+                  การจองนี้เป็นของลูกค้า มีเพียงลูกค้าเจ้าของการจองเท่านั้นที่ชำระเงินได้
+                  {" · "}
+                  {paymentExpired ? "หมดเวลาชำระเงินแล้ว" : `เหลือเวลา ${formatCountdown(timeLeft)} นาที`}
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          )}
+
+          {!isPaid && booking.status !== "cancelled" && isOwner && (
+            <Card className="shadow-card border">
+              <CardHeader>
+                <div className="flex items-center justify-between gap-2">
                   <CardTitle className="text-xl">เลือกช่องทางชำระเงิน</CardTitle>
-                  <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">
-                    ระบบจำลอง Sandbox
+                  <Badge variant="outline" className="border-amber-400 bg-amber-100 text-amber-900">
+                    DEMO · ไม่มีการตัดเงินจริง
                   </Badge>
                 </div>
                 <CardDescription>
@@ -448,14 +479,18 @@ function BookingDetailsPage() {
                         <span>หมดอายุใน: <span className="font-mono text-warning font-bold">{formatCountdown(timeLeft)}</span> นาที</span>
                       </div>
 
-                      {/* Dynamic PromptPay QR Rendering */}
-                      <div className="rounded-2xl bg-white p-4 shadow-sm border">
+                      {/* Demo QR: not a PromptPay payload, so a real banking app cannot pay it */}
+                      <div className="relative rounded-2xl bg-white p-4 shadow-sm border">
                         <QRCodeSVG
-                          value={`https://promptpay.io/0105567000000/${booking.total_amount}?ref=${booking.booking_code}`}
+                          value={demoQrValue(booking.booking_code, Number(booking.total_amount))}
                           size={190}
                           level="M"
                           includeMargin={false}
+                          aria-label="QR Code ตัวอย่างสำหรับการสาธิต ใช้ชำระเงินจริงไม่ได้"
                         />
+                        <span className="absolute -right-2 -top-2 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-amber-950">
+                          DEMO
+                        </span>
                       </div>
 
                       <div className="mt-4 space-y-1">
@@ -469,15 +504,15 @@ function BookingDetailsPage() {
                       </div>
 
                       <div className="mt-4 max-w-xs text-left rounded-lg bg-card p-3 border text-xs text-muted-foreground space-y-1">
-                        <p className="font-medium text-foreground">ขั้นตอนการชำระเงิน:</p>
-                        <p>1. เปิดแอป Mobile Banking ของทุกธนาคาร</p>
-                        <p>2. เลือกเมนู "สแกน" เพื่อสแกน QR Code</p>
-                        <p>3. ตรวจสอบชื่อบัญชีและยอดเงินให้ถูกต้อง</p>
+                        <p className="font-medium text-foreground">ขั้นตอนการชำระเงิน (สาธิต):</p>
+                        <p>1. QR Code นี้เป็นตัวอย่าง ไม่ต้องสแกนด้วยแอปธนาคาร</p>
+                        <p>2. ตรวจสอบยอดเงินและเลขอ้างอิงให้ถูกต้อง</p>
+                        <p>3. กดปุ่ม "จำลองยืนยันการชำระเงิน" ด้านล่าง</p>
                       </div>
                     </div>
 
-                    <div className="rounded-lg bg-primary/5 p-3 text-xs text-primary border border-primary/10">
-                      ℹ️ <strong>โหมดทดสอบ (Sandbox Mode):</strong> คุณสามารถกดปุ่มยืนยันการชำระเงินด้านล่างเพื่อจำลองการตัดเงินและออกสัญญาเช่าได้ทันทีโดยไม่เสียค่าใช้จ่ายจริง
+                    <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                      <strong>โหมดสาธิต (DEMO):</strong> ไม่มีการโอนหรือตัดเงินจริง กดปุ่มด้านล่างเพื่อจำลองการชำระเงินและออกสัญญาเช่าได้ทันที
                     </div>
 
                     <Button
@@ -544,8 +579,25 @@ function BookingDetailsPage() {
                       </div>
                     </div>
 
-                    <div className="rounded-lg bg-primary/5 p-3 text-xs text-primary border border-primary/10">
-                      🔒 <strong>การเข้ารหัสตามมาตรฐานความปลอดภัย:</strong> บันทึกเฉพาะหมายเลข 4 หลักสุดท้ายสำหรับการตรวจสอบประวัติ ปลอดภัย 100%
+                    <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+                      <p>
+                        <strong>โหมดสาธิต (DEMO):</strong> ไม่มีการตัดเงินจริง กรุณา<strong>อย่ากรอกข้อมูลบัตรจริง</strong>
+                        ระบบบันทึกเฉพาะเลข 4 หลักสุดท้ายเพื่อแสดงในประวัติ
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 border-amber-400 bg-white text-xs"
+                        onClick={() => {
+                          setCardName(DEMO_CARD.name);
+                          setCardNumber(DEMO_CARD.number);
+                          setCardExpiry(DEMO_CARD.expiry);
+                          setCardCvv(DEMO_CARD.cvv);
+                        }}
+                      >
+                        กรอกบัตรทดสอบ ({DEMO_CARD.number})
+                      </Button>
                     </div>
 
                     <Button
@@ -554,7 +606,7 @@ function BookingDetailsPage() {
                       disabled={submittingPayment || paymentExpired}
                       onClick={() => handlePayment("card")}
                     >
-                      {submittingPayment ? "กำลังประมวลผลบัตรเครดิต..." : `ชำระเงิน ${thb(booking.total_amount)}`}
+                      {submittingPayment ? "กำลังประมวลผลบัตรเครดิต..." : `จำลองชำระเงิน ${thb(booking.total_amount)} (DEMO)`}
                     </Button>
                   </TabsContent>
                 </Tabs>
@@ -579,26 +631,36 @@ function BookingDetailsPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="text-sm">
+                  {paymentLoading ? (
+                    <p className="rounded-lg border bg-card p-3 text-muted-foreground" role="status">
+                      กำลังโหลดรายละเอียดการชำระเงิน...
+                    </p>
+                  ) : !payment ? (
+                    <p className="rounded-lg border bg-card p-3 text-muted-foreground">
+                      ไม่พบรายละเอียดการชำระเงินของการจองนี้
+                    </p>
+                  ) : (
                   <div className="grid grid-cols-2 gap-3 rounded-lg bg-card p-3 border">
                     <div>
                       <span className="text-xs text-muted-foreground">ช่องทางชำระ:</span>
                       <p className="font-medium text-foreground capitalize">
-                        {payment?.method === "qr" ? "QR PromptPay" : `บัตรเครดิต (••• ${payment?.card_last4 ?? "XXXX"})`}
+                        {payment.method === "qr" ? "QR PromptPay (DEMO)" : `บัตรเครดิต (••• ${payment.card_last4 ?? "XXXX"}) (DEMO)`}
                       </p>
                     </div>
                     <div>
                       <span className="text-xs text-muted-foreground">รหัสอ้างอิงการชำระ:</span>
-                      <p className="font-mono text-foreground">{payment?.reference ?? "-"}</p>
+                      <p className="font-mono text-foreground">{payment.reference ?? "-"}</p>
                     </div>
                     <div>
                       <span className="text-xs text-muted-foreground">ยอดเงินที่ชำระ:</span>
-                      <p className="font-semibold text-primary">{thb(payment?.amount ?? booking.total_amount)}</p>
+                      <p className="font-semibold text-primary">{thb(payment.amount)}</p>
                     </div>
                     <div>
                       <span className="text-xs text-muted-foreground">วันที่ชำระเงิน:</span>
-                      <p className="text-foreground">{fmtDateTime(payment?.paid_at)}</p>
+                      <p className="text-foreground">{fmtDateTime(payment.paid_at)}</p>
                     </div>
                   </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -631,6 +693,11 @@ function BookingDetailsPage() {
                       <span>
                         ผู้เช่าลงนามยอมรับสัญญาแล้วเมื่อ <strong>{fmtDateTime(contract.customer_accepted_at)}</strong>
                       </span>
+                    </div>
+                  ) : !isOwner ? (
+                    <div className="flex items-center gap-2.5 rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      <span>รอลูกค้าลงนามยอมรับสัญญา (เฉพาะลูกค้าเจ้าของการจองเท่านั้นที่ลงนามได้)</span>
                     </div>
                   ) : (
                     <div className="space-y-3 rounded-xl border border-warning/30 bg-warning/5 p-4">
