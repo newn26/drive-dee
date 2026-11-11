@@ -14,6 +14,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "@/hooks/use-auth";
 import { SiteHeader } from "@/components/site-header";
+import { PrototypeNotice } from "@/components/prototype-notice";
 import { Toaster } from "@/components/ui/sonner";
 
 function NotFoundComponent() {
@@ -146,6 +147,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <SiteHeader />
+        <PrototypeNotice />
         <main className="min-h-[calc(100vh-4rem)]">
           <Outlet />
         </main>
