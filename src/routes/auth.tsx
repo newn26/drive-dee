@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Lock, Mail, Phone, User, ArrowLeft, ShieldCheck, KeyRound } from "lucide-react";
+import { Lock, Mail, Phone, User, ArrowLeft, ShieldCheck, KeyRound, MonitorPlay } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,14 +9,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { ResetPasswordForm } from "@/components/reset-password-form";
+import { fetchRole } from "@/hooks/use-auth";
+import { homeForRole } from "@/lib/roles";
 
-type AuthSearch = { reset?: boolean | undefined };
+type AuthSearch = { reset?: boolean | undefined; demo?: boolean | undefined };
 
 export const Route = createFileRoute("/auth")({
   // The password-reset email links back to /auth?reset=true.
   // The router parses "true" into a boolean, so accept both forms.
   validateSearch: (s: Record<string, unknown>): AuthSearch => ({
     reset: s["reset"] === true || s["reset"] === "true" ? true : undefined,
+    demo: s["demo"] === true || s["demo"] === "true" ? true : undefined,
   }),
   head: () => ({
     meta: [
@@ -28,12 +31,12 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
-type AuthMode = "login" | "register" | "forgot";
+type AuthMode = "login" | "register" | "forgot" | "demo";
 
 function AuthPage() {
   const navigate = useNavigate();
   const search = Route.useSearch();
-  const [mode, setMode] = useState<AuthMode>("login");
+  const [mode, setMode] = useState<AuthMode>(search.demo ? "demo" : "login");
 
   if (search.reset) {
     return (
@@ -102,15 +105,15 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
       return;
     }
 
-    // 2. Sign In Flow
-    if (mode === "login") {
+    // 2. Sign In Flow (customer/admin, or the separate Demo Admin option)
+    if (mode === "login" || mode === "demo") {
       if (!email.trim() || !password) {
         toast.error("กรุณากรอกอีเมลและรหัสผ่าน");
         return;
       }
       setLoading(true);
       try {
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password,
         });
@@ -124,8 +127,23 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
           return;
         }
 
+        // The role comes from user_roles in the database, never from the form.
+        const role = data.user ? await fetchRole(data.user.id) : "customer";
+
+        if (mode === "demo") {
+          if (role !== "demo_admin") {
+            await supabase.auth.signOut();
+            toast.error("บัญชีนี้ไม่ใช่บัญชีผู้ดูแลระบบสาธิต (Demo Admin)");
+            return;
+          }
+          toast.success("เข้าสู่ระบบโหมดสาธิต (Demo Admin) สำเร็จ");
+          navigate({ to: "/demo-admin" });
+          return;
+        }
+
         toast.success("เข้าสู่ระบบสำเร็จ ยินดีต้อนรับกลับมา");
-        navigate({ to: "/" });
+        // Demo admins always land on their restricted dashboard
+        navigate({ to: role === "demo_admin" ? homeForRole(role) : "/" });
       } catch (err: unknown) {
         const error = err as Error;
         toast.error(error.message || "ไม่สามารถเชื่อมต่อระบบได้");
@@ -199,17 +217,33 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
       <Card className="shadow-card border">
         <CardHeader className="space-y-1 text-center">
           <div className="mx-auto mb-2 grid h-12 w-12 place-items-center rounded-2xl bg-primary/10 text-primary">
-            {mode === "login" ? <Lock className="h-6 w-6" /> : mode === "register" ? <User className="h-6 w-6" /> : <KeyRound className="h-6 w-6" />}
+            {mode === "login" ? (
+              <Lock className="h-6 w-6" />
+            ) : mode === "register" ? (
+              <User className="h-6 w-6" />
+            ) : mode === "demo" ? (
+              <MonitorPlay className="h-6 w-6" />
+            ) : (
+              <KeyRound className="h-6 w-6" />
+            )}
           </div>
           <CardTitle className="text-2xl font-bold">
-            {mode === "login" ? "เข้าสู่ระบบ" : mode === "register" ? "สมัครสมาชิกใหม่" : "รีเซ็ตรหัสผ่าน"}
+            {mode === "login"
+              ? "เข้าสู่ระบบ"
+              : mode === "register"
+                ? "สมัครสมาชิกใหม่"
+                : mode === "demo"
+                  ? "เข้าสู่ระบบ Demo Admin"
+                  : "รีเซ็ตรหัสผ่าน"}
           </CardTitle>
           <CardDescription>
             {mode === "login"
               ? "ยินดีต้อนรับกลับสู่ Siam Wheels Rental Hub"
               : mode === "register"
                 ? "สร้างบัญชีผู้ใช้งานเพื่อเริ่มต้นจองรถเช่าออนไลน์ได้ทันที"
-                : "กรอกอีเมลของคุณเพื่อรับลิงก์สำหรับตั้งรหัสผ่านใหม่"}
+                : mode === "demo"
+                  ? "สำหรับบัญชีสาธิตที่เจ้าของระบบสร้างให้เท่านั้น สิทธิ์จำกัด (ลบข้อมูลหรือเปลี่ยนสิทธิ์ผู้ใช้ไม่ได้)"
+                  : "กรอกอีเมลของคุณเพื่อรับลิงก์สำหรับตั้งรหัสผ่านใหม่"}
           </CardDescription>
         </CardHeader>
 
@@ -258,7 +292,7 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
                 <Input
                   id="auth-email"
                   type="email"
-                  placeholder="customer@example.com"
+                  placeholder={mode === "demo" ? "demo-admin@example.com" : "customer@example.com"}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -324,7 +358,7 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
             <Button className="w-full text-base" type="submit" disabled={loading}>
               {loading
                 ? "กำลังดำเนินการ..."
-                : mode === "login"
+                : mode === "login" || mode === "demo"
                   ? "เข้าสู่ระบบ"
                   : mode === "register"
                     ? "สร้างบัญชีผู้ใช้งาน"
@@ -341,6 +375,16 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
               </button>
             )}
 
+            {mode === "login" && (
+              <button
+                type="button"
+                className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => switchMode("demo")}
+              >
+                <MonitorPlay className="mr-1 h-3.5 w-3.5" /> เข้าสู่ระบบสำหรับผู้ดูแลระบบสาธิต (Demo Admin)
+              </button>
+            )}
+
             {mode === "register" && (
               <button
                 type="button"
@@ -351,7 +395,7 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
               </button>
             )}
 
-            {mode === "forgot" && (
+            {(mode === "forgot" || mode === "demo") && (
               <button
                 type="button"
                 className="inline-flex items-center text-sm text-primary hover:underline"

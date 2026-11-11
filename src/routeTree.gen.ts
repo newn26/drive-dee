@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as BookingsRouteImport } from './routes/bookings'
 import { Route as CarsRouteImport } from './routes/cars'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as DemoAdminRouteImport } from './routes/demo-admin'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as BookingsIdRouteImport } from './routes/bookings_.$id'
 import { Route as CarsIdRouteImport } from './routes/cars_.$id'
@@ -49,6 +50,11 @@ const DashboardRoute = DashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DemoAdminRoute = DemoAdminRouteImport.update({
+  id: '/demo-admin',
+  path: '/demo-admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProfileRoute = ProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
@@ -72,6 +78,7 @@ export interface FileRoutesByFullPath {
   '/bookings': typeof BookingsRoute
   '/cars': typeof CarsRoute
   '/dashboard': typeof DashboardRoute
+  '/demo-admin': typeof DemoAdminRoute
   '/profile': typeof ProfileRoute
   '/bookings/$id': typeof BookingsIdRoute
   '/cars/$id': typeof CarsIdRoute
@@ -83,6 +90,7 @@ export interface FileRoutesByTo {
   '/bookings': typeof BookingsRoute
   '/cars': typeof CarsRoute
   '/dashboard': typeof DashboardRoute
+  '/demo-admin': typeof DemoAdminRoute
   '/profile': typeof ProfileRoute
   '/bookings/$id': typeof BookingsIdRoute
   '/cars/$id': typeof CarsIdRoute
@@ -95,6 +103,7 @@ export interface FileRoutesById {
   '/bookings': typeof BookingsRoute
   '/cars': typeof CarsRoute
   '/dashboard': typeof DashboardRoute
+  '/demo-admin': typeof DemoAdminRoute
   '/profile': typeof ProfileRoute
   '/bookings_/$id': typeof BookingsIdRoute
   '/cars_/$id': typeof CarsIdRoute
@@ -108,6 +117,7 @@ export interface FileRouteTypes {
     | '/bookings'
     | '/cars'
     | '/dashboard'
+    | '/demo-admin'
     | '/profile'
     | '/bookings/$id'
     | '/cars/$id'
@@ -119,6 +129,7 @@ export interface FileRouteTypes {
     | '/bookings'
     | '/cars'
     | '/dashboard'
+    | '/demo-admin'
     | '/profile'
     | '/bookings/$id'
     | '/cars/$id'
@@ -130,6 +141,7 @@ export interface FileRouteTypes {
     | '/bookings'
     | '/cars'
     | '/dashboard'
+    | '/demo-admin'
     | '/profile'
     | '/bookings_/$id'
     | '/cars_/$id'
@@ -142,6 +154,7 @@ export interface RootRouteChildren {
   BookingsRoute: typeof BookingsRoute
   CarsRoute: typeof CarsRoute
   DashboardRoute: typeof DashboardRoute
+  DemoAdminRoute: typeof DemoAdminRoute
   ProfileRoute: typeof ProfileRoute
   BookingsIdRoute: typeof BookingsIdRoute
   CarsIdRoute: typeof CarsIdRoute
@@ -191,6 +204,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/demo-admin': {
+      id: '/demo-admin'
+      path: '/demo-admin'
+      fullPath: '/demo-admin'
+      preLoaderRoute: typeof DemoAdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/profile': {
       id: '/profile'
       path: '/profile'
@@ -222,6 +242,7 @@ const rootRouteChildren: RootRouteChildren = {
   BookingsRoute: BookingsRoute,
   CarsRoute: CarsRoute,
   DashboardRoute: DashboardRoute,
+  DemoAdminRoute: DemoAdminRoute,
   ProfileRoute: ProfileRoute,
   BookingsIdRoute: BookingsIdRoute,
   CarsIdRoute: CarsIdRoute,

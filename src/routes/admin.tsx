@@ -79,6 +79,7 @@ import type { Tables } from "@/integrations/supabase/types";
 import { invalidateBookingData } from "@/lib/queries";
 import { adminReviewsQuery } from "@/lib/admin-reviews";
 import { AdminReviewsPanel } from "@/components/admin/reviews-panel";
+import { dashboardPermissions } from "@/lib/roles";
 import {
   bookingReportCsv,
   bookingStatusMap,
@@ -104,8 +105,14 @@ export const Route = createFileRoute("/admin")({
       { property: "og:title", content: "ระบบผู้ดูแลระบบ — Siam Wheels" },
     ],
   }),
-  component: AdminDashboardPage,
+  component: () => <AdminDashboard mode="admin" />,
 });
+
+/**
+ * "admin": full administrator dashboard at /admin.
+ * "demo": restricted demonstration dashboard at /demo-admin (demo_admin role only).
+ */
+export type DashboardMode = "admin" | "demo";
 
 type AdminTab = "overview" | "cars" | "bookings" | "contracts" | "maintenance" | "reviews" | "reports";
 
@@ -138,8 +145,12 @@ const CAR_STATUSES = [
 
 const PIE_COLORS = ["#0ea5e9", "#10b981", "#f59e0b", "#6366f1", "#ec4899"];
 
-function AdminDashboardPage() {
-  const { user, isAdmin, loading: authLoading } = useAuth();
+export function AdminDashboard({ mode }: { mode: DashboardMode }) {
+  const { user, role, loading: authLoading } = useAuth();
+  const isDemo = mode === "demo";
+  // Each dashboard only opens for its own role: admins use /admin, demo admins use /demo-admin.
+  const allowed = isDemo ? role === "demo_admin" : role === "admin";
+  const perms = dashboardPermissions(allowed ? role : "customer");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -195,6 +206,7 @@ function AdminDashboardPage() {
 
   // Contract Terms Update Dialog
   const [editingContract, setEditingContract] = useState<ContractWithBooking | null>(null);
+  const [viewingContract, setViewingContract] = useState<ContractWithBooking | null>(null);
   const [contractTerms, setContractTerms] = useState("");
   const [securityDeposit, setSecurityDeposit] = useState(DEFAULT_ADMIN_CLAUSES.securityDeposit);
   const [mileageAllowance, setMileageAllowance] = useState(DEFAULT_ADMIN_CLAUSES.mileageAllowance);
@@ -214,7 +226,7 @@ function AdminDashboardPage() {
       if (error) throw error;
       return data as Tables<"cars">[];
     },
-    enabled: !!isAdmin,
+    enabled: perms.viewDashboard,
   });
 
   const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
@@ -227,7 +239,7 @@ function AdminDashboardPage() {
       if (error) throw error;
       return (data ?? []) as unknown as BookingWithCar[];
     },
-    enabled: !!isAdmin,
+    enabled: perms.viewDashboard,
   });
 
   const { data: profiles = [] } = useQuery({
@@ -237,7 +249,7 @@ function AdminDashboardPage() {
       if (error) throw error;
       return data as Tables<"profiles">[];
     },
-    enabled: !!isAdmin,
+    enabled: perms.viewDashboard,
   });
 
   const { data: maintenanceRecords = [] } = useQuery({
@@ -250,7 +262,7 @@ function AdminDashboardPage() {
       if (error) throw error;
       return (data ?? []) as unknown as MaintenanceWithCar[];
     },
-    enabled: !!isAdmin,
+    enabled: perms.viewDashboard,
   });
 
   const { data: contracts = [] } = useQuery({
@@ -263,7 +275,7 @@ function AdminDashboardPage() {
       if (error) throw error;
       return (data ?? []) as unknown as ContractWithBooking[];
     },
-    enabled: !!isAdmin,
+    enabled: perms.viewDashboard,
   });
 
   // Payments are the source of truth for revenue (unpaid bookings are never revenue)
@@ -274,7 +286,7 @@ function AdminDashboardPage() {
       if (error) throw error;
       return data as Tables<"payments">[];
     },
-    enabled: !!isAdmin,
+    enabled: perms.viewDashboard,
   });
 
   // Roles, so admins are not counted as customers
@@ -285,10 +297,10 @@ function AdminDashboardPage() {
       if (error) throw error;
       return data;
     },
-    enabled: !!isAdmin,
+    enabled: perms.viewDashboard,
   });
 
-  const { data: reviewsForCount = [] } = useQuery({ ...adminReviewsQuery(), enabled: !!isAdmin });
+  const { data: reviewsForCount = [] } = useQuery({ ...adminReviewsQuery(), enabled: perms.moderateReviews });
 
   const profileMap = useMemo(() => {
     const map: Record<string, Tables<"profiles">> = {};
@@ -401,6 +413,11 @@ function AdminDashboardPage() {
 
   const handleDeleteCar = async () => {
     if (!carToDelete) return;
+    if (!perms.deleteCars) {
+      toast.error("โหมดสาธิตไม่สามารถลบรถยนต์ได้");
+      setCarToDelete(null);
+      return;
+    }
     setDeletingCar(true);
     try {
       const hasBooking = bookings.some((b) => b.car_id === carToDelete.id);
@@ -528,6 +545,10 @@ function AdminDashboardPage() {
 
   const handleSaveContractTerms = async () => {
     if (!editingContract) return;
+    if (!perms.editContracts) {
+      toast.error("โหมดสาธิตดูสัญญาได้อย่างเดียว");
+      return;
+    }
     const clauses = { securityDeposit, mileageAllowance, latePenalty };
     const problem = validateContractEdit(contractTerms, clauses);
     if (problem) {
@@ -689,7 +710,7 @@ function AdminDashboardPage() {
     );
   }
 
-  if (!user || !isAdmin) {
+  if (!user || !allowed) {
     return (
       <div className="mx-auto max-w-md px-4 py-20 text-center">
         <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-destructive/10 text-destructive">
@@ -697,15 +718,29 @@ function AdminDashboardPage() {
         </div>
         <h2 className="text-2xl font-bold">ปฏิเสธการเข้าถึง (Access Denied)</h2>
         <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-          หน้านี้สงวนไว้สำหรับผู้ดูแลระบบ (Administrator) ของ Siam Wheels Rental Hub เท่านั้น บัญชีของคุณไม่มีสิทธิ์ในการเข้าถึงระบบนี้
+          {isDemo
+            ? "หน้านี้สงวนไว้สำหรับบัญชีผู้ดูแลระบบสาธิต (Demo Admin) เท่านั้น"
+            : "หน้านี้สงวนไว้สำหรับผู้ดูแลระบบ (Administrator) ของ Siam Wheels Rental Hub เท่านั้น บัญชีของคุณไม่มีสิทธิ์ในการเข้าถึงระบบนี้"}
         </p>
         <div className="mt-6 flex flex-col gap-2">
-          <Button asChild>
+          {user && role === "demo_admin" && !isDemo && (
+            <Button asChild>
+              <Link to="/demo-admin">ไปที่แดชบอร์ดสาธิต (Demo Admin)</Link>
+            </Button>
+          )}
+          {user && role === "admin" && isDemo && (
+            <Button asChild>
+              <Link to="/admin">ไปที่ระบบผู้ดูแล (Admin)</Link>
+            </Button>
+          )}
+          <Button variant={user && role !== "customer" ? "outline" : "default"} asChild>
             <Link to="/">กลับสู่หน้าหลัก</Link>
           </Button>
           {!user && (
             <Button variant="outline" asChild>
-              <Link to="/auth">เข้าสู่ระบบด้วยบัญชีผู้ดูแล</Link>
+              <Link to="/auth" search={isDemo ? { demo: true } : {}}>
+                {isDemo ? "เข้าสู่ระบบ Demo Admin" : "เข้าสู่ระบบด้วยบัญชีผู้ดูแล"}
+              </Link>
             </Button>
           )}
         </div>
@@ -715,13 +750,34 @@ function AdminDashboardPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
+      {isDemo && (
+        <div
+          role="status"
+          className="mb-6 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">โหมดสาธิต (Demo Admin)</p>
+            <p className="mt-0.5">
+              เพิ่ม/แก้ไขรถ เปลี่ยนสถานะการจอง และบันทึกงานซ่อมบำรุงได้ ดูสัญญาเช่าและรายงานได้
+              แต่ลบข้อมูล แก้ไขสัญญา จัดการรีวิว หรือเปลี่ยนสิทธิ์ผู้ใช้ไม่ได้
+            </p>
+          </div>
+        </div>
+      )}
       {/* Admin Top Header */}
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b pb-6">
         <div>
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
-              <ShieldCheck className="mr-1 h-3.5 w-3.5" /> Administrator Portal
-            </Badge>
+            {isDemo ? (
+              <Badge variant="outline" className="border-amber-400 bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+                <ShieldAlert className="mr-1 h-3.5 w-3.5" /> Demo Admin Portal
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                <ShieldCheck className="mr-1 h-3.5 w-3.5" /> Administrator Portal
+              </Badge>
+            )}
             <span className="text-xs text-muted-foreground">Siam Wheels Operations</span>
           </div>
           <h1 className="mt-1 text-3xl font-bold tracking-tight">ศูนย์ควบคุมและบริหารจัดการรถเช่า</h1>
@@ -754,7 +810,9 @@ function AdminDashboardPage() {
                 { id: "maintenance", label: "งานซ่อมบำรุง", icon: Wrench, count: maintenanceRecords.length },
                 { id: "reviews", label: "รีวิวจากลูกค้า", icon: MessageSquareWarning, count: reviewsForCount.length },
                 { id: "reports", label: "รายงานและสถิติ", icon: BarChart3, count: null },
-              ].map((item) => (
+              ]
+                .filter((item) => item.id !== "reviews" || perms.moderateReviews)
+                .map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id as AdminTab)}
@@ -1066,15 +1124,17 @@ function AdminDashboardPage() {
                             <Button variant="ghost" size="sm" onClick={() => openCarModal(car)} title="แก้ไข">
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-destructive hover:bg-destructive/10"
-                              onClick={() => setCarToDelete(car)}
-                              title="ลบรถยนต์"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {perms.deleteCars && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:bg-destructive/10"
+                                onClick={() => setCarToDelete(car)}
+                                title="ลบรถยนต์"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1274,14 +1334,25 @@ function AdminDashboardPage() {
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{fmtDateTime(c.created_at)}</TableCell>
                           <TableCell className="text-right">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-xs"
-                              onClick={() => openContractEditor(c)}
-                            >
-                              แก้ไขข้อตกลง
-                            </Button>
+                            {perms.editContracts ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => openContractEditor(c)}
+                              >
+                                แก้ไขข้อตกลง
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => setViewingContract(c)}
+                              >
+                                ดูสัญญา
+                              </Button>
+                            )}
                           </TableCell>
                         </TableRow>
                       );
@@ -1373,7 +1444,7 @@ function AdminDashboardPage() {
           )}
 
           {/* TAB: CUSTOMER REVIEWS (moderation) */}
-          {activeTab === "reviews" && <AdminReviewsPanel isAdmin={isAdmin} />}
+          {activeTab === "reviews" && <AdminReviewsPanel isAdmin={perms.moderateReviews} />}
 
           {/* TAB 6: REPORTS & ANALYTICS */}
           {activeTab === "reports" && (
@@ -1917,7 +1988,26 @@ function AdminDashboardPage() {
       {/* ------------------------------------------------------------- */}
       {/* DIALOG 5: DELETE CAR CONFIRMATION */}
       {/* ------------------------------------------------------------- */}
-      <Dialog open={!!carToDelete} onOpenChange={(open) => !open && setCarToDelete(null)}>
+      <Dialog open={!!viewingContract} onOpenChange={(open) => !open && setViewingContract(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>สัญญาเช่า {viewingContract?.contract_no}</DialogTitle>
+            <DialogDescription>
+              การจอง {viewingContract?.bookings?.booking_code ?? "-"} · ดูได้อย่างเดียว (โหมดสาธิต)
+            </DialogDescription>
+          </DialogHeader>
+          <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-lg border bg-muted/30 p-4 font-sans text-sm leading-relaxed">
+            {viewingContract?.terms}
+          </pre>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewingContract(null)}>
+              ปิด
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!carToDelete && perms.deleteCars} onOpenChange={(open) => !open && setCarToDelete(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="text-destructive flex items-center gap-2">
