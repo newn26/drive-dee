@@ -218,7 +218,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
   // -------------------------------------------------------------
   // Data Queries
   // -------------------------------------------------------------
-  const { data: cars = [], isLoading: carsLoading } = useQuery({
+  const carsQ = useQuery({
     queryKey: ["admin-cars"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -230,8 +230,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     },
     enabled: perms.viewDashboard,
   });
+  const cars = carsQ.data ?? [];
+  const carsLoading = carsQ.isLoading;
 
-  const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
+  const bookingsQ = useQuery({
     queryKey: ["admin-bookings"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -244,8 +246,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     },
     enabled: perms.viewDashboard,
   });
+  const bookings = bookingsQ.data ?? [];
+  const bookingsLoading = bookingsQ.isLoading;
 
-  const { data: profiles = [] } = useQuery({
+  const profilesQ = useQuery({
     queryKey: ["admin-profiles"],
     queryFn: async () => {
       const { data, error } = await supabase.from("profiles").select("*");
@@ -254,8 +258,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     },
     enabled: perms.viewDashboard,
   });
+  const profiles = profilesQ.data ?? [];
 
-  const { data: maintenanceRecords = [] } = useQuery({
+  const maintQ = useQuery({
     queryKey: ["admin-maintenance"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -267,8 +272,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     },
     enabled: perms.viewDashboard,
   });
+  const maintenanceRecords = maintQ.data ?? [];
 
-  const { data: contracts = [] } = useQuery({
+  const contractsQ = useQuery({
     queryKey: ["admin-contracts"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -280,9 +286,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     },
     enabled: perms.viewDashboard,
   });
+  const contracts = contractsQ.data ?? [];
 
   // Payments are the source of truth for revenue (unpaid bookings are never revenue)
-  const { data: payments = [] } = useQuery({
+  const paymentsQ = useQuery({
     queryKey: ["admin-payments"],
     queryFn: async () => {
       const { data, error } = await supabase.from("payments").select("*").order("paid_at", { ascending: false });
@@ -291,9 +298,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     },
     enabled: perms.viewDashboard,
   });
+  const payments = paymentsQ.data ?? [];
 
   // Roles, so admins are not counted as customers
-  const { data: roles = [] } = useQuery({
+  const rolesQ = useQuery({
     queryKey: ["admin-roles"],
     queryFn: async () => {
       const { data, error } = await supabase.from("user_roles").select("user_id, role");
@@ -302,8 +310,21 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     },
     enabled: perms.viewDashboard,
   });
+  const roles = rolesQ.data ?? [];
 
   const { data: reviewsForCount = [] } = useQuery({ ...adminReviewsQuery(), enabled: perms.moderateReviews });
+
+  // A failed load must not look like "no data", so failures are listed in a banner with a retry
+  const failedQueries = [
+    { label: "รถยนต์", q: carsQ },
+    { label: "การจอง", q: bookingsQ },
+    { label: "ลูกค้า", q: profilesQ },
+    { label: "ซ่อมบำรุง", q: maintQ },
+    { label: "สัญญาเช่า", q: contractsQ },
+    { label: "การชำระเงิน", q: paymentsQ },
+    { label: "สิทธิ์ผู้ใช้", q: rolesQ },
+  ].filter((x) => x.q.isError);
+  const retryFailedQueries = () => failedQueries.forEach((x) => void x.q.refetch());
 
   const profileMap = useMemo(() => {
     const map: Record<string, Tables<"profiles">> = {};
@@ -783,6 +804,22 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               แต่ลบข้อมูล แก้ไขสัญญา จัดการรีวิว หรือเปลี่ยนสิทธิ์ผู้ใช้ไม่ได้
             </p>
           </div>
+        </div>
+      )}
+      {failedQueries.length > 0 && (
+        <div
+          role="alert"
+          className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+        >
+          <div className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              โหลดข้อมูลบางส่วนไม่สำเร็จ: {failedQueries.map((x) => x.label).join(", ")} — ตัวเลขที่แสดงอาจไม่ครบถ้วน
+            </span>
+          </div>
+          <Button size="sm" variant="outline" onClick={retryFailedQueries}>
+            ลองใหม่
+          </Button>
         </div>
       )}
       {/* Admin Top Header */}

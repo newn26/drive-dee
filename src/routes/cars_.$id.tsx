@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/status-badge";
+import { LoadError } from "@/components/load-error";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
@@ -38,10 +39,15 @@ function CarDetail() {
   const [loc, setLoc] = useState<string>(branches[0]!);
   const [busy, setBusy] = useState(false);
 
-  const { data: car } = useQuery({
+  const carQ = useQuery({
     queryKey: ["car", id],
-    queryFn: async () => (await supabase.from("cars").select("*").eq("id", id).maybeSingle()).data,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cars").select("*").eq("id", id).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
   });
+  const car = carQ.data;
   const { data: reviews = [] } = useQuery({
     queryKey: ["reviews", id],
     queryFn: async () =>
@@ -54,7 +60,32 @@ function CarDetail() {
   const checkingDates = datesValid && (bookedQ.isFetching || !bookedQ.data) && !bookedQ.isError;
   const bookedForDates = datesValid && !bookedQ.isFetching && !!bookedQ.data?.includes(id);
 
-  if (!car) return <div className="mx-auto max-w-7xl px-4 py-20 text-muted-foreground">กำลังโหลด...</div>;
+  if (carQ.isLoading) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-20 text-center" role="status">
+        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+        <p className="mt-4 text-muted-foreground">กำลังโหลดข้อมูลรถ...</p>
+      </div>
+    );
+  }
+  if (carQ.isError) {
+    return (
+      <LoadError title="โหลดข้อมูลรถไม่สำเร็จ" onRetry={() => void carQ.refetch()}>
+        <Button variant="outline" asChild>
+          <Link to="/cars">กลับสู่หน้ารถเช่า</Link>
+        </Button>
+      </LoadError>
+    );
+  }
+  if (!car) {
+    return (
+      <LoadError title="ไม่พบรถคันนี้" message="รถคันนี้อาจถูกนำออกจากระบบแล้ว หรือลิงก์ไม่ถูกต้อง">
+        <Button asChild>
+          <Link to="/cars">เลือกดูรถคันอื่น</Link>
+        </Button>
+      </LoadError>
+    );
+  }
   const days = datesValid ? daysBetween(start, end) : 0;
   const avg = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
 
@@ -72,7 +103,7 @@ function CarDetail() {
     if (error) {
       // Someone may have booked these dates first: refresh what this page believes
       void queryClient.invalidateQueries({ queryKey: ["booked"] });
-      return toast.error(error.message);
+      return toast.error(error.message || "ไม่สามารถสร้างการจองได้ กรุณาลองใหม่อีกครั้ง");
     }
     await invalidateBookingData(queryClient);
     toast.success("สร้างการจองแล้ว กรุณาชำระเงิน");

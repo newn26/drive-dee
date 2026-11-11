@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { LoadError } from "@/components/load-error";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -66,7 +67,12 @@ function BookingsHistoryPage() {
   const [submittingReview, setSubmittingReview] = useState(false);
 
   // Fetch all customer bookings with car and review
-  const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
+  const {
+    data: bookings = [],
+    isLoading: bookingsLoading,
+    isError: bookingsError,
+    refetch: refetchBookings,
+  } = useQuery({
     ...customerBookingsQuery(user?.id ?? ""),
     enabled: !!user,
   });
@@ -165,6 +171,10 @@ function BookingsHistoryPage() {
         </Button>
       </div>
     );
+  }
+
+  if (bookingsError) {
+    return <LoadError title="โหลดประวัติการจองไม่สำเร็จ" onRetry={() => void refetchBookings()} />;
   }
 
   return (

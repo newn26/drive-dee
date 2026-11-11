@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { LoadError } from "@/components/load-error";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
@@ -59,7 +60,12 @@ function CustomerDashboardPage() {
 
   // 2. Fetch Customer Bookings
   // Same query (key and shape) as /bookings, so the two pages never read each other's cache wrongly
-  const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
+  const {
+    data: bookings = [],
+    isLoading: bookingsLoading,
+    isError: bookingsError,
+    refetch: refetchBookings,
+  } = useQuery({
     ...customerBookingsQuery(user?.id ?? ""),
     enabled: !!user,
   });
@@ -86,6 +92,10 @@ function CustomerDashboardPage() {
         </Button>
       </div>
     );
+  }
+
+  if (bookingsError) {
+    return <LoadError title="โหลดข้อมูลแดชบอร์ดไม่สำเร็จ" onRetry={() => void refetchBookings()} />;
   }
 
   const activeRentals = bookings.filter((b) => b.status === "confirmed" || b.status === "active");
