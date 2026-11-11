@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Fuel, Gauge, Settings2, Star, Users } from "lucide-react";
 import { toast } from "sonner";
@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
 import { categoryLabel, daysBetween, fmtDate, thb, todayBkk } from "@/lib/format";
+import { bookedCarIdsQuery, invalidateBookingData } from "@/lib/queries";
 
 export const Route = createFileRoute("/cars_/$id")({
   head: () => ({
@@ -31,6 +32,7 @@ function CarDetail() {
   const { id } = Route.useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [start, setStart] = useState(todayBkk(1));
   const [end, setEnd] = useState(todayBkk(3));
   const [loc, setLoc] = useState<string>(branches[0]!);
@@ -46,13 +48,20 @@ function CarDetail() {
       (await supabase.from("reviews").select("*").eq("car_id", id).order("created_at", { ascending: false })).data ?? [],
   });
 
+  const datesValid = !!start && !!end && end >= start;
+  const bookedQ = useQuery({ ...bookedCarIdsQuery(start, end), enabled: datesValid });
+  // Fresh result for exactly these dates only; the database re-checks on insert anyway
+  const checkingDates = datesValid && (bookedQ.isFetching || !bookedQ.data) && !bookedQ.isError;
+  const bookedForDates = datesValid && !bookedQ.isFetching && !!bookedQ.data?.includes(id);
+
   if (!car) return <div className="mx-auto max-w-7xl px-4 py-20 text-muted-foreground">กำลังโหลด...</div>;
-  const days = start && end && end >= start ? daysBetween(start, end) : 0;
+  const days = datesValid ? daysBetween(start, end) : 0;
   const avg = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
 
   const book = async () => {
     if (!user) return navigate({ to: "/auth" });
     if (days <= 0) return toast.error("กรุณาเลือกวันที่ให้ถูกต้อง");
+    if (bookedForDates) return toast.error("รถคันนี้ไม่ว่างในช่วงวันที่เลือก");
     setBusy(true);
     const { data, error } = await supabase
       .from("bookings")
@@ -60,7 +69,12 @@ function CarDetail() {
       .select("id")
       .single();
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) {
+      // Someone may have booked these dates first: refresh what this page believes
+      void queryClient.invalidateQueries({ queryKey: ["booked"] });
+      return toast.error(error.message);
+    }
+    await invalidateBookingData(queryClient);
     toast.success("สร้างการจองแล้ว กรุณาชำระเงิน");
     navigate({ to: "/bookings/$id", params: { id: data.id } });
   };
@@ -127,7 +141,18 @@ function CarDetail() {
           <div className="flex justify-between"><span>{thb(car.price_per_day)} × {days} วัน</span><span>{thb(car.price_per_day * days)}</span></div>
           <div className="flex justify-between border-t pt-2 font-semibold"><span>ยอดรวม</span><span>{thb(car.price_per_day * days)}</span></div>
         </div>
-        <Button className="w-full" size="lg" disabled={busy || car.status === "maintenance" || car.status === "unavailable"} onClick={book}>
+        {bookedForDates && (
+          <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive" role="alert">
+            รถคันนี้ไม่ว่างในช่วงวันที่เลือก กรุณาเลือกวันอื่น
+          </p>
+        )}
+        {checkingDates && <p className="text-xs text-muted-foreground" role="status">กำลังตรวจสอบวันว่าง...</p>}
+        <Button
+          className="w-full"
+          size="lg"
+          disabled={busy || bookedForDates || car.status === "maintenance" || car.status === "unavailable"}
+          onClick={book}
+        >
           {user ? "จองและชำระเงิน" : "เข้าสู่ระบบเพื่อจอง"}
         </Button>
         {!user && <p className="text-center text-xs text-muted-foreground">ยังไม่มีบัญชี? <Link to="/auth" className="text-primary underline">สมัครสมาชิก</Link></p>}

@@ -35,7 +35,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
 import { categoryLabel, fmtDate, thb } from "@/lib/format";
-import type { Tables } from "@/integrations/supabase/types";
+import { bookingReview, customerBookingsQuery, invalidateBookingData, type CustomerBooking } from "@/lib/queries";
 
 export const Route = createFileRoute("/bookings")({
   head: () => ({
@@ -48,10 +48,7 @@ export const Route = createFileRoute("/bookings")({
   component: BookingsHistoryPage,
 });
 
-type BookingWithCarAndReview = Tables<"bookings"> & {
-  cars: Tables<"cars"> | null;
-  reviews: Tables<"reviews"> | null;
-};
+type BookingWithCarAndReview = CustomerBooking;
 
 function BookingsHistoryPage() {
   const { user, loading: authLoading } = useAuth();
@@ -70,18 +67,7 @@ function BookingsHistoryPage() {
 
   // Fetch all customer bookings with car and review
   const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
-    queryKey: ["customer-bookings", user?.id],
-    queryFn: async () => {
-      if (!user) return [];
-      const { data, error } = await supabase
-        .from("bookings")
-        .select("*, cars(*), reviews(*)")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return (data ?? []) as unknown as BookingWithCarAndReview[];
-    },
+    ...customerBookingsQuery(user?.id ?? ""),
     enabled: !!user,
   });
 
@@ -100,7 +86,8 @@ function BookingsHistoryPage() {
 
       toast.success("ยกเลิกการจองเรียบร้อยแล้ว");
       setCancellingId(null);
-      await queryClient.invalidateQueries({ queryKey: ["customer-bookings", user.id] });
+      // Cancelling frees the car, so availability caches must refresh too
+      await invalidateBookingData(queryClient);
     } catch (err: unknown) {
       const error = err as Error;
       toast.error(error.message || "ไม่สามารถยกเลิกการจองได้");
@@ -133,7 +120,11 @@ function BookingsHistoryPage() {
       setReviewBooking(null);
       setReviewComment("");
       setReviewRating(5);
-      await queryClient.invalidateQueries({ queryKey: ["customer-bookings", user.id] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["customer-bookings", user.id] }),
+        queryClient.invalidateQueries({ queryKey: ["ratings"] }),
+        queryClient.invalidateQueries({ queryKey: ["reviews", reviewBooking.car_id] }),
+      ]);
     } catch (err: unknown) {
       const error = err as Error;
       toast.error(error.message || "ไม่สามารถบันทึกรีวิวได้");
@@ -224,7 +215,7 @@ function BookingsHistoryPage() {
         <div className="space-y-4">
           {filteredBookings.map((b) => {
             const car = b.cars;
-            const review = b.reviews;
+            const review = bookingReview(b);
             const canCancel = b.status === "pending" || b.status === "confirmed";
             const canReview = b.status === "completed" && !review;
 

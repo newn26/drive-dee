@@ -8,8 +8,16 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { ResetPasswordForm } from "@/components/reset-password-form";
+
+type AuthSearch = { reset?: boolean | undefined };
 
 export const Route = createFileRoute("/auth")({
+  // The password-reset email links back to /auth?reset=true.
+  // The router parses "true" into a boolean, so accept both forms.
+  validateSearch: (s: Record<string, unknown>): AuthSearch => ({
+    reset: s["reset"] === true || s["reset"] === "true" ? true : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "เข้าสู่ระบบและสมัครสมาชิก — Siam Wheels Rental Hub" },
@@ -24,7 +32,28 @@ type AuthMode = "login" | "register" | "forgot";
 
 function AuthPage() {
   const navigate = useNavigate();
+  const search = Route.useSearch();
   const [mode, setMode] = useState<AuthMode>("login");
+
+  if (search.reset) {
+    return (
+      <div className="mx-auto flex min-h-[calc(100vh-8rem)] max-w-md flex-col justify-center px-4 py-12">
+        <ResetPasswordForm
+          onDone={() => navigate({ to: "/dashboard", replace: true })}
+          onRequestNewLink={() => {
+            setMode("forgot");
+            navigate({ to: "/auth", search: {}, replace: true });
+          }}
+        />
+      </div>
+    );
+  }
+
+  return <AuthForms mode={mode} setMode={setMode} />;
+}
+
+function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) => void }) {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
   // Form Fields

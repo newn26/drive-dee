@@ -5,9 +5,10 @@ import { useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CarCard } from "@/components/car-card";
-import { carsQuery, ratingsQuery } from "@/lib/queries";
+import { Button } from "@/components/ui/button";
+import { bookedCarIdsQuery, carsQuery, ratingsQuery } from "@/lib/queries";
 import { categoryLabel, todayBkk } from "@/lib/format";
-import { supabase } from "@/integrations/supabase/client";
+import { filterCarsForSearch, type Availability } from "@/lib/availability";
 
 type S = { q?: string | undefined; category?: string | undefined; start?: string | undefined; end?: string | undefined; sort?: string | undefined };
 
@@ -36,26 +37,21 @@ function CarsPage() {
   const set = (patch: Partial<S>) => navigate({ search: (p: S) => ({ ...p, ...patch }), replace: true });
   const { data: cars = [] } = useQuery(carsQuery());
   const { data: ratings } = useQuery(ratingsQuery());
-  const { data: booked = [] } = useQuery({
-    queryKey: ["booked", search.start, search.end],
-    enabled: !!search.start && !!search.end,
-    queryFn: async () => {
-      const { data } = await supabase.rpc("booked_car_ids", { _start: search.start!, _end: search.end! });
-      return (data ?? []) as string[];
-    },
+  const hasDates = !!search.start && !!search.end;
+  const datesValid = hasDates && search.end! >= search.start!;
+  const bookedQ = useQuery({
+    ...bookedCarIdsQuery(search.start ?? "", search.end ?? ""),
+    enabled: datesValid,
   });
+  // Only trust availability that was fetched for exactly these dates and is not being refreshed
+  const availability = useMemo((): Availability => {
+    if (!datesValid) return { kind: "none" };
+    if (bookedQ.isError) return { kind: "error" };
+    if (bookedQ.isFetching || !bookedQ.data) return { kind: "loading" };
+    return { kind: "ready", bookedIds: bookedQ.data };
+  }, [datesValid, bookedQ.isError, bookedQ.isFetching, bookedQ.data]);
 
-  const list = useMemo(() => {
-    let l = cars.filter((c) => c.status === "available" || c.status === "rented");
-    if (search.start && search.end) l = l.filter((c) => !booked.includes(c.id) && c.status === "available");
-    if (search.q) {
-      const q = search.q.toLowerCase();
-      l = l.filter((c) => `${c.brand} ${c.model}`.toLowerCase().includes(q));
-    }
-    if (search.category && search.category !== "all") l = l.filter((c) => c.category === search.category);
-    if (search.sort === "desc") l = [...l].sort((a, b) => b.price_per_day - a.price_per_day);
-    return l;
-  }, [cars, booked, search]);
+  const list = useMemo(() => filterCarsForSearch(cars, search, availability), [cars, search, availability]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10">
@@ -75,8 +71,27 @@ function CarsPage() {
         <Input type="date" min={todayBkk()} value={search.start ?? ""} onChange={(e) => set({ start: e.target.value || undefined })} aria-label="วันรับรถ" />
         <Input type="date" min={search.start ?? todayBkk()} value={search.end ?? ""} onChange={(e) => set({ end: e.target.value || undefined })} aria-label="วันคืนรถ" />
       </div>
+      {hasDates && !datesValid && (
+        <p className="mb-4 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm" role="alert">
+          วันคืนรถต้องไม่ก่อนวันรับรถ
+        </p>
+      )}
+      {availability.kind === "error" && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
+          <span>ไม่สามารถตรวจสอบรถว่างในช่วงวันที่เลือกได้ กรุณาลองใหม่อีกครั้ง</span>
+          <Button size="sm" variant="outline" onClick={() => bookedQ.refetch()}>
+            ลองใหม่
+          </Button>
+        </div>
+      )}
       <div className="mb-4 flex items-center justify-between text-sm text-muted-foreground">
-        <span>พบ {list.length} คัน{search.start && search.end ? " ที่ว่างในช่วงวันที่เลือก" : ""}</span>
+        <span role="status">
+          {availability.kind === "loading"
+            ? "กำลังตรวจสอบรถว่าง..."
+            : availability.kind === "error"
+              ? "ไม่สามารถแสดงผลรถว่างได้"
+              : `พบ ${list.length} คัน${availability.kind === "ready" ? " ที่ว่างในช่วงวันที่เลือก" : ""}`}
+        </span>
         <Select value={search.sort ?? "asc"} onValueChange={(v) => set({ sort: v })}>
           <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
           <SelectContent>

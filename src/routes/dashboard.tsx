@@ -25,7 +25,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
 import { categoryLabel, fmtDate, thb } from "@/lib/format";
-import type { Tables } from "@/integrations/supabase/types";
+import { customerBookingsQuery } from "@/lib/queries";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -37,10 +37,6 @@ export const Route = createFileRoute("/dashboard")({
   }),
   component: CustomerDashboardPage,
 });
-
-type BookingWithCar = Tables<"bookings"> & {
-  cars: Tables<"cars"> | null;
-};
 
 function CustomerDashboardPage() {
   const { user, loading: authLoading } = useAuth();
@@ -62,17 +58,9 @@ function CustomerDashboardPage() {
   });
 
   // 2. Fetch Customer Bookings
+  // Same query (key and shape) as /bookings, so the two pages never read each other's cache wrongly
   const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
-    queryKey: ["customer-bookings", user?.id],
-    queryFn: async () => {
-      if (!user) return [];
-      const { data } = await supabase
-        .from("bookings")
-        .select("*, cars(*)")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
-      return (data ?? []) as unknown as BookingWithCar[];
-    },
+    ...customerBookingsQuery(user?.id ?? ""),
     enabled: !!user,
   });
 

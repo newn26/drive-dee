@@ -34,6 +34,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
 import { categoryLabel, fmtDate, fmtDateTime, thb } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
+import { invalidateBookingData } from "@/lib/queries";
 
 export const Route = createFileRoute("/bookings_/$id")({
   head: () => ({
@@ -197,10 +198,8 @@ function BookingDetailsPage() {
       }
 
       toast.success("ชำระเงินสำเร็จ! สัญญาเช่าได้รับการสร้างเรียบร้อยแล้ว");
-      // Invalidate queries to refresh view
-      await queryClient.invalidateQueries({ queryKey: ["booking", id] });
-      await queryClient.invalidateQueries({ queryKey: ["payment", id] });
-      await queryClient.invalidateQueries({ queryKey: ["contract", id] });
+      // Refresh this booking plus every list and availability cache that depends on it
+      await invalidateBookingData(queryClient);
     } catch (err: unknown) {
       const error = err as Error;
       toast.error(error.message || "เกิดข้อผิดพลาดในการชำระเงิน กรุณาลองใหม่อีกครั้ง");

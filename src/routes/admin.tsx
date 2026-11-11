@@ -20,6 +20,7 @@ import {
   Fuel,
   LayoutDashboard,
   Lock,
+  MessageSquareWarning,
   Plus,
   RefreshCw,
   Search,
@@ -73,8 +74,27 @@ import { StatusBadge } from "@/components/status-badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
-import { categoryLabel, fmtDate, fmtDateTime, thb } from "@/lib/format";
+import { bookingStatusLabel, categoryLabel, fmtDate, fmtDateTime, maintStatusLabel, thb, todayBkk } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
+import { invalidateBookingData } from "@/lib/queries";
+import { adminReviewsQuery } from "@/lib/admin-reviews";
+import { AdminReviewsPanel } from "@/components/admin/reviews-panel";
+import {
+  bookingReportCsv,
+  bookingStatusMap,
+  computeReport,
+  countCustomers,
+  downloadTextFile,
+  maintenanceReportCsv,
+  monthlyRevenueSeries,
+  type ReportRange,
+} from "@/lib/reports";
+import {
+  DEFAULT_ADMIN_CLAUSES,
+  buildContractTerms,
+  splitContractTerms,
+  validateContractEdit,
+} from "@/lib/contract-terms";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -87,7 +107,7 @@ export const Route = createFileRoute("/admin")({
   component: AdminDashboardPage,
 });
 
-type AdminTab = "overview" | "cars" | "bookings" | "contracts" | "maintenance" | "reports";
+type AdminTab = "overview" | "cars" | "bookings" | "contracts" | "maintenance" | "reviews" | "reports";
 
 type BookingWithCar = Tables<"bookings"> & {
   cars: Tables<"cars"> | null;
@@ -141,7 +161,7 @@ function AdminDashboardPage() {
   const [editingCar, setEditingCar] = useState<Tables<"cars"> | null>(null);
   const [carToDelete, setCarToDelete] = useState<Tables<"cars"> | null>(null);
   const [deletingCar, setDeletingCar] = useState(false);
-  const [reportDateRange, setReportDateRange] = useState<"all" | "30d" | "90d" | "year">("all");
+  const [reportDateRange, setReportDateRange] = useState<ReportRange>("all");
   const [carForm, setCarForm] = useState({
     brand: "",
     model: "",
@@ -164,7 +184,7 @@ function AdminDashboardPage() {
     car_id: "",
     title: "",
     description: "",
-    scheduled_date: new Date().toISOString().split("T")[0]!,
+    scheduled_date: todayBkk(),
     cost: 0,
     status: "scheduled" as Tables<"maintenance">["status"],
   });
@@ -176,9 +196,10 @@ function AdminDashboardPage() {
   // Contract Terms Update Dialog
   const [editingContract, setEditingContract] = useState<ContractWithBooking | null>(null);
   const [contractTerms, setContractTerms] = useState("");
-  const [securityDeposit, setSecurityDeposit] = useState(5000);
-  const [mileageAllowance, setMileageAllowance] = useState("ไม่จำกัดระยะทาง");
-  const [latePenalty, setLatePenalty] = useState("500 บาท / ชั่วโมง");
+  const [securityDeposit, setSecurityDeposit] = useState(DEFAULT_ADMIN_CLAUSES.securityDeposit);
+  const [mileageAllowance, setMileageAllowance] = useState(DEFAULT_ADMIN_CLAUSES.mileageAllowance);
+  const [latePenalty, setLatePenalty] = useState(DEFAULT_ADMIN_CLAUSES.latePenalty);
+  const [savingContract, setSavingContract] = useState(false);
 
   // -------------------------------------------------------------
   // Data Queries
@@ -244,6 +265,30 @@ function AdminDashboardPage() {
     },
     enabled: !!isAdmin,
   });
+
+  // Payments are the source of truth for revenue (unpaid bookings are never revenue)
+  const { data: payments = [] } = useQuery({
+    queryKey: ["admin-payments"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("payments").select("*").order("paid_at", { ascending: false });
+      if (error) throw error;
+      return data as Tables<"payments">[];
+    },
+    enabled: !!isAdmin,
+  });
+
+  // Roles, so admins are not counted as customers
+  const { data: roles = [] } = useQuery({
+    queryKey: ["admin-roles"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("user_roles").select("user_id, role");
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!isAdmin,
+  });
+
+  const { data: reviewsForCount = [] } = useQuery({ ...adminReviewsQuery(), enabled: !!isAdmin });
 
   const profileMap = useMemo(() => {
     const map: Record<string, Tables<"profiles">> = {};
@@ -421,8 +466,7 @@ function AdminDashboardPage() {
 
       toast.success("ปรับปรุงสถานะการจองเรียบร้อยแล้ว");
       setUpdatingBooking(null);
-      await queryClient.invalidateQueries({ queryKey: ["admin-bookings"] });
-      await queryClient.invalidateQueries({ queryKey: ["admin-cars"] });
+      await invalidateBookingData(queryClient);
     } catch (err: unknown) {
       const error = err as Error;
       toast.error(error.message || "ไม่สามารถเปลี่ยนสถานะการจองได้");
@@ -459,7 +503,7 @@ function AdminDashboardPage() {
         car_id: "",
         title: "",
         description: "",
-        scheduled_date: new Date().toISOString().split("T")[0]!,
+        scheduled_date: todayBkk(),
         cost: 0,
         status: "scheduled",
       });
@@ -472,38 +516,49 @@ function AdminDashboardPage() {
   };
 
   const openContractEditor = (c: ContractWithBooking) => {
+    // Load the current values of the admin clauses instead of resetting them to defaults
+    const { base, clauses } = splitContractTerms(c.terms);
+    const values = clauses ?? DEFAULT_ADMIN_CLAUSES;
     setEditingContract(c);
-    setContractTerms(c.terms);
-    setSecurityDeposit(5000);
-    setMileageAllowance("ไม่จำกัดระยะทาง");
-    setLatePenalty("500 บาท / ชั่วโมง");
+    setContractTerms(base);
+    setSecurityDeposit(values.securityDeposit);
+    setMileageAllowance(values.mileageAllowance);
+    setLatePenalty(values.latePenalty);
   };
 
   const handleSaveContractTerms = async () => {
     if (!editingContract) return;
+    const clauses = { securityDeposit, mileageAllowance, latePenalty };
+    const problem = validateContractEdit(contractTerms, clauses);
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
 
+    setSavingContract(true);
     try {
-      // Append special terms if customized
-      let updatedTerms = contractTerms;
-      const customClauses = `\n\n[ข้อกำหนดเพิ่มเติมจากผู้ดูแลระบบ]\n- เงินประกันความเสียหาย: ${thb(securityDeposit)}\n- ข้อกำหนดระยะทาง: ${mileageAllowance}\n- ค่าปรับส่งคืนรถล่าช้า: ${latePenalty}`;
-
-      if (!updatedTerms.includes("[ข้อกำหนดเพิ่มเติมจากผู้ดูแลระบบ]")) {
-        updatedTerms += customClauses;
-      }
-
-      const { error } = await supabase
+      // Replace (never duplicate) the admin clause block with the current values
+      const updatedTerms = buildContractTerms(contractTerms, clauses);
+      const { data, error } = await supabase
         .from("contracts")
         .update({ terms: updatedTerms })
-        .eq("id", editingContract.id);
+        .eq("id", editingContract.id)
+        .select("id");
 
       if (error) throw error;
+      if (!data || data.length === 0) throw new Error("ไม่สามารถบันทึกสัญญาได้ (ไม่พบสัญญาหรือไม่มีสิทธิ์)");
 
       toast.success("อัปเดตข้อกำหนดสัญญาเช่าเรียบร้อยแล้ว");
       setEditingContract(null);
-      await queryClient.invalidateQueries({ queryKey: ["admin-contracts"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["admin-contracts"] }),
+        queryClient.invalidateQueries({ queryKey: ["contract", editingContract.booking_id] }),
+      ]);
     } catch (err: unknown) {
       const error = err as Error;
       toast.error(error.message || "ไม่สามารถบันทึกข้อกำหนดสัญญาได้");
+    } finally {
+      setSavingContract(false);
     }
   };
 
@@ -552,95 +607,63 @@ function AdminDashboardPage() {
   }, [maintenanceRecords, maintStatusFilter]);
 
   // Operational & Revenue Metrics
+  const statusByBooking = useMemo(() => bookingStatusMap(bookings), [bookings]);
+
   const metrics = useMemo(() => {
-    const totalCustomers = profiles.length;
     const totalCarsCount = cars.length;
     const availableCarsCount = cars.filter((c) => c.status === "available").length;
     const rentedCarsCount = cars.filter((c) => c.status === "rented").length;
     const maintenanceCarsCount = cars.filter((c) => c.status === "maintenance").length;
 
-    const confirmedOrActiveBookings = bookings.filter((b) => b.status === "confirmed" || b.status === "active");
-    const completedBookings = bookings.filter((b) => b.status === "completed");
-
-    const totalRevenue = bookings
-      .filter((b) => b.status === "confirmed" || b.status === "active" || b.status === "completed")
-      .reduce((sum, b) => sum + Number(b.total_amount), 0);
-
-    const totalMaintenanceCost = maintenanceRecords.reduce((sum, m) => sum + Number(m.cost), 0);
-    const netProfit = totalRevenue - totalMaintenanceCost;
-    const utilizationRate = totalCarsCount > 0 ? Math.round((rentedCarsCount / totalCarsCount) * 100) : 0;
+    const allTime = computeReport({ bookings, payments, maintenance: maintenanceRecords, range: "all" });
 
     return {
-      totalCustomers,
+      totalCustomers: countCustomers(roles),
       totalCarsCount,
       availableCarsCount,
       rentedCarsCount,
       maintenanceCarsCount,
-      activeBookingsCount: confirmedOrActiveBookings.length,
-      completedBookingsCount: completedBookings.length,
-      totalRevenue,
-      totalMaintenanceCost,
-      netProfit,
-      utilizationRate,
+      activeBookingsCount: bookings.filter((b) => b.status === "confirmed" || b.status === "active").length,
+      completedBookingsCount: bookings.filter((b) => b.status === "completed").length,
+      totalRevenue: allTime.revenue,
+      totalMaintenanceCost: allTime.maintCost,
+      netProfit: allTime.profit,
+      utilizationRate: totalCarsCount > 0 ? Math.round((rentedCarsCount / totalCarsCount) * 100) : 0,
     };
-  }, [cars, bookings, profiles, maintenanceRecords]);
+  }, [cars, bookings, payments, maintenanceRecords, roles]);
 
   // Date-filtered metrics for Reports tab
-  const reportMetrics = useMemo(() => {
-    let filteredB = bookings.filter((b) => b.status !== "cancelled");
-    let filteredM = [...maintenanceRecords];
+  const reportMetrics = useMemo(
+    () => computeReport({ bookings, payments, maintenance: maintenanceRecords, range: reportDateRange }),
+    [bookings, payments, maintenanceRecords, reportDateRange],
+  );
 
-    const now = Date.now();
-    if (reportDateRange === "30d") {
-      const cutoff = now - 30 * 86400000;
-      filteredB = filteredB.filter((b) => new Date(b.created_at).getTime() >= cutoff);
-      filteredM = filteredM.filter((m) => new Date(m.scheduled_date).getTime() >= cutoff);
-    } else if (reportDateRange === "90d") {
-      const cutoff = now - 90 * 86400000;
-      filteredB = filteredB.filter((b) => new Date(b.created_at).getTime() >= cutoff);
-      filteredM = filteredM.filter((m) => new Date(m.scheduled_date).getTime() >= cutoff);
-    } else if (reportDateRange === "year") {
-      const startOfYear = new Date(new Date().getFullYear(), 0, 1).getTime();
-      filteredB = filteredB.filter((b) => new Date(b.created_at).getTime() >= startOfYear);
-      filteredM = filteredM.filter((m) => new Date(m.scheduled_date).getTime() >= startOfYear);
-    }
+  // Chart Data: revenue for the last 12 months (by payment date, Bangkok time)
+  const chartData = useMemo(() => monthlyRevenueSeries(payments, statusByBooking), [payments, statusByBooking]);
 
-    const revenue = filteredB.reduce((sum, b) => sum + Number(b.total_amount), 0);
-    const maintCost = filteredM.reduce((sum, m) => sum + Number(m.cost), 0);
-    const profit = revenue - maintCost;
-    const completedCount = filteredB.filter((b) => b.status === "completed").length;
-
-    return {
-      revenue,
-      maintCost,
-      profit,
-      completedCount,
-      bookingCount: filteredB.length,
-    };
-  }, [bookings, maintenanceRecords, reportDateRange]);
-
-  // Chart Data: Monthly Revenue
-  const chartData = useMemo(() => {
-    const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
-    const dataMap: Record<number, { name: string; revenue: number; bookings: number }> = {};
-
-    months.forEach((m, idx) => {
-      dataMap[idx] = { name: m, revenue: 0, bookings: 0 };
+  const exportBookingsCsv = () => {
+    const names: Record<string, string> = {};
+    for (const p of profiles) names[p.id] = p.full_name;
+    const csv = bookingReportCsv({
+      bookings,
+      payments,
+      customerNames: names,
+      statusLabels: bookingStatusLabel,
+      range: reportDateRange,
     });
+    downloadTextFile(`siam-wheels-bookings-${reportDateRange}-${todayBkk()}.csv`, csv);
+    toast.success("ดาวน์โหลดรายงานการจองและรายได้ (CSV) แล้ว");
+  };
 
-    bookings.forEach((b) => {
-      if (b.status !== "cancelled") {
-        const d = new Date(b.created_at);
-        const m = d.getMonth();
-        if (dataMap[m]) {
-          dataMap[m].revenue += Number(b.total_amount);
-          dataMap[m].bookings += 1;
-        }
-      }
+  const exportMaintenanceCsv = () => {
+    const csv = maintenanceReportCsv({
+      maintenance: maintenanceRecords,
+      statusLabels: maintStatusLabel,
+      range: reportDateRange,
     });
-
-    return Object.values(dataMap);
-  }, [bookings]);
+    downloadTextFile(`siam-wheels-maintenance-${reportDateRange}-${todayBkk()}.csv`, csv);
+    toast.success("ดาวน์โหลดรายงานซ่อมบำรุง (CSV) แล้ว");
+  };
 
   // Fleet distribution for PieChart
   const categoryData = useMemo(() => {
@@ -729,6 +752,7 @@ function AdminDashboardPage() {
                 { id: "bookings", label: "รายการจองของลูกค้า", icon: Calendar, count: bookings.length },
                 { id: "contracts", label: "สัญญาเช่าดิจิทัล", icon: FileCheck2, count: contracts.length },
                 { id: "maintenance", label: "งานซ่อมบำรุง", icon: Wrench, count: maintenanceRecords.length },
+                { id: "reviews", label: "รีวิวจากลูกค้า", icon: MessageSquareWarning, count: reviewsForCount.length },
                 { id: "reports", label: "รายงานและสถิติ", icon: BarChart3, count: null },
               ].map((item) => (
                 <button
@@ -778,6 +802,7 @@ function AdminDashboardPage() {
                     <p className="text-xs text-muted-foreground mt-1">
                       กำไรจากการดำเนินงาน: <span className="font-semibold text-success">{thb(metrics.netProfit)}</span>
                     </p>
+                    <p className="text-[11px] text-muted-foreground">นับจากยอดชำระเงินจริง (DEMO) ไม่รวมรายการรอชำระ</p>
                   </CardContent>
                 </Card>
 
@@ -847,7 +872,7 @@ function AdminDashboardPage() {
               <Card className="shadow-card border">
                 <CardHeader>
                   <CardTitle className="text-base font-semibold">แนวโน้มรายได้และจำนวนการจองรายเดือน</CardTitle>
-                  <CardDescription>สถิติยอดการจองและรายได้จากระบบตลอดปี</CardDescription>
+                  <CardDescription>รายได้จากการชำระเงิน 12 เดือนล่าสุด (ตามวันที่ชำระ เวลาประเทศไทย)</CardDescription>
                 </CardHeader>
                 <CardContent className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
@@ -856,7 +881,7 @@ function AdminDashboardPage() {
                       <XAxis dataKey="name" fontSize={12} />
                       <YAxis fontSize={12} tickFormatter={(val) => `฿${(val / 1000).toFixed(0)}k`} />
                       <Tooltip
-                        formatter={(val: any) => [thb(Number(val) || 0), "รายได้"]}
+                        formatter={(val: unknown) => [thb(Number(val) || 0), "รายได้"]}
                         labelStyle={{ fontWeight: "bold" }}
                       />
                       <Bar dataKey="revenue" fill="currentColor" className="fill-primary" radius={[4, 4, 0, 0]} />
@@ -1347,6 +1372,9 @@ function AdminDashboardPage() {
             </Card>
           )}
 
+          {/* TAB: CUSTOMER REVIEWS (moderation) */}
+          {activeTab === "reviews" && <AdminReviewsPanel isAdmin={isAdmin} />}
+
           {/* TAB 6: REPORTS & ANALYTICS */}
           {activeTab === "reports" && (
             <div className="space-y-6">
@@ -1356,17 +1384,25 @@ function AdminDashboardPage() {
                   <h3 className="font-semibold text-sm">ช่วงเวลาสำหรับรายงาน (Date Range Filter)</h3>
                   <p className="text-xs text-muted-foreground">กรองสถิติรายได้และข้อมูลการใช้งานตามช่วงเวลา</p>
                 </div>
-                <Select value={reportDateRange} onValueChange={(val) => setReportDateRange(val as "all" | "30d" | "90d" | "year")}>
-                  <SelectTrigger className="w-48 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">ข้อมูลทั้งหมด (All Time)</SelectItem>
-                    <SelectItem value="30d">30 วันล่าสุด (Last 30 Days)</SelectItem>
-                    <SelectItem value="90d">90 วันล่าสุด (Last 90 Days)</SelectItem>
-                    <SelectItem value="year">ปีปัจจุบัน (This Year)</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select value={reportDateRange} onValueChange={(val) => setReportDateRange(val as ReportRange)}>
+                    <SelectTrigger className="w-48 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">ข้อมูลทั้งหมด (All Time)</SelectItem>
+                      <SelectItem value="30d">30 วันล่าสุด (Last 30 Days)</SelectItem>
+                      <SelectItem value="90d">90 วันล่าสุด (Last 90 Days)</SelectItem>
+                      <SelectItem value="year">ปีปัจจุบัน (This Year)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={exportBookingsCsv}>
+                    <Download className="h-3.5 w-3.5" /> ส่งออกการจองและรายได้ (CSV)
+                  </Button>
+                  <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={exportMaintenanceCsv}>
+                    <Download className="h-3.5 w-3.5" /> ส่งออกงานซ่อมบำรุง (CSV)
+                  </Button>
+                </div>
               </div>
 
               <div className="grid gap-6 md:grid-cols-2">
@@ -1388,9 +1424,28 @@ function AdminDashboardPage() {
                       </div>
                       <div className="border-t pt-2 flex justify-between text-base font-bold">
                         <span>กำไรสุทธิจากการดำเนินงาน:</span>
-                        <span className="text-success">{thb(reportMetrics.profit)}</span>
+                        <span className={reportMetrics.profit < 0 ? "text-destructive" : "text-success"}>
+                          {thb(reportMetrics.profit)}
+                        </span>
                       </div>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-3 text-xs">
+                      <span className="text-muted-foreground">รายการชำระเงิน:</span>
+                      <span className="text-right font-medium">{reportMetrics.paidCount} รายการ</span>
+                      <span className="text-muted-foreground">การจองใหม่ (ไม่รวมยกเลิก):</span>
+                      <span className="text-right font-medium">{reportMetrics.bookingCount} รายการ</span>
+                      <span className="text-muted-foreground">รอชำระเงิน:</span>
+                      <span className="text-right font-medium">{reportMetrics.pendingCount} รายการ</span>
+                      <span className="text-muted-foreground">เสร็จสิ้น / ยกเลิก:</span>
+                      <span className="text-right font-medium">
+                        {reportMetrics.completedCount} / {reportMetrics.cancelledCount}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      รายได้นับจากการชำระเงิน (โหมด DEMO) ของการจองที่ยืนยันแล้ว กำลังเช่า หรือเสร็จสิ้น ตามวันที่ชำระ
+                      ไม่รวมการจองที่รอชำระหรือถูกยกเลิก
+                    </p>
 
                     <div className="pt-4 border-t">
                       <p className="text-xs text-muted-foreground mb-3 font-medium">สัดส่วนประเภทยานพาหนะในระบบ</p>
@@ -1798,12 +1853,22 @@ function AdminDashboardPage() {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
+            {editingContract?.customer_accepted_at && (
+              <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs" role="alert">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                <span>
+                  ลูกค้าลงนามยอมรับสัญญาฉบับเดิมแล้วเมื่อ {fmtDateTime(editingContract.customer_accepted_at)}
+                  การแก้ไขจะเปลี่ยนข้อความที่ลูกค้าเห็น กรุณาแจ้งลูกค้าทุกครั้ง
+                </span>
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label htmlFor="depo-val" className="text-xs">เงินมัดจำประกัน (THB)</Label>
                 <Input
                   id="depo-val"
                   type="number"
+                  min={0}
                   value={securityDeposit}
                   onChange={(e) => setSecurityDeposit(Number(e.target.value))}
                 />
@@ -1827,7 +1892,7 @@ function AdminDashboardPage() {
             </div>
 
             <div>
-              <Label htmlFor="terms-text" className="text-xs">ข้อความสัญญาฉบับเต็ม</Label>
+              <Label htmlFor="terms-text" className="text-xs">ข้อความสัญญา (ข้อกำหนดเพิ่มเติมด้านบนจะถูกแนบท้ายให้อัตโนมัติ)</Label>
               <Textarea
                 id="terms-text"
                 rows={10}
@@ -1842,7 +1907,9 @@ function AdminDashboardPage() {
             <Button variant="outline" onClick={() => setEditingContract(null)}>
               ยกเลิก
             </Button>
-            <Button onClick={handleSaveContractTerms}>บันทึกข้อกำหนดสัญญา</Button>
+            <Button onClick={handleSaveContractTerms} disabled={savingContract}>
+              {savingContract ? "กำลังบันทึก..." : "บันทึกข้อกำหนดสัญญา"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

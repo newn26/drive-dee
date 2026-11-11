@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { daysBetween, fmtDate, fmtDateTime, thb, todayBkk } from "@/lib/format";
 import { routeTree } from "@/routeTree.gen";
+import { createRouter } from "@tanstack/react-router";
+import { QueryClient } from "@tanstack/react-query";
 
 describe("QA Test Suite - Phase 3 Admin & System Architecture", () => {
   // =========================================================================
@@ -229,9 +231,11 @@ describe("QA Test Suite - Phase 3 Admin & System Architecture", () => {
       expect(days).toBe(1);
     });
 
-    it("formats dates into Thai calendar format", () => {
+    it("formats dates into Thai calendar format (Buddhist Era year)", () => {
       const formatted = fmtDate("2026-11-08");
-      expect(formatted).toContain("2026");
+      // th-TH uses the Buddhist calendar: 2026 CE = 2569 BE
+      expect(formatted).toContain("2569");
+      expect(formatted).toContain("พ.ย.");
     });
   });
 
@@ -243,7 +247,9 @@ describe("QA Test Suite - Phase 3 Admin & System Architecture", () => {
       const children = routeTree.children;
       expect(children).toBeDefined();
 
-      const routeIds = Object.keys(routeTree.children ?? {});
+      // Paths are only resolved once a router is built from the tree
+      const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+      const routeIds = Object.keys(router.routesByPath);
       expect(routeIds).toContain("/admin");
       expect(routeIds).toContain("/auth");
       expect(routeIds).toContain("/bookings");
