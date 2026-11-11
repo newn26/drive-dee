@@ -39,6 +39,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
 import { categoryLabel, fmtDate, thb } from "@/lib/format";
 import { bookingReview, customerBookingsQuery, invalidateBookingData, type CustomerBooking } from "@/lib/queries";
+import { reviewerDisplayName } from "@/lib/reviewer-name";
 
 export const Route = createFileRoute("/bookings")({
   head: () => ({
@@ -123,7 +124,8 @@ function BookingsHistoryPage() {
           booking_id: reviewBooking.id,
           car_id: reviewBooking.car_id,
           user_id: user.id,
-          reviewer_name: user.user_metadata?.["full_name"] || "ลูกค้า",
+          // Reviews are public: store a short display name, never the full sign-up name
+          reviewer_name: reviewerDisplayName(user.user_metadata?.["full_name"]),
           rating: reviewRating,
           comment: reviewComment.trim(),
         });
