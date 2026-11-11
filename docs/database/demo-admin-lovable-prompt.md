@@ -1,7 +1,9 @@
 # Demo Admin role – Lovable prompt
 
 Status: **NOT APPLIED.** Apply **after** `prototype-lovable-prompt.md` (this prompt replaces
-`validate_booking` again, on top of that version).
+`validate_booking` again, on top of that version). The prototype prompt is live as Lovable
+migration 0002; Lovable's migration 0003 (Demo Customer admin block) is also live, and Step 2
+below extends its trigger to cover `demo_admin`.
 
 What it changes: adds the `demo_admin` value to `app_role`, one helper function, and new
 **additive** RLS policies. Existing policies, tables, columns and rows are not changed or
@@ -108,6 +110,20 @@ begin
   end if;
   return new;
 end; $$;
+
+-- Demo Customer accounts (app_metadata.demo or the reserved .invalid email domain) can never
+-- hold admin OR demo_admin. Same function and trigger as migration 0003, extended to demo_admin.
+create or replace function public.prevent_demo_admin()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.role::text in ('admin', 'demo_admin') and exists (
+    select 1 from auth.users u where u.id = new.user_id
+      and (coalesce(u.raw_app_meta_data->>'demo','false') = 'true' or lower(u.email) like '%@demo.siamwheels.invalid')
+  ) then
+    raise exception 'Demo accounts cannot be granted admin';
+  end if;
+  return new;
+end; $$;
 ```
 
 ## Step 3 – create the Demo Admin account (owner only, not a Lovable prompt)
@@ -123,10 +139,14 @@ insert into public.user_roles(user_id, role)
 select u.id, 'demo_admin'::app_role from auth.users u
 where lower(u.email) = lower('<DEMO_ADMIN_EMAIL>')
   and u.email_confirmed_at is not null
+  and coalesce(u.raw_app_meta_data->>'demo','false') <> 'true'
   and not exists (select 1 from public.user_roles r where r.user_id = u.id and r.role = 'admin')
 on conflict (user_id, role) do nothing
 returning user_id;
 ```
+
+   Use an ordinary email you control, **not** `@demo.siamwheels.invalid` (that domain is
+   reserved for Demo Customer accounts and the trigger rejects it).
 
 3. Share the password with the presenter privately. Change it after client demos.
 
