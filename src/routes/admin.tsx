@@ -92,12 +92,17 @@ import {
   monthlyRevenueSeries,
   type ReportRange,
 } from "@/lib/reports";
+import { KeyRound } from "lucide-react";
 import {
-  DEFAULT_ADMIN_CLAUSES,
-  buildContractTerms,
-  splitContractTerms,
-  validateContractEdit,
-} from "@/lib/contract-terms";
+  AdminContractsPanel,
+  ContractWorkQueue,
+  type ContractPanelView,
+  type PanelBooking,
+  type PanelContract,
+} from "@/components/admin/contracts-panel";
+import { AdminManagementPanel } from "@/components/admin/admin-management-panel";
+import { adminBookingMoves, reasonError } from "@/lib/contract-workflow";
+import { ownerManualConfirm } from "@/lib/contract-api";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -116,7 +121,7 @@ export const Route = createFileRoute("/admin")({
  */
 export type DashboardMode = "admin" | "demo";
 
-type AdminTab = "overview" | "cars" | "bookings" | "contracts" | "maintenance" | "reviews" | "reports";
+type AdminTab = "overview" | "cars" | "bookings" | "contracts" | "maintenance" | "reviews" | "reports" | "admins";
 
 type BookingWithCar = Tables<"bookings"> & {
   cars: Tables<"cars"> | null;
@@ -147,16 +152,25 @@ const CAR_STATUSES = [
 
 const PIE_COLORS = ["#0ea5e9", "#10b981", "#f59e0b", "#6366f1", "#ec4899"];
 
+const BOOKING_MOVE_LABEL: Record<string, string> = {
+  active: "กำลังเช่า - ส่งมอบรถแล้ว (Active)",
+  completed: "เสร็จสิ้น - รับรถคืนแล้ว (Completed)",
+  cancelled: "ยกเลิกการจอง (Cancelled)",
+};
+
 export function AdminDashboard({ mode }: { mode: DashboardMode }) {
-  const { user, role, loading: authLoading } = useAuth();
+  const { user, role, adminMember, loading: authLoading } = useAuth();
   const isDemo = mode === "demo";
   // Each dashboard only opens for its own role: admins use /admin, demo admins use /demo-admin.
   const allowed = isDemo ? role === "demo_admin" : role === "admin";
-  const perms = dashboardPermissions(allowed ? role : "customer");
+  // Admins: the member row decides (Owner / suspended / fine-grained permissions)
+  const perms = dashboardPermissions(allowed ? role : "customer", isDemo ? null : adminMember);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<AdminTab>("overview");
+  // Which contracts tab to open (set by the overview work queue)
+  const [contractView, setContractView] = useState<ContractPanelView>("pending_admin_review");
 
   // Filters & Search
   const [carSearch, setCarSearch] = useState("");
@@ -166,7 +180,6 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
   const [bookingSearch, setBookingSearch] = useState("");
   const [bookingStatusFilter, setBookingStatusFilter] = useState("all");
 
-  const [contractSearch, setContractSearch] = useState("");
   const [maintStatusFilter, setMaintStatusFilter] = useState("all");
 
   // Modals & Forms
@@ -206,14 +219,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
   const [updatingBooking, setUpdatingBooking] = useState<BookingWithCar | null>(null);
   const [newBookingStatus, setNewBookingStatus] = useState<Tables<"bookings">["status"]>("confirmed");
 
-  // Contract Terms Update Dialog
-  const [editingContract, setEditingContract] = useState<ContractWithBooking | null>(null);
-  const [viewingContract, setViewingContract] = useState<ContractWithBooking | null>(null);
-  const [contractTerms, setContractTerms] = useState("");
-  const [securityDeposit, setSecurityDeposit] = useState(DEFAULT_ADMIN_CLAUSES.securityDeposit);
-  const [mileageAllowance, setMileageAllowance] = useState(DEFAULT_ADMIN_CLAUSES.mileageAllowance);
-  const [latePenalty, setLatePenalty] = useState(DEFAULT_ADMIN_CLAUSES.latePenalty);
-  const [savingContract, setSavingContract] = useState(false);
+  // Owner-only manual confirmation (reason required, audited in the database)
+  const [manualConfirmFor, setManualConfirmFor] = useState<BookingWithCar | null>(null);
+  const [manualReason, setManualReason] = useState("");
+  const [confirmingManually, setConfirmingManually] = useState(false);
 
   // -------------------------------------------------------------
   // Data Queries
@@ -490,6 +499,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
   const handleUpdateBookingStatus = async () => {
     if (!updatingBooking) return;
+    if (!perms.updateBookingStatus || !adminBookingMoves(updatingBooking.status).includes(newBookingStatus)) {
+      toast.error("เปลี่ยนสถานะนี้ไม่ได้ การยืนยันการจองต้องผ่านการอนุมัติสัญญาและการชำระเงิน");
+      return;
+    }
     try {
       const { error } = await supabase
         .from("bookings")
@@ -573,54 +586,25 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     }
   };
 
-  const openContractEditor = (c: ContractWithBooking) => {
-    // Load the current values of the admin clauses instead of resetting them to defaults
-    const { base, clauses } = splitContractTerms(c.terms);
-    const values = clauses ?? DEFAULT_ADMIN_CLAUSES;
-    setEditingContract(c);
-    setContractTerms(base);
-    setSecurityDeposit(values.securityDeposit);
-    setMileageAllowance(values.mileageAllowance);
-    setLatePenalty(values.latePenalty);
-  };
-
-  const handleSaveContractTerms = async () => {
-    if (!editingContract) return;
-    if (!perms.editContracts) {
-      toast.error("โหมดสาธิตดูสัญญาได้อย่างเดียว");
-      return;
-    }
-    const clauses = { securityDeposit, mileageAllowance, latePenalty };
-    const problem = validateContractEdit(contractTerms, clauses);
+  const handleManualConfirm = async () => {
+    if (!manualConfirmFor || !perms.manualConfirm) return;
+    const problem = reasonError(manualReason, 10);
     if (problem) {
       toast.error(problem);
       return;
     }
-
-    setSavingContract(true);
+    setConfirmingManually(true);
     try {
-      // Replace (never duplicate) the admin clause block with the current values
-      const updatedTerms = buildContractTerms(contractTerms, clauses);
-      const { data, error } = await supabase
-        .from("contracts")
-        .update({ terms: updatedTerms })
-        .eq("id", editingContract.id)
-        .select("id");
-
-      if (error) throw error;
-      if (!data || data.length === 0) throw new Error("ไม่สามารถบันทึกสัญญาได้ (ไม่พบสัญญาหรือไม่มีสิทธิ์)");
-
-      toast.success("อัปเดตข้อกำหนดสัญญาเช่าเรียบร้อยแล้ว");
-      setEditingContract(null);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["admin-contracts"] }),
-        queryClient.invalidateQueries({ queryKey: ["contract", editingContract.booking_id] }),
-      ]);
+      await ownerManualConfirm(manualConfirmFor.id, manualReason);
+      await syncCarStatus(manualConfirmFor.car_id);
+      toast.success("ยืนยันการจองด้วยตนเองแล้ว (บันทึกในบันทึกตรวจสอบ)");
+      setManualConfirmFor(null);
+      setManualReason("");
     } catch (err: unknown) {
-      const error = err as Error;
-      toast.error(error.message || "ไม่สามารถบันทึกข้อกำหนดสัญญาได้");
+      toast.error((err as Error).message || "ยืนยันการจองไม่สำเร็จ");
     } finally {
-      setSavingContract(false);
+      setConfirmingManually(false);
+      await invalidateBookingData(queryClient);
     }
   };
 
@@ -652,15 +636,6 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     });
   }, [bookings, bookingSearch, bookingStatusFilter, profileMap]);
 
-  const filteredContracts = useMemo(() => {
-    return contracts.filter((c) => {
-      const booking = c.bookings;
-      const matchSearch =
-        c.contract_no.toLowerCase().includes(contractSearch.toLowerCase()) ||
-        (booking && booking.booking_code.toLowerCase().includes(contractSearch.toLowerCase()));
-      return matchSearch;
-    });
-  }, [contracts, contractSearch]);
 
   const filteredMaintenance = useMemo(() => {
     return maintenanceRecords.filter((m) => {
@@ -867,8 +842,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 { id: "maintenance", label: "งานซ่อมบำรุง", icon: Wrench, count: maintenanceRecords.length },
                 { id: "reviews", label: "รีวิวจากลูกค้า", icon: MessageSquareWarning, count: reviewsForCount.length },
                 { id: "reports", label: "รายงานและสถิติ", icon: BarChart3, count: null },
+                { id: "admins", label: "ผู้ดูแลระบบ (Owner)", icon: KeyRound, count: null },
               ]
                 .filter((item) => item.id !== "reviews" || perms.moderateReviews)
+                .filter((item) => item.id !== "admins" || perms.manageAdmins)
                 .map((item) => (
                 <button
                   key={item.id}
@@ -905,6 +882,16 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           {/* TAB 1: OVERVIEW */}
           {activeTab === "overview" && (
             <div className="space-y-6">
+              {perms.viewContracts && (
+                <ContractWorkQueue
+                  contracts={contracts}
+                  bookings={bookings as unknown as PanelBooking[]}
+                  onOpen={(v) => {
+                    setContractView(v);
+                    setActiveTab("contracts");
+                  }}
+                />
+              )}
               {/* 6 Key Operational Metrics */}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <Card className="shadow-card border">
@@ -1237,7 +1224,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">ทุกสถานะ</SelectItem>
-                      <SelectItem value="pending">รอชำระเงิน</SelectItem>
+                      <SelectItem value="pending">รอดำเนินการ (สัญญา/ชำระเงิน)</SelectItem>
                       <SelectItem value="confirmed">ยืนยันแล้ว</SelectItem>
                       <SelectItem value="active">กำลังเช่า (รับรถแล้ว)</SelectItem>
                       <SelectItem value="completed">เสร็จสิ้น</SelectItem>
@@ -1300,13 +1287,29 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                                 variant="outline"
                                 size="sm"
                                 className="h-7 text-xs"
+                                disabled={!perms.updateBookingStatus || adminBookingMoves(b.status).length === 0}
                                 onClick={() => {
                                   setUpdatingBooking(b);
-                                  setNewBookingStatus(b.status);
+                                  setNewBookingStatus(
+                                    (adminBookingMoves(b.status)[0] ?? b.status) as Tables<"bookings">["status"],
+                                  );
                                 }}
                               >
                                 เปลี่ยนสถานะ
                               </Button>
+                              {perms.manualConfirm && b.status === "pending" && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 border-amber-400 text-xs"
+                                  onClick={() => {
+                                    setManualConfirmFor(b);
+                                    setManualReason("");
+                                  }}
+                                >
+                                  ยืนยันด้วยตนเอง
+                                </Button>
+                              )}
                               <Button variant="ghost" size="sm" className="h-7 px-2" asChild>
                                 <Link to="/bookings/$id" params={{ id: b.id }} target="_blank">
                                   <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1332,99 +1335,14 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
           {/* TAB 4: CONTRACTS MANAGEMENT */}
           {activeTab === "contracts" && (
-            <Card className="shadow-card border">
-              <CardHeader>
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div>
-                    <CardTitle className="text-xl">สัญญาเช่าดิจิทัล ({filteredContracts.length} ฉบับ)</CardTitle>
-                    <CardDescription>ตรวจสอบข้อตกลง สภาพการลงนาม และกำหนดเงื่อนไขเพิ่มเติม</CardDescription>
-                  </div>
-                </div>
-
-                <div className="mt-4 relative max-w-sm">
-                  <Input
-                    placeholder="ค้นหาเลขที่สัญญา หรือรหัสการจอง..."
-                    value={contractSearch}
-                    onChange={(e) => setContractSearch(e.target.value)}
-                    className="pl-9"
-                  />
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                </div>
-              </CardHeader>
-
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>เลขที่สัญญา</TableHead>
-                      <TableHead>รหัสการจอง</TableHead>
-                      <TableHead>รถยนต์</TableHead>
-                      <TableHead>สถานะการลงนาม</TableHead>
-                      <TableHead>วันที่สร้างสัญญา</TableHead>
-                      <TableHead className="text-right">จัดการข้อตกลง</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredContracts.map((c) => {
-                      const isSigned = !!c.customer_accepted_at;
-                      return (
-                        <TableRow key={c.id}>
-                          <TableCell className="font-mono text-xs font-bold text-foreground">
-                            {c.contract_no}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs text-muted-foreground">
-                            {c.bookings?.booking_code || "-"}
-                          </TableCell>
-                          <TableCell className="text-xs font-medium">
-                            {c.bookings?.cars?.brand} {c.bookings?.cars?.model} ({c.bookings?.cars?.plate_no})
-                          </TableCell>
-                          <TableCell>
-                            {isSigned ? (
-                              <Badge variant="outline" className="border-success/30 bg-success/10 text-success text-xs">
-                                <CheckCircle2 className="h-3 w-3 mr-1" /> ลงนามแล้ว
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="border-warning/30 bg-warning/10 text-warning text-xs">
-                                <Clock className="h-3 w-3 mr-1" /> รอลูกค้าลงนาม
-                              </Badge>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{fmtDateTime(c.created_at)}</TableCell>
-                          <TableCell className="text-right">
-                            {perms.editContracts ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 text-xs"
-                                onClick={() => openContractEditor(c)}
-                              >
-                                แก้ไขข้อตกลง
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 text-xs"
-                                onClick={() => setViewingContract(c)}
-                              >
-                                ดูสัญญา
-                              </Button>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                    {filteredContracts.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                          ไม่พบสัญญาเช่าในระบบ
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+            <AdminContractsPanel
+              key={contractView}
+              initialView={contractView}
+              perms={perms}
+              contracts={contracts as unknown as PanelContract[]}
+              bookings={bookings as unknown as PanelBooking[]}
+              profileMap={profileMap}
+            />
           )}
 
           {/* TAB 5: MAINTENANCE TRACKING */}
@@ -1525,6 +1443,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           {/* TAB: CUSTOMER REVIEWS (moderation) */}
           {activeTab === "reviews" && <AdminReviewsPanel isAdmin={perms.moderateReviews} />}
 
+          {/* TAB: ADMIN MANAGEMENT (Owner only; the database enforces it) */}
+          {activeTab === "admins" && perms.manageAdmins && user && <AdminManagementPanel ownerId={user.id} />}
+
           {/* TAB 6: REPORTS & ANALYTICS */}
           {activeTab === "reports" && (
             <div className="space-y-6">
@@ -1585,7 +1506,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       <span className="text-right font-medium">{reportMetrics.paidCount} รายการ</span>
                       <span className="text-muted-foreground">การจองใหม่ (ไม่รวมยกเลิก):</span>
                       <span className="text-right font-medium">{reportMetrics.bookingCount} รายการ</span>
-                      <span className="text-muted-foreground">รอชำระเงิน:</span>
+                      <span className="text-muted-foreground">รอดำเนินการ (สัญญา/ชำระเงิน):</span>
                       <span className="text-right font-medium">{reportMetrics.pendingCount} รายการ</span>
                       <span className="text-muted-foreground">เสร็จสิ้น / ยกเลิก:</span>
                       <span className="text-right font-medium">
@@ -1863,16 +1784,17 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="pending">รอชำระเงิน (Pending)</SelectItem>
-                  <SelectItem value="confirmed">ยืนยันแล้ว (Confirmed)</SelectItem>
-                  <SelectItem value="active">กำลังเช่า - ส่งมอบรถแล้ว (Active)</SelectItem>
-                  <SelectItem value="completed">เสร็จสิ้น - รับรถคืนแล้ว (Completed)</SelectItem>
-                  <SelectItem value="cancelled">ยกเลิกการจอง (Cancelled)</SelectItem>
+                  {adminBookingMoves(updatingBooking?.status ?? "").map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {BOOKING_MOVE_LABEL[s] ?? s}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
             <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground space-y-1">
+              <p>• การจองที่รอดำเนินการจะ <strong>ยืนยัน</strong> ได้หลังผู้ดูแลอนุมัติสัญญาและลูกค้าชำระเงินแล้วเท่านั้น</p>
               <p>• เมื่อเปลี่ยนเป็น <strong>กำลังเช่า (Active)</strong> ระบบจะปรับสถานะรถคันนี้เป็น "ถูกเช่า" อัตโนมัติ</p>
               <p>• เมื่อเปลี่ยนเป็น <strong>เสร็จสิ้น (Completed)</strong> รถจะกลับสู่สถานะ "ว่าง" พร้อมให้บริการต่อ</p>
             </div>
@@ -1882,7 +1804,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             <Button variant="outline" onClick={() => setUpdatingBooking(null)}>
               ยกเลิก
             </Button>
-            <Button onClick={handleUpdateBookingStatus}>บันทึกสถานะ</Button>
+            <Button onClick={handleUpdateBookingStatus} disabled={!perms.updateBookingStatus}>
+              บันทึกสถานะ
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1991,96 +1915,27 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       </Dialog>
 
       {/* ------------------------------------------------------------- */}
-      {/* DIALOG 4: EDIT CONTRACT TERMS */}
+      {/* DIALOG 4: OWNER MANUAL CONFIRMATION (exceptional, audited) */}
       {/* ------------------------------------------------------------- */}
-      <Dialog open={!!editingContract} onOpenChange={(open) => !open && setEditingContract(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <Dialog open={!!manualConfirmFor} onOpenChange={(open) => !open && setManualConfirmFor(null)}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>ปรับปรุงข้อกำหนดสัญญาเช่า</DialogTitle>
+            <DialogTitle>ยืนยันการจองด้วยตนเอง (เฉพาะเจ้าของระบบ)</DialogTitle>
             <DialogDescription>
-              เลขที่สัญญา: <span className="font-mono font-bold text-foreground">{editingContract?.contract_no}</span>
+              การจอง <span className="font-mono font-bold text-foreground">{manualConfirmFor?.booking_code}</span> จะถูกยืนยันโดยไม่ผ่านขั้นตอนสัญญาและการชำระเงิน
+              ระบบจะไม่สร้างรายการชำระเงิน และบันทึกเหตุผลพร้อมชื่อผู้ทำรายการในบันทึกตรวจสอบ
             </DialogDescription>
           </DialogHeader>
-
-          <div className="space-y-4 py-2">
-            {editingContract?.customer_accepted_at && (
-              <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs" role="alert">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                <span>
-                  ลูกค้าลงนามยอมรับสัญญาฉบับเดิมแล้วเมื่อ {fmtDateTime(editingContract.customer_accepted_at)}
-                  การแก้ไขจะเปลี่ยนข้อความที่ลูกค้าเห็น กรุณาแจ้งลูกค้าทุกครั้ง
-                </span>
-              </div>
-            )}
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label htmlFor="depo-val" className="text-xs">เงินมัดจำประกัน (THB)</Label>
-                <Input
-                  id="depo-val"
-                  type="number"
-                  min={0}
-                  value={securityDeposit}
-                  onChange={(e) => setSecurityDeposit(Number(e.target.value))}
-                />
-              </div>
-              <div>
-                <Label htmlFor="mile-val" className="text-xs">ระยะทางที่อนุญาต</Label>
-                <Input
-                  id="mile-val"
-                  value={mileageAllowance}
-                  onChange={(e) => setMileageAllowance(e.target.value)}
-                />
-              </div>
-              <div>
-                <Label htmlFor="late-val" className="text-xs">ค่าปรับส่งคืนล่าช้า</Label>
-                <Input
-                  id="late-val"
-                  value={latePenalty}
-                  onChange={(e) => setLatePenalty(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="terms-text" className="text-xs">ข้อความสัญญา (ข้อกำหนดเพิ่มเติมด้านบนจะถูกแนบท้ายให้อัตโนมัติ)</Label>
-              <Textarea
-                id="terms-text"
-                rows={10}
-                className="font-mono text-xs leading-relaxed mt-1.5"
-                value={contractTerms}
-                onChange={(e) => setContractTerms(e.target.value)}
-              />
-            </div>
-          </div>
-
+          <Label htmlFor="manual-reason" className="text-xs">
+            เหตุผล (อย่างน้อย 10 ตัวอักษร)
+          </Label>
+          <Textarea id="manual-reason" value={manualReason} onChange={(e) => setManualReason(e.target.value)} maxLength={1000} />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingContract(null)}>
+            <Button variant="outline" onClick={() => setManualConfirmFor(null)}>
               ยกเลิก
             </Button>
-            <Button onClick={handleSaveContractTerms} disabled={savingContract}>
-              {savingContract ? "กำลังบันทึก..." : "บันทึกข้อกำหนดสัญญา"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ------------------------------------------------------------- */}
-      {/* DIALOG 5: DELETE CAR CONFIRMATION */}
-      {/* ------------------------------------------------------------- */}
-      <Dialog open={!!viewingContract} onOpenChange={(open) => !open && setViewingContract(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>สัญญาเช่า {viewingContract?.contract_no}</DialogTitle>
-            <DialogDescription>
-              การจอง {viewingContract?.bookings?.booking_code ?? "-"} · ดูได้อย่างเดียว (โหมดสาธิต)
-            </DialogDescription>
-          </DialogHeader>
-          <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-lg border bg-muted/30 p-4 font-sans text-sm leading-relaxed">
-            {viewingContract?.terms}
-          </pre>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setViewingContract(null)}>
-              ปิด
+            <Button variant="destructive" onClick={handleManualConfirm} disabled={confirmingManually}>
+              {confirmingManually ? "กำลังยืนยัน..." : "ยืนยันการจอง"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -18,7 +18,8 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { LoadError } from "@/components/load-error";
-import { formatCountdown, paymentSecondsLeft } from "@/lib/payment-window";
+import { formatCountdown, holdSecondsLeft } from "@/lib/payment-window";
+import { customerStage, customerStageLabel, type CustomerStage } from "@/lib/contract-workflow";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -38,7 +39,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
 import { categoryLabel, fmtDate, thb } from "@/lib/format";
-import { bookingReview, customerBookingsQuery, invalidateBookingData, type CustomerBooking } from "@/lib/queries";
+import {
+  bookingContract,
+  bookingReview,
+  customerBookingsQuery,
+  invalidateBookingData,
+  workflowContract,
+  type CustomerBooking,
+} from "@/lib/queries";
 import { reviewerDisplayName } from "@/lib/reviewer-name";
 
 export const Route = createFileRoute("/bookings")({
@@ -149,14 +157,25 @@ function BookingsHistoryPage() {
     }
   };
 
+  // Each booking's place in the contract workflow
+  const stageOf = (b: BookingWithCarAndReview): CustomerStage =>
+    customerStage(b, workflowContract(bookingContract(b)));
+  const TABS: { value: string; label: string; stages: CustomerStage[] }[] = [
+    { value: "contract", label: "รอสัญญา", stages: ["awaiting_contract"] },
+    { value: "review", label: "รอตรวจสัญญา", stages: ["review_contract"] },
+    { value: "approval", label: "รออนุมัติ / แก้ไข", stages: ["awaiting_approval", "revision_requested"] },
+    { value: "payment", label: "รอชำระเงิน", stages: ["awaiting_payment"] },
+    { value: "active", label: "ยืนยันแล้ว/กำลังเช่า", stages: ["confirmed"] },
+    { value: "completed", label: "เสร็จสิ้น", stages: ["completed"] },
+    { value: "cancelled", label: "ยกเลิก", stages: ["cancelled"] },
+  ];
+  const countFor = (stages: CustomerStage[]) => bookings.filter((b) => stages.includes(stageOf(b))).length;
+
   // Filter bookings based on active tab
   const filteredBookings = bookings.filter((b) => {
     if (activeTab === "all") return true;
-    if (activeTab === "pending") return b.status === "pending";
-    if (activeTab === "active") return b.status === "confirmed" || b.status === "active";
-    if (activeTab === "completed") return b.status === "completed";
-    if (activeTab === "cancelled") return b.status === "cancelled";
-    return true;
+    const tab = TABS.find((t) => t.value === activeTab);
+    return tab ? tab.stages.includes(stageOf(b)) : true;
   });
 
   // Loading state
@@ -206,12 +225,13 @@ function BookingsHistoryPage() {
 
       {/* Status Filter Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5 [&>button]:whitespace-normal">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4 [&>button]:whitespace-normal">
           <TabsTrigger value="all">ทั้งหมด ({bookings.length})</TabsTrigger>
-          <TabsTrigger value="pending">รอชำระเงิน ({bookings.filter((b) => b.status === "pending").length})</TabsTrigger>
-          <TabsTrigger value="active">กำลังเช่า/ยืนยันแล้ว ({bookings.filter((b) => b.status === "confirmed" || b.status === "active").length})</TabsTrigger>
-          <TabsTrigger value="completed">เสร็จสิ้น ({bookings.filter((b) => b.status === "completed").length})</TabsTrigger>
-          <TabsTrigger value="cancelled">ยกเลิก ({bookings.filter((b) => b.status === "cancelled").length})</TabsTrigger>
+          {TABS.map((t) => (
+            <TabsTrigger key={t.value} value={t.value}>
+              {t.label} ({countFor(t.stages)})
+            </TabsTrigger>
+          ))}
         </TabsList>
       </Tabs>
 
@@ -238,6 +258,8 @@ function BookingsHistoryPage() {
             const review = bookingReview(b);
             const canCancel = b.status === "pending" || b.status === "confirmed";
             const canReview = b.status === "completed" && !review;
+            const stage = stageOf(b);
+            const secondsLeft = holdSecondsLeft(b, now);
 
             return (
               <Card key={b.id} className="overflow-hidden shadow-card border transition hover:shadow-md">
@@ -261,6 +283,7 @@ function BookingsHistoryPage() {
                         {b.booking_code}
                       </span>
                       <StatusBadge status={b.status} kind="booking" />
+                      {b.status === "pending" && <Badge variant="outline">{customerStageLabel[stage]}</Badge>}
                     </div>
 
                     <h3 className="text-lg font-bold">
@@ -283,9 +306,11 @@ function BookingsHistoryPage() {
                     {b.status === "pending" && (
                       <p className="flex items-center gap-1.5 text-xs font-medium text-warning" role="timer">
                         <Clock className="h-3.5 w-3.5 shrink-0" />
-                        {paymentSecondsLeft(b.created_at, now) > 0
-                          ? `ชำระเงินภายใน ${formatCountdown(paymentSecondsLeft(b.created_at, now))} นาที`
-                          : "หมดเวลาชำระเงิน การจองจะถูกยกเลิก"}
+                        {secondsLeft === 0
+                          ? "หมดเวลาแล้ว การจองจะถูกยกเลิก"
+                          : stage === "awaiting_payment"
+                            ? `ชำระเงินภายใน ${formatCountdown(secondsLeft)}`
+                            : `ขั้นตอนนี้ต้องเสร็จภายใน ${formatCountdown(secondsLeft)}`}
                       </p>
                     )}
 
@@ -309,9 +334,23 @@ function BookingsHistoryPage() {
 
                     <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:flex-col">
                       {b.status === "pending" && (
-                        <Button size="sm" className="w-full gap-1.5" asChild>
+                        <Button
+                          size="sm"
+                          variant={stage === "review_contract" || stage === "awaiting_payment" ? "default" : "outline"}
+                          className="w-full gap-1.5"
+                          asChild
+                        >
                           <Link to="/bookings/$id" params={{ id: b.id }}>
-                            <CreditCard className="h-3.5 w-3.5" /> ชำระเงิน
+                            {stage === "awaiting_payment" ? (
+                              <>
+                                <CreditCard className="h-3.5 w-3.5" /> ชำระเงิน
+                              </>
+                            ) : (
+                              <>
+                                <FileCheck2 className="h-3.5 w-3.5" />{" "}
+                                {stage === "review_contract" ? "ตรวจสอบสัญญา" : "ดูรายละเอียด"}
+                              </>
+                            )}
                           </Link>
                         </Button>
                       )}

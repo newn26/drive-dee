@@ -29,17 +29,40 @@ export const ratingsQuery = () =>
     },
   });
 
-/** A customer's booking with its car and (at most one) review. */
+/** The contract fields the booking lists need (RLS hides unsent drafts from customers). */
+export type BookingContract = {
+  id: string;
+  status: string;
+  current_version?: number;
+  sent_version?: number | null;
+};
+
+/** A customer's booking with its car, (at most one) review and (at most one) contract. */
 export type CustomerBooking = Tables<"bookings"> & {
   cars: Tables<"cars"> | null;
   reviews: Tables<"reviews"> | Tables<"reviews">[] | null;
+  contracts?: BookingContract | BookingContract[] | null;
 };
 
 /** The review attached to a booking, whether PostgREST returned it as an object or an array. */
 export const bookingReview = (b: Pick<CustomerBooking, "reviews">): Tables<"reviews"> | null =>
   Array.isArray(b.reviews) ? (b.reviews[0] ?? null) : (b.reviews ?? null);
 
-export const CUSTOMER_BOOKINGS_SELECT = "*, cars(*), reviews(*)";
+/** The contract attached to a booking, whether PostgREST returned it as an object or an array. */
+export const bookingContract = (b: Pick<CustomerBooking, "contracts">): BookingContract | null =>
+  Array.isArray(b.contracts) ? (b.contracts[0] ?? null) : (b.contracts ?? null);
+
+/** Normalise a contract for the workflow helpers (missing columns = not migrated yet). */
+export const workflowContract = (c: BookingContract | null) =>
+  c
+    ? {
+        status: c.status,
+        current_version: c.current_version ?? 1,
+        sent_version: c.sent_version ?? null,
+      }
+    : null;
+
+export const CUSTOMER_BOOKINGS_SELECT = "*, cars(*), reviews(*), contracts(*)";
 
 /**
  * One query (one key, one data shape) shared by /dashboard and /bookings.
@@ -79,6 +102,8 @@ export const BOOKING_RELATED_QUERY_KEYS = [
   ["booking"],
   ["payment"],
   ["contract"],
+  ["contract-versions"],
+  ["contract-events"],
   ["booked"],
   ["cars"],
   ["car"],
