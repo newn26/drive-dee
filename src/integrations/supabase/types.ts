@@ -14,6 +14,114 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_audit_log: {
+        Row: {
+          action: string
+          actor_id: string | null
+          created_at: string
+          details: Json
+          id: string
+          target_email: string | null
+          target_user_id: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          created_at?: string
+          details?: Json
+          id?: string
+          target_email?: string | null
+          target_user_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          created_at?: string
+          details?: Json
+          id?: string
+          target_email?: string | null
+          target_user_id?: string | null
+        }
+        Relationships: []
+      }
+      admin_invitations: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          created_at: string
+          email: string
+          expires_at: string
+          id: string
+          invited_by: string
+          permissions: string[]
+          revoked_at: string | null
+          revoked_by: string | null
+          token_hash: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          email: string
+          expires_at: string
+          id?: string
+          invited_by: string
+          permissions: string[]
+          revoked_at?: string | null
+          revoked_by?: string | null
+          token_hash: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          created_at?: string
+          email?: string
+          expires_at?: string
+          id?: string
+          invited_by?: string
+          permissions?: string[]
+          revoked_at?: string | null
+          revoked_by?: string | null
+          token_hash?: string
+        }
+        Relationships: []
+      }
+      admin_members: {
+        Row: {
+          created_at: string
+          email: string
+          invited_by: string | null
+          is_owner: boolean
+          permissions: string[]
+          status: string
+          status_reason: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string
+          invited_by?: string | null
+          is_owner?: boolean
+          permissions?: string[]
+          status?: string
+          status_reason?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          invited_by?: string | null
+          is_owner?: boolean
+          permissions?: string[]
+          status?: string
+          status_reason?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       bookings: {
         Row: {
           booking_code: string
@@ -21,6 +129,7 @@ export type Database = {
           created_at: string
           days: number
           end_date: string
+          hold_expires_at: string | null
           id: string
           notes: string | null
           pickup_location: string
@@ -35,6 +144,7 @@ export type Database = {
           created_at?: string
           days: number
           end_date: string
+          hold_expires_at?: string | null
           id?: string
           notes?: string | null
           pickup_location?: string
@@ -49,6 +159,7 @@ export type Database = {
           created_at?: string
           days?: number
           end_date?: string
+          hold_expires_at?: string | null
           id?: string
           notes?: string | null
           pickup_location?: string
@@ -121,35 +232,211 @@ export type Database = {
         }
         Relationships: []
       }
+      contract_events: {
+        Row: {
+          action: string
+          actor_id: string | null
+          actor_role: string
+          booking_id: string
+          contract_id: string | null
+          created_at: string
+          id: string
+          note: string | null
+          version: number | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          actor_role: string
+          booking_id: string
+          contract_id?: string | null
+          created_at?: string
+          id?: string
+          note?: string | null
+          version?: number | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          actor_role?: string
+          booking_id?: string
+          contract_id?: string | null
+          created_at?: string
+          id?: string
+          note?: string | null
+          version?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contract_events_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contract_events_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contract_versions: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          additional_conditions: string
+          approved_at: string | null
+          approved_by: string | null
+          car_label: string | null
+          car_plate_no: string | null
+          contract_id: string
+          created_at: string
+          created_by: string | null
+          customer_license_no: string | null
+          customer_name: string | null
+          customer_phone: string | null
+          deposit: number | null
+          id: string
+          is_legacy: boolean
+          late_penalty: string | null
+          mileage_allowance: string | null
+          pickup_at: string | null
+          pickup_location: string | null
+          rental_days: number | null
+          rental_price: number | null
+          return_at: string | null
+          sent_at: string | null
+          superseded_at: string | null
+          terms: string
+          version: number
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          additional_conditions?: string
+          approved_at?: string | null
+          approved_by?: string | null
+          car_label?: string | null
+          car_plate_no?: string | null
+          contract_id: string
+          created_at?: string
+          created_by?: string | null
+          customer_license_no?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
+          deposit?: number | null
+          id?: string
+          is_legacy?: boolean
+          late_penalty?: string | null
+          mileage_allowance?: string | null
+          pickup_at?: string | null
+          pickup_location?: string | null
+          rental_days?: number | null
+          rental_price?: number | null
+          return_at?: string | null
+          sent_at?: string | null
+          superseded_at?: string | null
+          terms: string
+          version: number
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          additional_conditions?: string
+          approved_at?: string | null
+          approved_by?: string | null
+          car_label?: string | null
+          car_plate_no?: string | null
+          contract_id?: string
+          created_at?: string
+          created_by?: string | null
+          customer_license_no?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
+          deposit?: number | null
+          id?: string
+          is_legacy?: boolean
+          late_penalty?: string | null
+          mileage_allowance?: string | null
+          pickup_at?: string | null
+          pickup_location?: string | null
+          rental_days?: number | null
+          rental_price?: number | null
+          return_at?: string | null
+          sent_at?: string | null
+          superseded_at?: string | null
+          terms?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contract_versions_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contracts: {
         Row: {
+          approved_at: string | null
+          approved_by: string | null
           booking_id: string
+          cancelled_at: string | null
           contract_no: string
           created_at: string
+          current_version: number
           customer_accepted_at: string | null
           id: string
+          paid_at: string | null
+          revision_reason: string | null
+          revision_requested_by: string | null
+          sent_version: number | null
           status: string
           terms: string
+          updated_at: string
           user_id: string
         }
         Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
           booking_id: string
+          cancelled_at?: string | null
           contract_no?: string
           created_at?: string
+          current_version?: number
           customer_accepted_at?: string | null
           id?: string
+          paid_at?: string | null
+          revision_reason?: string | null
+          revision_requested_by?: string | null
+          sent_version?: number | null
           status?: string
           terms: string
+          updated_at?: string
           user_id: string
         }
         Update: {
+          approved_at?: string | null
+          approved_by?: string | null
           booking_id?: string
+          cancelled_at?: string | null
           contract_no?: string
           created_at?: string
+          current_version?: number
           customer_accepted_at?: string | null
           id?: string
+          paid_at?: string | null
+          revision_reason?: string | null
+          revision_requested_by?: string | null
+          sent_version?: number | null
           status?: string
           terms?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
@@ -215,6 +502,7 @@ export type Database = {
           method: Database["public"]["Enums"]["payment_method"]
           paid_at: string
           reference: string
+          refund_status: string
           status: string
           user_id: string
         }
@@ -226,6 +514,7 @@ export type Database = {
           method: Database["public"]["Enums"]["payment_method"]
           paid_at?: string
           reference?: string
+          refund_status?: string
           status?: string
           user_id: string
         }
@@ -237,6 +526,7 @@ export type Database = {
           method?: Database["public"]["Enums"]["payment_method"]
           paid_at?: string
           reference?: string
+          refund_status?: string
           status?: string
           user_id?: string
         }
@@ -354,9 +644,78 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_admin_invitation: { Args: { _token: string }; Returns: undefined }
+      admin_approve_contract: {
+        Args: { _contract_id: string; _version: number }
+        Returns: undefined
+      }
+      admin_create_contract: {
+        Args: {
+          _additional_conditions?: string
+          _booking_id: string
+          _deposit: number
+          _include_license?: boolean
+          _late_penalty: string
+          _mileage_allowance: string
+          _pickup_at: string
+          _return_at: string
+        }
+        Returns: string
+      }
+      admin_permission_list: { Args: never; Returns: string[] }
+      admin_request_revision: {
+        Args: { _contract_id: string; _reason: string; _version: number }
+        Returns: undefined
+      }
+      admin_send_contract: {
+        Args: { _contract_id: string }
+        Returns: undefined
+      }
+      admin_update_contract: {
+        Args: {
+          _additional_conditions?: string
+          _contract_id: string
+          _deposit: number
+          _include_license?: boolean
+          _late_penalty: string
+          _mileage_allowance: string
+          _pickup_at: string
+          _return_at: string
+        }
+        Returns: number
+      }
+      assert_booking_open: {
+        Args: { _b: Database["public"]["Tables"]["bookings"]["Row"] }
+        Returns: undefined
+      }
       booked_car_ids: {
         Args: { _end: string; _start: string }
         Returns: string[]
+      }
+      booking_blocks_car: {
+        Args: {
+          _hold_expires_at: string
+          _status: Database["public"]["Enums"]["booking_status"]
+        }
+        Returns: boolean
+      }
+      bootstrap_owner: { Args: { _email: string }; Returns: undefined }
+      contract_hold_until: {
+        Args: { _span: string; _start_date: string }
+        Returns: string
+      }
+      customer_accept_contract: {
+        Args: { _contract_id: string; _version: number }
+        Returns: undefined
+      }
+      customer_request_revision: {
+        Args: { _contract_id: string; _reason: string; _version: number }
+        Returns: undefined
+      }
+      expire_stale_bookings: { Args: never; Returns: number }
+      has_admin_permission: {
+        Args: { _permission: string; _user_id: string }
+        Returns: boolean
       }
       has_role: {
         Args: {
@@ -365,6 +724,51 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_owner: { Args: { _user_id: string }; Returns: boolean }
+      log_admin_audit: {
+        Args: {
+          _action: string
+          _details?: Json
+          _target_email: string
+          _target_user_id: string
+        }
+        Returns: undefined
+      }
+      log_contract_event: {
+        Args: {
+          _action: string
+          _booking_id: string
+          _contract_id: string
+          _note: string
+          _system?: boolean
+          _version: number
+        }
+        Returns: undefined
+      }
+      owner_create_admin_invitation: {
+        Args: { _email: string; _permissions: string[] }
+        Returns: {
+          invitation_id: string
+          invite_expires_at: string
+          invite_token: string
+        }[]
+      }
+      owner_manual_confirm_booking: {
+        Args: { _booking_id: string; _reason: string }
+        Returns: undefined
+      }
+      owner_revoke_admin_invitation: {
+        Args: { _invitation_id: string }
+        Returns: undefined
+      }
+      owner_set_admin_permissions: {
+        Args: { _permissions: string[]; _user_id: string }
+        Returns: undefined
+      }
+      owner_set_admin_status: {
+        Args: { _reason: string; _status: string; _user_id: string }
+        Returns: undefined
+      }
       pay_booking: {
         Args: {
           _booking_id: string
@@ -372,6 +776,52 @@ export type Database = {
           _method: Database["public"]["Enums"]["payment_method"]
         }
         Returns: string
+      }
+      render_contract_terms: {
+        Args: {
+          _additional_conditions: string
+          _car_label: string
+          _car_plate_no: string
+          _contract_no: string
+          _customer_license_no: string
+          _customer_name: string
+          _customer_phone: string
+          _deposit: number
+          _late_penalty: string
+          _mileage_allowance: string
+          _pickup_at: string
+          _pickup_location: string
+          _rental_days: number
+          _rental_price: number
+          _return_at: string
+          _version: number
+        }
+        Returns: string
+      }
+      require_admin_permission: {
+        Args: { _permission: string }
+        Returns: string
+      }
+      require_owner: { Args: never; Returns: string }
+      validate_admin_permissions: {
+        Args: { _permissions: string[] }
+        Returns: string[]
+      }
+      write_contract_version: {
+        Args: {
+          _additional_conditions: string
+          _b: Database["public"]["Tables"]["bookings"]["Row"]
+          _contract: Database["public"]["Tables"]["contracts"]["Row"]
+          _deposit: number
+          _include_license: boolean
+          _is_new: boolean
+          _late_penalty: string
+          _mileage_allowance: string
+          _pickup_at: string
+          _return_at: string
+          _version: number
+        }
+        Returns: undefined
       }
     }
     Enums: {
