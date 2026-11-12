@@ -1,8 +1,74 @@
-# Contract approval workflow — Phase C plan
+# Contract approval workflow — plan and implementation record
 
-Status: **Phase E prepared on branch `contract-approval-workflow` (not pushed). Migration NOT applied.**
-See the Phase E addendum at the end for what changed after the plan. Prepared 2026-11-12 for Drive Dee (Siam Wheels prototype).
-No SQL has been executed, no migration applied, no app code changed, nothing committed.
+Status: **Implemented and applied to production.** The migration was applied through Lovable as
+[`drizzle/migrations/0004_contract_approval_workflow.sql`](../../drizzle/migrations/0004_contract_approval_workflow.sql)
+and the application code was merged into `main` (PR #5). The **Owner bootstrap**
+(`bootstrap_owner`) is a separate one-time step, not part of the migration; see
+[`admin-account-procedure.md`](admin-account-procedure.md).
+
+**Source of truth.** The applied migration file is authoritative. Its body is identical to
+[`contract-approval-workflow.sql`](contract-approval-workflow.sql) in this folder (the header comment
+of both files still reads "PROPOSED — NOT APPLIED"; that comment is out of date). The level-1
+rollback, [`contract-approval-workflow-rollback.sql`](contract-approval-workflow-rollback.sql), has
+**not** been applied.
+
+The section [Implemented workflow](#implemented-workflow-as-applied) below describes what was built.
+Sections 1–11 are the original plan (prepared 2026-11-12 for Drive Dee) and are kept as a
+historical record; where they differ from the implementation, the
+[Phase E addendum](#phase-e-addendum-2026-11-12) and the notes marked **As built** apply.
+
+---
+
+## Implemented workflow (as applied)
+
+**Contract lifecycle.** All writes go through `security definer` functions; clients have only
+`SELECT` on `contracts`, `contract_versions` and `contract_events`.
+
+| Step                      | Function                                             | Required            | Contract status after                                                      |
+| ------------------------- | ---------------------------------------------------- | ------------------- | -------------------------------------------------------------------------- |
+| Booking created           | (insert, trigger `validate_booking`)                 | Signed-in customer  | — (booking `pending`, 24 h hold)                                           |
+| Create contract           | `admin_create_contract`                              | `contracts_manage`  | `draft` (version 1)                                                        |
+| Edit                      | `admin_update_contract`                              | `contracts_manage`  | Unsent draft: edited in place. Sent version: superseded, new draft version |
+| Send                      | `admin_send_contract`                                | `contracts_manage`  | `pending_customer`                                                         |
+| Customer accepts          | `customer_accept_contract(id, version)`              | Booking owner       | `pending_admin_review`                                                     |
+| Customer asks for changes | `customer_request_revision(id, version, reason ≥ 5)` | Booking owner       | `revision_requested`                                                       |
+| Admin approves            | `admin_approve_contract(id, version)`                | `contracts_approve` | `approved` (15-minute payment window)                                      |
+| Admin asks for changes    | `admin_request_revision(id, version, reason ≥ 5)`    | `contracts_approve` | `revision_requested`                                                       |
+| DEMO payment              | `pay_booking`                                        | Booking owner       | `paid` (booking `confirmed`)                                               |
+| Manual confirmation       | `owner_manual_confirm_booking(reason ≥ 10)`          | Owner               | unchanged (booking `confirmed`, no payment row)                            |
+| Cancel / expiry           | trigger `cancel_contract_with_booking`               | —                   | `cancelled`                                                                |
+
+**Holds.** `bookings.hold_expires_at` is set to 24 h (capped at midnight Asia/Bangkok after the
+pickup date) at booking creation, send, acceptance and every revision/new version, and to
+15 minutes (uncapped) at approval. `booking_blocks_car()` is the single availability rule.
+`expire_stale_bookings()` tidies expired holds into `cancelled`; the app calls it when the admin
+booking list, the customer booking list and the booking detail page load. There is no scheduled job.
+
+**Admin model.** `admin_members` (Owner flag, status, permissions), `admin_invitations`
+(email-bound, single use, 72 h, SHA-256 token hash only) and `admin_audit_log`. A suspended or
+revoked admin fails `has_role(…, 'admin')` everywhere. Owner-only functions:
+`owner_create_admin_invitation`, `owner_revoke_admin_invitation`, `owner_set_admin_permissions`,
+`owner_set_admin_status`, `owner_manual_confirm_booking`.
+
+**History tables.**
+
+| Table                                | Behaviour                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `contract_events`, `admin_audit_log` | **Append-only.** Trigger `append_only` rejects every `UPDATE` and `DELETE`.                                                                                                                                                                                                                                                                           |
+| `contract_versions`                  | Rows can be updated only within the rules of `protect_contract_version`: content is editable only while unsent; `sent_at`, `accepted_*`, `approved_*`, `superseded_at` are write-once; sent versions cannot be deleted.                                                                                                                               |
+| `admin_members`, `admin_invitations` | **Not append-only.** Updated by the Owner functions (status, permissions, accepted/revoked stamps). Client roles have `SELECT` only; the migration's grant comments that call these tables "append-only history" refer only to `service_role` having no `UPDATE`/`DELETE`/`TRUNCATE` grant, while the `security definer` functions still update them. |
+
+**Payments.** At most one `paid` payment per booking (unique index). Cancelling a paid booking
+keeps the payment as `paid` and sets `refund_status = 'not_refunded'`. The column also accepts
+`refunded`, but **no refund function or screen exists**: the application never sets it.
+
+**Not implemented.** The `demo_admin` role is not in the database; `/demo-admin` exists in the
+code but its sign-in is disabled (`DEMO_ADMIN_SIGN_IN_ENABLED = false` in `src/lib/roles.ts`).
+There is no Owner transfer function and no email notification.
+
+---
+
+## Original plan (2026-11-12, historical)
 
 Decisions taken (from the owner, 2026-11-12):
 
@@ -16,6 +82,11 @@ This plan also **supersedes** `security-fixes-lovable-prompt.md` (fixes B and H 
 ---
 
 ## 1. Implementation plan
+
+> **As built:** steps E0–E7 are complete. The migration was applied through Lovable as
+> `drizzle/migrations/0004_contract_approval_workflow.sql`, `types.ts` was regenerated, the
+> temporary local types were removed, and the branch was merged into `main` (PR #5). E8 (optional
+> live smoke test) is not recorded in this document.
 
 | Step | What | Touches live DB? | Needs approval |
 |---|---|---|---|
@@ -78,7 +149,7 @@ Approval likewise. A partial unique index allows only one non-superseded version
 ### 2.4 `contract_events` (new, append-only audit log)
 
 `contract_id` (null for a manual confirm with no contract), `booking_id`, `version`, `actor_id`, `actor_role`
-(`admin`/`customer`/`system`), `action`, `note`, `created_at`. Actions:
+(`owner`/`admin`/`customer`/`system`; **as built**, `owner` was added), `action`, `note`, `created_at`. Actions:
 `legacy_import, created, edited, sent, accepted, revision_requested, approved, paid, cancelled, expired, manual_confirm`.
 Supplies badge timestamps, revision reasons and the manual-confirm audit trail.
 
@@ -116,6 +187,10 @@ select column_name from information_schema.columns
 ```
 
 ### 3.1 Migration `0004_contract_approval_workflow`
+
+> **As built:** this is the **early draft** SQL from the plan. It does not include the admin
+> management tables and functions, and it still uses `admin_manual_confirm_booking`. Do not apply
+> it. The applied SQL is `drizzle/migrations/0004_contract_approval_workflow.sql`.
 
 ```sql
 -- =====================================================================
@@ -853,6 +928,9 @@ grant execute on function public.pay_booking(uuid, payment_method, text) to auth
 
 ### 3.2 Prompt for Lovable (E6, only after your approval)
 
+> **As built:** done. Migration 0004 has been applied to production; §3.0 pre-checks and §3.3
+> post-checks were run before and after it.
+
 > Please apply this migration for the Drive Dee prototype exactly as written (attached SQL), as one new
 > migration, then regenerate `src/integrations/supabase/types.ts`. Do not change any other file, table,
 > policy or row, and do not insert demo data.
@@ -877,6 +955,11 @@ select privilege_type from information_schema.role_table_grants
 ---
 
 ## 4. RLS and function permission design
+
+> **As built:** "admin" in the tables below means an **active** admin with the matching permission:
+> `contracts_manage` for create/update/send, `contracts_approve` for approve/request revision.
+> Manual confirmation is `owner_manual_confirm_booking` and requires the **Owner**. Admin
+> management functions are listed in [Implemented workflow](#implemented-workflow-as-applied).
 
 | Object | anon | customer (authenticated) | admin | Enforced by |
 |---|---|---|---|---|
@@ -945,6 +1028,13 @@ Booking status (enum unchanged): `pending` (whole contract workflow) → `confir
 
 ## 6. UI changes
 
+> **As built:** the overview shows a contract **work queue** with one tile per stage (including
+> bookings that still need a contract) instead of a single counter. Manual confirmation in the
+> bookings tab is shown to the Owner only. The admin contract permission flags in `roles.ts` are
+> `editContracts` and `approveContracts`. The Demo Admin dashboard is disabled because the
+> `demo_admin` role does not exist in the database. The Owner has an extra **ผู้ดูแลระบบ (Owner)**
+> tab for admin management.
+
 ### Admin (`/admin`)
 
 - **New contracts panel** (`src/components/admin/contracts-panel.tsx`, replaces the contracts tab body in `admin.tsx`), sub-tabs with counts:
@@ -980,6 +1070,10 @@ Booking status (enum unchanged): `pending` (whole contract workflow) → `confir
 
 ## 7. Booking hold and expiration design
 
+> **As built:** implemented as described, with `owner_manual_confirm_booking` in place of
+> `admin_manual_confirm_booking`. `expire_stale_bookings()` is called when the admin booking list,
+> the customer booking list and the booking detail page load.
+
 | Stage | Set when | `hold_expires_at` |
 |---|---|---|
 | 1 Admin prepares + sends | booking insert | `min(now()+24h, end of pickup day)` |
@@ -1000,6 +1094,11 @@ Enforcement (not page-load dependent):
 ---
 
 ## 8. Rollback plan
+
+> **As built:** the SQL below is the early draft. The tested, authoritative level-1 rollback is
+> [`contract-approval-workflow-rollback.sql`](contract-approval-workflow-rollback.sql) (it also
+> removes the admin management functions and restores the original `has_role`). It has **not**
+> been applied.
 
 **Code:** `git revert` of the merge commit on `main` (no history rewrite; Lovable syncs it).
 
@@ -1143,6 +1242,12 @@ Other layers: **UNIT** (pure functions, Vitest), **UI** (React Testing Library w
 
 ## 10. Files and modules
 
+> **As built:** the files below were created or changed as planned, except that
+> `vitest.config.ts` and `src/lib/contract-terms.ts` were not changed. Also added:
+> `src/components/admin/admin-management-panel.tsx`, `src/routes/admin-invite.tsx` and
+> `src/test/admin-dashboard.test.tsx`. Sizes are the original estimates. The test suite now has
+> 24 files and 252 tests.
+
 | File | Change | Size |
 |---|---|---|
 | `drizzle/migrations/0004_*.sql` | **Created by Lovable** from §3.1 | ~600 lines SQL |
@@ -1169,6 +1274,9 @@ Other layers: **UNIT** (pure functions, Vitest), **UI** (React Testing Library w
 ---
 
 ## 11. Assumptions to confirm
+
+> **As built:** all six assumptions were implemented as written. For item 5, the payment row is kept
+> with `refund_status = 'not_refunded'`.
 
 1. **Deposit** is shown in the contract and collected at pickup; DEMO payment charges the rental price only (as today).
 2. **Rental price** comes from the booking total and is not editable in the contract (prevents a contract/payment mismatch). Price changes would be a separate feature.
