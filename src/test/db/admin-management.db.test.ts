@@ -353,4 +353,24 @@ describe("suspension, revocation and permissions", () => {
       (await db.as(owner).sql("select user_id from public.admin_members")).length,
     ).toBeGreaterThan(2);
   });
+
+  it("M16 a customer cannot use or read Admin Management", async () => {
+    const c = await createUser(db);
+    await expect(invite(c, "x@example.test", ["fleet_manage"])).rejects.toThrow(/เฉพาะเจ้าของระบบ/);
+    await expect(
+      db
+        .as(c)
+        .sql("select public.owner_set_admin_status($1, 'suspended', 'ทดสอบลูกค้า')", [admin.id]),
+    ).rejects.toThrow(/เฉพาะเจ้าของระบบ/);
+    await expect(
+      db
+        .as(c)
+        .sql("select public.owner_set_admin_permissions($1, $2)", [admin.id, ["fleet_manage"]]),
+    ).rejects.toThrow(/เฉพาะเจ้าของระบบ/);
+    expect(await db.as(c).sql("select user_id from public.admin_members")).toEqual([]);
+    expect(await db.as(c).sql("select id from public.admin_invitations")).toEqual([]);
+    expect(await db.as(c).sql("select id from public.admin_audit_log")).toEqual([]);
+    await expect(acceptInvite(c, "f".repeat(64))).rejects.toThrow(/คำเชิญไม่ถูกต้อง/);
+    expect(await isAdmin(c)).toBe(false);
+  });
 });

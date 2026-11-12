@@ -4,6 +4,7 @@
  * Legacy rows are created with the OLD functions (migrations 0000-0003) before the proposed
  * migration runs, the same way the live database got them. Fictional people only.
  */
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type TestDb,
@@ -12,6 +13,7 @@ import {
   createBooking,
   createTestDb,
   createUser,
+  PROPOSED_MIGRATION,
 } from "./harness";
 
 let db: TestDb;
@@ -187,5 +189,38 @@ describe("legacy data", () => {
     expect(
       (await db.sql("select phone from public.profiles where id = $1", [customer.id]))[0]!["phone"],
     ).toBe("000-111-2222");
+  });
+
+  it("A3 legacy cancelled contracts get no invented cancellation time", async () => {
+    const c = await contractFor(ids.c);
+    expect(c["status"]).toBe("cancelled");
+    expect(c["cancelled_at"]).toBeNull();
+  });
+
+  it("A2 the service role cannot truncate or rewrite contract history or the audit log", async () => {
+    for (const t of ["admin_audit_log", "contract_events", "contract_versions"]) {
+      await expect(db.exec(`set role service_role; truncate public.${t}`), t).rejects.toThrow(
+        /permission denied/,
+      );
+      await expect(db.exec(`set role service_role; delete from public.${t}`), t).rejects.toThrow(
+        /permission denied/,
+      );
+    }
+    expect(await db.sql("select id from public.contract_versions")).toHaveLength(3);
+  });
+
+  it("A1 running the whole migration a second time changes nothing", async () => {
+    const snapshot = () =>
+      db.sql(`select
+        (select json_agg(json_build_object('id', id, 'status', status, 'terms', terms, 'accepted', customer_accepted_at, 'paid_at', paid_at, 'cancelled_at', cancelled_at) order by id) from public.contracts) as contracts,
+        (select count(*) from public.contract_versions) as versions,
+        (select count(*) from public.contract_events) as events,
+        (select json_agg(json_build_object('id', id, 'status', status, 'refund', refund_status, 'amount', amount) order by id) from public.payments) as payments,
+        (select json_agg(json_build_object('id', id, 'status', status, 'hold', hold_expires_at) order by id) from public.bookings) as bookings,
+        (select json_agg(json_build_object('u', user_id, 's', status, 'o', is_owner, 'p', permissions) order by user_id) from public.admin_members) as members,
+        (select count(*) from public.admin_audit_log) as audit`);
+    const before = await snapshot();
+    await db.exec(readFileSync(PROPOSED_MIGRATION, "utf8"));
+    expect(await snapshot()).toEqual(before);
   });
 });

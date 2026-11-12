@@ -93,7 +93,13 @@ import {
   type ReportRange,
 } from "@/lib/reports";
 import { KeyRound } from "lucide-react";
-import { AdminContractsPanel, type PanelBooking, type PanelContract } from "@/components/admin/contracts-panel";
+import {
+  AdminContractsPanel,
+  ContractWorkQueue,
+  type ContractPanelView,
+  type PanelBooking,
+  type PanelContract,
+} from "@/components/admin/contracts-panel";
 import { AdminManagementPanel } from "@/components/admin/admin-management-panel";
 import { adminBookingMoves, reasonError } from "@/lib/contract-workflow";
 import { ownerManualConfirm } from "@/lib/contract-api";
@@ -165,6 +171,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<AdminTab>("overview");
+  // Which contracts tab to open (set by the overview work queue)
+  const [contractView, setContractView] = useState<ContractPanelView>("pending_admin_review");
 
   // Filters & Search
   const [carSearch, setCarSearch] = useState("");
@@ -876,6 +884,16 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           {/* TAB 1: OVERVIEW */}
           {activeTab === "overview" && (
             <div className="space-y-6">
+              {perms.viewContracts && (
+                <ContractWorkQueue
+                  contracts={contracts}
+                  bookings={bookings as unknown as PanelBooking[]}
+                  onOpen={(v) => {
+                    setContractView(v);
+                    setActiveTab("contracts");
+                  }}
+                />
+              )}
               {/* 6 Key Operational Metrics */}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <Card className="shadow-card border">
@@ -1320,6 +1338,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           {/* TAB 4: CONTRACTS MANAGEMENT */}
           {activeTab === "contracts" && (
             <AdminContractsPanel
+              key={contractView}
+              initialView={contractView}
               perms={perms}
               contracts={contracts as unknown as PanelContract[]}
               bookings={bookings as unknown as PanelBooking[]}
@@ -1488,7 +1508,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       <span className="text-right font-medium">{reportMetrics.paidCount} รายการ</span>
                       <span className="text-muted-foreground">การจองใหม่ (ไม่รวมยกเลิก):</span>
                       <span className="text-right font-medium">{reportMetrics.bookingCount} รายการ</span>
-                      <span className="text-muted-foreground">รอชำระเงิน:</span>
+                      <span className="text-muted-foreground">รอดำเนินการ (สัญญา/ชำระเงิน):</span>
                       <span className="text-right font-medium">{reportMetrics.pendingCount} รายการ</span>
                       <span className="text-muted-foreground">เสร็จสิ้น / ยกเลิก:</span>
                       <span className="text-right font-medium">

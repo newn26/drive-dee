@@ -56,7 +56,13 @@ export const bookingContract = (b: Pick<CustomerBooking, "contracts">): BookingC
 
 /** Normalise a contract for the workflow helpers (missing columns = not migrated yet). */
 export const workflowContract = (c: BookingContract | null) =>
-  c ? { status: c.status, current_version: c.current_version ?? 1, sent_version: c.sent_version ?? null } : null;
+  c
+    ? {
+        status: c.status,
+        current_version: c.current_version ?? 1,
+        sent_version: c.sent_version ?? null,
+      }
+    : null;
 
 export const CUSTOMER_BOOKINGS_SELECT = "*, cars(*), reviews(*), contracts(*)";
 

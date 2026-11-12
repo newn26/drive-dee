@@ -75,7 +75,8 @@ export type PanelBooking = {
 
 export type PanelContract = ContractRow & { bookings: PanelBooking | null };
 
-type View = "create" | ContractStatus;
+export type ContractPanelView = "create" | ContractStatus;
+type View = ContractPanelView;
 
 const VIEWS: { value: View; label: string }[] = [
   { value: "create", label: "สร้างสัญญา" },
@@ -215,19 +216,99 @@ export function ContractFormFields({
   );
 }
 
+/** Pending bookings that still need a contract (hold not yet expired). */
+const bookingsAwaitingContract = (
+  bookings: PanelBooking[],
+  contracts: { booking_id: string }[],
+  now: number = Date.now(),
+) => {
+  const withContract = new Set(contracts.map((c) => c.booking_id));
+  return bookings.filter(
+    (b) => b.status === "pending" && !withContract.has(b.id) && holdSecondsLeft(b, now) > 0,
+  );
+};
+
+/** Work queue for the admin overview: one tile per stage, each opens that tab of the panel. */
+export function ContractWorkQueue({
+  contracts,
+  bookings,
+  onOpen,
+}: {
+  contracts: { status: string; booking_id: string }[];
+  bookings: PanelBooking[];
+  onOpen: (view: ContractPanelView) => void;
+}) {
+  const count = (s: string) => contracts.filter((c) => c.status === s).length;
+  const tiles: { view: ContractPanelView; label: string; n: number; urgent?: boolean }[] = [
+    {
+      view: "create",
+      label: "การจองรอสร้างสัญญา",
+      n: bookingsAwaitingContract(bookings, contracts).length,
+      urgent: true,
+    },
+    { view: "draft", label: contractStatusLabel.draft, n: count("draft") },
+    {
+      view: "pending_customer",
+      label: contractStatusLabel.pending_customer,
+      n: count("pending_customer"),
+    },
+    {
+      view: "pending_admin_review",
+      label: contractStatusLabel.pending_admin_review,
+      n: count("pending_admin_review"),
+      urgent: true,
+    },
+    {
+      view: "revision_requested",
+      label: contractStatusLabel.revision_requested,
+      n: count("revision_requested"),
+      urgent: true,
+    },
+    { view: "approved", label: contractStatusLabel.approved, n: count("approved") },
+    { view: "paid", label: contractStatusLabel.paid, n: count("paid") },
+    { view: "cancelled", label: contractStatusLabel.cancelled, n: count("cancelled") },
+  ];
+  return (
+    <Card className="border shadow-card" data-testid="contract-work-queue">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">งานสัญญาเช่า</CardTitle>
+        <CardDescription>กดเพื่อเปิดรายการในแท็บสัญญาเช่าดิจิทัล</CardDescription>
+      </CardHeader>
+      <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {tiles.map((t) => (
+          <button
+            key={t.view}
+            type="button"
+            onClick={() => onOpen(t.view)}
+            className={`rounded-lg border p-3 text-left transition hover:bg-muted/60 ${
+              t.urgent && t.n > 0 ? "border-amber-400 bg-amber-50 text-amber-900" : "bg-card"
+            }`}
+          >
+            <span className="block text-2xl font-bold">{t.n}</span>
+            <span className="text-xs">{t.label}</span>
+          </button>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AdminContractsPanel({
   perms,
   contracts,
   bookings,
   profileMap,
+  initialView = "pending_admin_review",
 }: {
   perms: DashboardPermissions;
   contracts: PanelContract[];
   bookings: PanelBooking[];
   profileMap: Record<string, { full_name: string; phone?: string | null } | undefined>;
+  /** Tab to open first (the overview work queue links straight to a stage). */
+  initialView?: ContractPanelView;
 }) {
   const queryClient = useQueryClient();
-  const [view, setView] = useState<View>("pending_admin_review");
+  const [view, setView] = useState<View>(initialView);
   const [search, setSearch] = useState("");
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -261,13 +342,7 @@ export function AdminContractsPanel({
     setForm(formFromVersion(currentVersion));
   }, [openId, currentVersion?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const bookingsWithContract = useMemo(
-    () => new Set(contracts.map((c) => c.booking_id)),
-    [contracts],
-  );
-  const creatable = bookings.filter(
-    (b) => b.status === "pending" && !bookingsWithContract.has(b.id) && holdSecondsLeft(b, now) > 0,
-  );
+  const creatable = bookingsAwaitingContract(bookings, contracts, now);
   const counts = useMemo(() => {
     const m: Record<string, number> = { create: creatable.length };
     for (const c of contracts) m[c.status] = (m[c.status] ?? 0) + 1;

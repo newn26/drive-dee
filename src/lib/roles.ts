@@ -93,7 +93,10 @@ export type AdminMemberInfo = {
  * Without a member row (database not migrated yet) an admin keeps the old full access,
  * minus the Owner-only actions.
  */
-export function dashboardPermissions(role: AppRole, member?: AdminMemberInfo | null): DashboardPermissions {
+export function dashboardPermissions(
+  role: AppRole,
+  member?: AdminMemberInfo | null,
+): DashboardPermissions {
   if (role === "admin") {
     if (member && member.status !== "active") return NONE;
     const owner = !!member?.is_owner;

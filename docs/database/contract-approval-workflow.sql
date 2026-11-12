@@ -7,6 +7,8 @@
 -- Existing admins stay admins; NOBODY is made Owner by this migration
 -- (see bootstrap_owner at the end, a separate approved step).
 -- Tested against drizzle/migrations 0000-0003 in src/test/db (PGlite).
+-- Safe to re-run: every statement is guarded (if [not] exists / or replace / on conflict /
+-- backfills limited to rows not yet converted). Re-run tested in src/test/db/legacy-migration.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -219,13 +221,15 @@ update public.contracts c set
   status = case when b.status = 'cancelled' then 'cancelled' else 'paid' end,
   sent_version = 1,
   current_version = 1,
-  paid_at = (select min(p.paid_at) from public.payments p where p.booking_id = c.booking_id and p.status = 'paid'),
-  cancelled_at = case when b.status = 'cancelled' then now() end
+  paid_at = (select min(p.paid_at) from public.payments p where p.booking_id = c.booking_id and p.status = 'paid')
+  -- cancelled_at stays NULL for legacy rows: the real cancellation time is not recorded anywhere
 from public.bookings b
 where b.id = c.booking_id and c.status in ('active','accepted');
 
+alter table public.contracts drop constraint if exists contracts_status_check;
 alter table public.contracts add constraint contracts_status_check check (status in
   ('draft','pending_customer','pending_admin_review','revision_requested','approved','paid','cancelled'));
+alter table public.contracts drop constraint if exists contracts_revision_by_check;
 alter table public.contracts add constraint contracts_revision_by_check
   check (revision_requested_by is null or revision_requested_by in ('customer','admin'));
 create index if not exists contracts_status_idx on public.contracts (status);
@@ -237,6 +241,7 @@ create unique index if not exists payments_one_paid_per_booking
   on public.payments (booking_id) where status = 'paid';
 
 alter table public.payments add column if not exists refund_status text not null default 'none';
+alter table public.payments drop constraint if exists payments_refund_status_check;
 alter table public.payments add constraint payments_refund_status_check
   check (refund_status in ('none','not_refunded','refunded'));
 -- Paid bookings that were already cancelled: payment kept, no refund was made.
@@ -991,7 +996,9 @@ grant select on public.contracts to authenticated;
 alter table public.contract_versions enable row level security;
 revoke all on public.contract_versions from anon, authenticated;
 grant select on public.contract_versions to authenticated;
-grant all on public.contract_versions to service_role;
+revoke all on public.contract_versions from service_role;
+grant select, insert on public.contract_versions to service_role; -- no update/delete/truncate (append-only history)
+drop policy if exists "contract versions read" on public.contract_versions;
 create policy "contract versions read" on public.contract_versions for select to authenticated
   using (public.has_role(auth.uid(), 'admin')
          or (sent_at is not null and exists (
@@ -1000,7 +1007,9 @@ create policy "contract versions read" on public.contract_versions for select to
 alter table public.contract_events enable row level security;
 revoke all on public.contract_events from anon, authenticated;
 grant select on public.contract_events to authenticated;
-grant all on public.contract_events to service_role;
+revoke all on public.contract_events from service_role;
+grant select, insert on public.contract_events to service_role; -- no update/delete/truncate (append-only history)
+drop policy if exists "contract events read" on public.contract_events;
 create policy "contract events read" on public.contract_events for select to authenticated
   using (public.has_role(auth.uid(), 'admin')
          or (action in ('legacy_import','sent','accepted','revision_requested','approved','paid',
@@ -1014,21 +1023,27 @@ revoke insert, update, delete, truncate on public.payments from anon, authentica
 alter table public.admin_members enable row level security;
 revoke all on public.admin_members from anon, authenticated;
 grant select on public.admin_members to authenticated;
-grant all on public.admin_members to service_role;
+revoke all on public.admin_members from service_role;
+grant select, insert on public.admin_members to service_role; -- no update/delete/truncate (append-only history)
+drop policy if exists "admin members read" on public.admin_members;
 create policy "admin members read" on public.admin_members for select to authenticated
   using (user_id = auth.uid() or public.is_owner(auth.uid()));
 
 alter table public.admin_invitations enable row level security;
 revoke all on public.admin_invitations from anon, authenticated;
 grant select on public.admin_invitations to authenticated;
-grant all on public.admin_invitations to service_role;
+revoke all on public.admin_invitations from service_role;
+grant select, insert on public.admin_invitations to service_role; -- no update/delete/truncate (append-only history)
+drop policy if exists "admin invitations owner read" on public.admin_invitations;
 create policy "admin invitations owner read" on public.admin_invitations for select to authenticated
   using (public.is_owner(auth.uid()));
 
 alter table public.admin_audit_log enable row level security;
 revoke all on public.admin_audit_log from anon, authenticated;
 grant select on public.admin_audit_log to authenticated;
-grant all on public.admin_audit_log to service_role;
+revoke all on public.admin_audit_log from service_role;
+grant select, insert on public.admin_audit_log to service_role; -- no update/delete/truncate (append-only history)
+drop policy if exists "admin audit owner read" on public.admin_audit_log;
 create policy "admin audit owner read" on public.admin_audit_log for select to authenticated
   using (public.is_owner(auth.uid()));
 
@@ -1037,22 +1052,29 @@ revoke insert, update, delete, truncate on public.user_roles from anon, authenti
 
 -- Fine-grained admin permissions on existing tables
 drop policy if exists "cars admin write" on public.cars;
+drop policy if exists "cars admin insert" on public.cars;
 create policy "cars admin insert" on public.cars for insert to authenticated
   with check (public.has_admin_permission(auth.uid(), 'fleet_manage'));
+drop policy if exists "cars admin update" on public.cars;
 create policy "cars admin update" on public.cars for update to authenticated
   using (public.has_admin_permission(auth.uid(), 'fleet_manage'))
   with check (public.has_admin_permission(auth.uid(), 'fleet_manage'));
+drop policy if exists "cars admin delete" on public.cars;
 create policy "cars admin delete" on public.cars for delete to authenticated
   using (public.has_admin_permission(auth.uid(), 'fleet_manage'));
 
 drop policy if exists "maint admin" on public.maintenance;
+drop policy if exists "maint admin read" on public.maintenance;
 create policy "maint admin read" on public.maintenance for select to authenticated
   using (public.has_role(auth.uid(), 'admin'));
+drop policy if exists "maint admin insert" on public.maintenance;
 create policy "maint admin insert" on public.maintenance for insert to authenticated
   with check (public.has_admin_permission(auth.uid(), 'fleet_manage'));
+drop policy if exists "maint admin update" on public.maintenance;
 create policy "maint admin update" on public.maintenance for update to authenticated
   using (public.has_admin_permission(auth.uid(), 'fleet_manage'))
   with check (public.has_admin_permission(auth.uid(), 'fleet_manage'));
+drop policy if exists "maint admin delete" on public.maintenance;
 create policy "maint admin delete" on public.maintenance for delete to authenticated
   using (public.has_admin_permission(auth.uid(), 'fleet_manage'));
 

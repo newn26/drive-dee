@@ -1223,3 +1223,10 @@ suspension, expired-hold availability).
 3. Read-only post-checks (§3.3) + `select count(*) from admin_members where is_owner` (expected 0).
 4. Merge the branch (PR) and Publish → Update in Lovable.
 5. Separate approval: `bootstrap_owner` for the chosen Owner account.
+
+### Safety-review amendments applied (2026-11-12)
+- **A1** every new policy/constraint is preceded by `drop … if exists`: the whole file can be re-run safely
+  (tested: a second run leaves contracts, versions, events, payments, bookings, members and audit identical).
+- **A2** `service_role` gets only `select, insert` on the five new tables (no truncate/update/delete of history).
+- **A3** the 2 legacy cancelled contracts keep `cancelled_at = NULL` (the real time is unknown).
+- A4 (lock order) not applied: worst case is a retryable deadlock error, no data effect.
