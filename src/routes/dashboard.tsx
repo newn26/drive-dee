@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { customerStage, customerStageLabel } from "@/lib/contract-workflow";
 import { LoadError } from "@/components/load-error";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +27,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
 import { categoryLabel, fmtDate, thb } from "@/lib/format";
-import { customerBookingsQuery } from "@/lib/queries";
+import { bookingContract, customerBookingsQuery, workflowContract } from "@/lib/queries";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -101,6 +102,9 @@ function CustomerDashboardPage() {
   const activeRentals = bookings.filter((b) => b.status === "confirmed" || b.status === "active");
   const completedRentals = bookings.filter((b) => b.status === "completed");
   const pendingRentals = bookings.filter((b) => b.status === "pending");
+  const stageOf = (b: (typeof bookings)[number]) => customerStage(b, workflowContract(bookingContract(b)));
+  // Pending bookings that wait on the customer (review the contract, or pay after approval)
+  const needsAction = pendingRentals.filter((b) => ["review_contract", "awaiting_payment"].includes(stageOf(b)));
   const totalSpent = bookings
     .filter((b) => b.status !== "cancelled")
     .reduce((sum, b) => sum + Number(b.total_amount), 0);
@@ -139,7 +143,11 @@ function CustomerDashboardPage() {
           <CardContent>
             <div className="text-2xl font-bold text-foreground">{activeRentals.length}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {pendingRentals.length > 0 ? `และมี ${pendingRentals.length} รายการรอชำระเงิน` : "ทริปพร้อมออกเดินทาง"}
+              {needsAction.length > 0
+                ? `และมี ${needsAction.length} รายการรอคุณดำเนินการ (ตรวจสัญญา/ชำระเงิน)`
+                : pendingRentals.length > 0
+                  ? `และมี ${pendingRentals.length} รายการอยู่ระหว่างทำสัญญา`
+                  : "ทริปพร้อมออกเดินทาง"}
             </p>
           </CardContent>
         </Card>
@@ -252,9 +260,16 @@ function CustomerDashboardPage() {
                       <Button asChild size="sm">
                         <Link to="/bookings/$id" params={{ id: primaryActiveBooking.id }}>
                           {primaryActiveBooking.status === "pending" ? (
-                            <>
-                              <CreditCard className="mr-1.5 h-3.5 w-3.5" /> ชำระเงิน
-                            </>
+                            stageOf(primaryActiveBooking) === "awaiting_payment" ? (
+                              <>
+                                <CreditCard className="mr-1.5 h-3.5 w-3.5" /> ชำระเงิน
+                              </>
+                            ) : (
+                              <>
+                                <FileCheck2 className="mr-1.5 h-3.5 w-3.5" />{" "}
+                                {customerStageLabel[stageOf(primaryActiveBooking)]}
+                              </>
+                            )
                           ) : (
                             <>
                               <FileCheck2 className="mr-1.5 h-3.5 w-3.5" /> ดูสัญญาดิจิทัล

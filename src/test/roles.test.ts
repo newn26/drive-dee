@@ -31,8 +31,47 @@ describe("dashboardPermissions", () => {
     expect(Object.values(dashboardPermissions("customer")).every((v) => v === false)).toBe(true);
   });
 
-  it("gives admins everything", () => {
-    expect(Object.values(dashboardPermissions("admin")).every((v) => v === true)).toBe(true);
+  it("gives an Owner everything", () => {
+    const owner = { is_owner: true, status: "active", permissions: [] };
+    expect(Object.values(dashboardPermissions("admin", owner)).every((v) => v === true)).toBe(true);
+  });
+
+  it("gives an admin without a member row (not migrated) everything except Owner actions", () => {
+    const p = dashboardPermissions("admin");
+    const { manageAdmins, manualConfirm, ...rest } = p;
+    expect(Object.values(rest).every((v) => v === true)).toBe(true);
+    expect(manageAdmins).toBe(false);
+    expect(manualConfirm).toBe(false);
+  });
+
+  it("gives an admin exactly their permissions", () => {
+    const p = dashboardPermissions("admin", {
+      is_owner: false,
+      status: "active",
+      permissions: ["contracts_manage"],
+    });
+    expect(p).toMatchObject({
+      viewDashboard: true,
+      viewContracts: true,
+      editContracts: true,
+      approveContracts: false,
+      updateBookingStatus: false,
+      addEditCars: false,
+      moderateReviews: false,
+      manageAdmins: false,
+      manualConfirm: false,
+    });
+  });
+
+  it("gives a suspended or revoked admin nothing", () => {
+    for (const status of ["suspended", "revoked"]) {
+      const p = dashboardPermissions("admin", {
+        is_owner: false,
+        status,
+        permissions: ["contracts_manage"],
+      });
+      expect(Object.values(p).every((v) => v === false)).toBe(true);
+    }
   });
 
   it("lets demo admins work but never delete, edit contracts or moderate reviews", () => {
@@ -46,7 +85,10 @@ describe("dashboardPermissions", () => {
       viewReports: true,
       deleteCars: false,
       editContracts: false,
+      approveContracts: false,
       moderateReviews: false,
+      manageAdmins: false,
+      manualConfirm: false,
     });
   });
 });

@@ -2,13 +2,18 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { isDemoCustomerAccount, resolveRole, roleForAccount, type AppRole } from "@/lib/roles";
+import { fetchOwnAdminMember, type AdminMemberRow } from "@/lib/contract-api";
 
 type AuthState = {
   user: User | null;
   session: Session | null;
   role: AppRole;
-  /** Full administrator. */
+  /** Administrator (an active one; a suspended admin is shown as a customer). */
   isAdmin: boolean;
+  /** The single Owner / Super Admin (manages admins, manual confirmation). */
+  isOwner: boolean;
+  /** The admin's member row: status and fine-grained permissions (null for non-admins). */
+  adminMember: AdminMemberRow | null;
   /** Restricted demonstration administrator (demo_admin role). */
   isDemoAdmin: boolean;
   /** Demo Customer account with fictional data (app_metadata.demo). Always a customer. */
@@ -22,6 +27,8 @@ const Ctx = createContext<AuthState>({
   session: null,
   role: "customer",
   isAdmin: false,
+  isOwner: false,
+  adminMember: null,
   isDemoAdmin: false,
   isDemo: false,
   loading: true,
@@ -40,12 +47,17 @@ export async function fetchRole(user: User): Promise<AppRole> {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<AppRole>("customer");
+  const [adminMember, setAdminMember] = useState<AdminMemberRow | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async (s: Session | null) => {
       setSession(s);
-      setRole(s?.user ? await fetchRole(s.user) : "customer");
+      const r = s?.user ? await fetchRole(s.user) : "customer";
+      const member = s?.user && r === "admin" ? await fetchOwnAdminMember(s.user.id) : null;
+      // The database already treats a suspended admin as a non-admin; mirror that here.
+      setRole(r === "admin" && member && member.status !== "active" ? "customer" : r);
+      setAdminMember(member);
       setLoading(false);
     };
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
@@ -62,6 +74,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: session?.user ?? null,
         role,
         isAdmin: role === "admin",
+        isOwner: role === "admin" && !!adminMember?.is_owner && adminMember.status === "active",
+        adminMember,
         isDemoAdmin: role === "demo_admin",
         isDemo: isDemoCustomerAccount(session?.user?.app_metadata),
         loading,

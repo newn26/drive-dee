@@ -52,10 +52,17 @@ export type DashboardPermissions = {
   deleteCars: boolean;
   updateBookingStatus: boolean;
   viewContracts: boolean;
+  /** Create, edit and send contracts (contracts_manage). */
   editContracts: boolean;
+  /** Approve contracts or ask for a revision (contracts_approve). */
+  approveContracts: boolean;
   manageMaintenance: boolean;
   viewReports: boolean;
   moderateReviews: boolean;
+  /** Owner only: invite, suspend and revoke admins, change permissions, read the audit log. */
+  manageAdmins: boolean;
+  /** Owner only: confirm a booking without the payment workflow (reason + audit). */
+  manualConfirm: boolean;
 };
 
 const NONE: DashboardPermissions = {
@@ -65,23 +72,45 @@ const NONE: DashboardPermissions = {
   updateBookingStatus: false,
   viewContracts: false,
   editContracts: false,
+  approveContracts: false,
   manageMaintenance: false,
   viewReports: false,
   moderateReviews: false,
+  manageAdmins: false,
+  manualConfirm: false,
 };
 
-export function dashboardPermissions(role: AppRole): DashboardPermissions {
+/** The admin's member row (admin_members): Owner flag, status and fine-grained permissions. */
+export type AdminMemberInfo = {
+  is_owner: boolean;
+  status: string;
+  permissions: readonly string[];
+};
+
+/**
+ * What the dashboard shows. For admins the member row decides: a suspended or revoked admin
+ * gets nothing, an Owner gets everything, other admins get exactly their permissions.
+ * Without a member row (database not migrated yet) an admin keeps the old full access,
+ * minus the Owner-only actions.
+ */
+export function dashboardPermissions(role: AppRole, member?: AdminMemberInfo | null): DashboardPermissions {
   if (role === "admin") {
+    if (member && member.status !== "active") return NONE;
+    const owner = !!member?.is_owner;
+    const has = (p: string) => owner || !member || member.permissions.includes(p);
     return {
       viewDashboard: true,
-      addEditCars: true,
-      deleteCars: true,
-      updateBookingStatus: true,
+      addEditCars: has("fleet_manage"),
+      deleteCars: has("fleet_manage"),
+      updateBookingStatus: has("bookings_manage"),
       viewContracts: true,
-      editContracts: true,
-      manageMaintenance: true,
+      editContracts: has("contracts_manage"),
+      approveContracts: has("contracts_approve"),
+      manageMaintenance: has("fleet_manage"),
       viewReports: true,
-      moderateReviews: true,
+      moderateReviews: has("reviews_moderate"),
+      manageAdmins: owner,
+      manualConfirm: owner,
     };
   }
   if (role === "demo_admin") {
