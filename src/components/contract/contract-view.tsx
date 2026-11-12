@@ -136,7 +136,8 @@ export function ContractView({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="space-y-1">
-          <p className="text-sm text-muted-foreground">
+          {/* div, not p: Badge renders a <div>, which is invalid inside <p> (hydration error) */}
+          <div className="text-sm text-muted-foreground">
             เลขที่สัญญา{" "}
             <span className="font-mono font-semibold text-foreground">{contract.contract_no}</span>
             {current && (
@@ -144,7 +145,7 @@ export function ContractView({
                 ฉบับที่ {current.version}
               </Badge>
             )}
-          </p>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             {label ? (
               <StatusBadge status={contract.status} kind="contract" label={label} />
