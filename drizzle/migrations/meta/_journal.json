@@ -29,6 +29,13 @@
       "when": 1794400889396,
       "tag": "0003_block_admin_for_demo_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794499958189,
+      "tag": "0004_contract_approval_workflow",
+      "breakpoints": true
     }
   ]
 }
