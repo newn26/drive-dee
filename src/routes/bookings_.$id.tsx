@@ -91,12 +91,10 @@ export const Route = createFileRoute("/bookings_/$id")({
   component: BookingDetailsPage,
 });
 
-/** hold_expires_at / refund_status come from the contract-workflow migration (not yet in generated types). */
 type BookingWithCar = Tables<"bookings"> & {
   cars: Tables<"cars"> | null;
-  hold_expires_at?: string | null;
 };
-type PaymentRow = Tables<"payments"> & { refund_status?: string };
+type PaymentRow = Tables<"payments">;
 
 const contractQueryKey = (id: string) => ["contract", id] as const;
 

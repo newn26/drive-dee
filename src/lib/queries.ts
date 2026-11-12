@@ -42,8 +42,6 @@ export type CustomerBooking = Tables<"bookings"> & {
   cars: Tables<"cars"> | null;
   reviews: Tables<"reviews"> | Tables<"reviews">[] | null;
   contracts?: BookingContract | BookingContract[] | null;
-  /** From the contract-workflow migration (not yet in the generated types). */
-  hold_expires_at?: string | null;
 };
 
 /** The review attached to a booking, whether PostgREST returned it as an object or an array. */

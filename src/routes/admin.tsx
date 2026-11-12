@@ -125,8 +125,6 @@ type AdminTab = "overview" | "cars" | "bookings" | "contracts" | "maintenance" |
 
 type BookingWithCar = Tables<"bookings"> & {
   cars: Tables<"cars"> | null;
-  /** From the contract-workflow migration (not yet in the generated types). */
-  hold_expires_at?: string | null;
 };
 
 type MaintenanceWithCar = Tables<"maintenance"> & {

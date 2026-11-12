@@ -134,6 +134,7 @@ const versionRow = (over: Partial<ContractVersionRow> = {}): ContractVersionRow 
   late_penalty: "500 บาท / ชั่วโมง",
   additional_conditions: "",
   terms: "สัญญาเช่ารถยนต์ เลขที่ CT261112TEST1 (ฉบับที่ 1)",
+  created_by: "admin-1",
   created_at: inMinutes(-20),
   sent_at: inMinutes(-10),
   accepted_at: null,

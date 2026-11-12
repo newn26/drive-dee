@@ -6,7 +6,7 @@
  *
  * It stubs the parts of Supabase the migrations rely on (auth.users, auth.uid(), the
  * anon/authenticated/service_role roles and Supabase's default grants), applies
- * drizzle/migrations 0000-0003 in order, then the proposed migration under review.
+ * drizzle/migrations 0000-0003 in order, then 0004 (the contract-workflow migration).
  * Queries made through `as(user)` really run as the `authenticated` role with a JWT `sub`
  * claim, so grants, RLS policies and security-definer functions are all exercised.
  *
@@ -18,10 +18,11 @@ import path from "node:path";
 
 const ROOT = path.resolve(__dirname, "../../..");
 const MIGRATIONS_DIR = path.join(ROOT, "drizzle/migrations");
-/** The migration under review. Replace with drizzle/migrations/0004_* once Lovable writes it. */
+/** The contract-workflow migration (applied to production as 0004). */
+const WORKFLOW_MIGRATION_FILE = "0004_contract_approval_workflow.sql";
+/** The migration under test; CONTRACT_MIGRATION_SQL swaps in another file (mutation tests). */
 export const PROPOSED_MIGRATION =
-  process.env["CONTRACT_MIGRATION_SQL"] ??
-  path.join(ROOT, "docs/database/contract-approval-workflow.sql");
+  process.env["CONTRACT_MIGRATION_SQL"] ?? path.join(MIGRATIONS_DIR, WORKFLOW_MIGRATION_FILE);
 
 const SUPABASE_STUB = `
 create role anon nologin;
@@ -71,9 +72,13 @@ export async function createTestDb(options: CreateOptions = {}): Promise<TestDb>
   const pg = new PGlite();
   await pg.exec(SUPABASE_STUB);
 
-  const files = readdirSync(MIGRATIONS_DIR)
+  // Every migration before the workflow one; the workflow migration is applied below,
+  // after the optional legacy-data hook (later migrations, if any, would follow it).
+  const all = readdirSync(MIGRATIONS_DIR)
     .filter((f) => f.endsWith(".sql"))
     .sort();
+  const files = all.filter((f) => f < WORKFLOW_MIGRATION_FILE);
+  const later = all.filter((f) => f > WORKFLOW_MIGRATION_FILE);
   for (const f of files) await pg.exec(readFileSync(path.join(MIGRATIONS_DIR, f), "utf8"));
 
   let queue: Promise<unknown> = Promise.resolve();
@@ -118,7 +123,10 @@ export async function createTestDb(options: CreateOptions = {}): Promise<TestDb>
   };
 
   if (options.beforeProposed) await options.beforeProposed(db);
-  if (options.applyProposed !== false) await pg.exec(readFileSync(PROPOSED_MIGRATION, "utf8"));
+  if (options.applyProposed !== false) {
+    await pg.exec(readFileSync(PROPOSED_MIGRATION, "utf8"));
+    for (const f of later) await pg.exec(readFileSync(path.join(MIGRATIONS_DIR, f), "utf8"));
+  }
   return db;
 }
 

@@ -22,7 +22,7 @@ import {
 } from "@/lib/contract-workflow";
 
 const SQL = readFileSync(
-  path.resolve(__dirname, "../../docs/database/contract-approval-workflow.sql"),
+  path.resolve(__dirname, "../../drizzle/migrations/0004_contract_approval_workflow.sql"),
   "utf8",
 );
 const NOW = new Date("2026-11-12T10:00:00Z").getTime();
