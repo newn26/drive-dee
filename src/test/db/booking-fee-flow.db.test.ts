@@ -69,7 +69,7 @@ beforeAll(async () => {
 afterAll(() => db.close());
 
 describe("booking fee flow", () => {
-  it("a new booking waits for the admin: no contract is created for it (0005 undone)", async () => {
+  it("a new booking waits for the admin: no contract is created for it (0005 undone; 0006 drops it too)", async () => {
     // The fleet has one car per test: borrow the next one and free it again below.
     const booking = await createBooking(db, alice, cars[slot]!, 3, 2);
     expect(
@@ -77,7 +77,7 @@ describe("booking fee flow", () => {
     ).toHaveLength(0);
     await expect(
       db.as(alice).sql("select public.customer_prepare_contract($1)", [booking.id]),
-    ).rejects.toThrow(/permission denied/);
+    ).rejects.toThrow(/permission denied|does not exist/);
     await db
       .as(alice)
       .sql("update public.bookings set status = 'cancelled' where id = $1", [booking.id]);
