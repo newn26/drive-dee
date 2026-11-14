@@ -90,6 +90,7 @@ import {
   downloadTextFile,
   maintenanceReportCsv,
   monthlyRevenueSeries,
+  maintenanceCostError,
   type ReportRange,
 } from "@/lib/reports";
 import { KeyRound } from "lucide-react";
@@ -538,6 +539,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     e.preventDefault();
     if (!maintForm.car_id || !maintForm.title) {
       toast.error("กรุณาเลือกรถและระบุชื่องานซ่อมบำรุง");
+      return;
+    }
+    const costProblem = maintenanceCostError(Number(maintForm.cost));
+    if (costProblem) {
+      toast.error(costProblem);
       return;
     }
     if (maintForm.status === "completed" && maintForm.scheduled_date > todayBkk()) {
@@ -1454,7 +1460,14 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                           <span className="text-[11px] text-muted-foreground">{m.description || "-"}</span>
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{fmtDate(m.scheduled_date)}</TableCell>
-                        <TableCell className="font-semibold text-primary text-xs">{thb(m.cost)}</TableCell>
+                        <TableCell className="font-semibold text-primary text-xs">
+                          {thb(m.cost)}
+                          {Number(m.cost) < 0 && (
+                            <span className="block text-[11px] font-normal text-destructive" data-testid="negative-cost">
+                              ค่าใช้จ่ายติดลบไม่ถูกต้อง (ไม่นับในรายงาน)
+                            </span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <StatusBadge status={m.status} kind="maint" />
                           {m.completed_date && (
@@ -1950,6 +1963,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <Input
                   id="maint-cost"
                   type="number"
+                  min={0}
+                  step={1}
                   value={maintForm.cost}
                   onChange={(e) => setMaintForm({ ...maintForm, cost: Number(e.target.value) })}
                 />

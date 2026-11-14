@@ -266,3 +266,36 @@ describe("overdue bookings on the overview", () => {
     );
   });
 });
+
+describe("negative maintenance cost", () => {
+  it("an existing negative cost is flagged in the table", async () => {
+    renderDashboard(
+      { ...admin, adminMember: member() },
+      {
+        maintenance: [
+          {
+            id: "m-neg",
+            car_id: "car-1",
+            title: "เปลี่ยนยาง (ทดสอบ)",
+            description: null,
+            scheduled_date: "2026-11-12",
+            completed_date: "2026-11-12",
+            cost: -50,
+            status: "completed",
+            created_at: inMinutes(-60),
+            cars: CAR,
+          },
+        ],
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /งานซ่อมบำรุง/ }));
+    expect(await screen.findByTestId("negative-cost")).toHaveTextContent("ไม่นับในรายงาน");
+  });
+
+  it("the form refuses a negative cost", async () => {
+    renderDashboard({ ...admin, adminMember: member() });
+    fireEvent.click(await screen.findByRole("button", { name: /บันทึกซ่อมบำรุง/ }));
+    const cost = await screen.findByLabelText(/ค่าใช้จ่ายโดยประมาณ/);
+    expect(cost).toHaveAttribute("min", "0");
+  });
+});

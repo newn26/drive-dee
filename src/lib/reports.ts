@@ -31,6 +31,16 @@ export type ReportRole = { user_id: string; role: string };
 
 const DAY_MS = 86_400_000;
 
+/** Maintenance cost counted in reports: negative or non-numeric values count as 0. */
+export const validMaintenanceCost = (cost: Amount) => {
+  const n = Number(cost ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+
+/** Thai error message for a maintenance cost entered by an admin, or null when valid. */
+export const maintenanceCostError = (cost: number) =>
+  !Number.isFinite(cost) || cost < 0 ? "ค่าใช้จ่ายต้องเป็นตัวเลขตั้งแต่ 0 บาทขึ้นไป" : null;
+
 /** A plain YYYY-MM-DD date is a Bangkok calendar day; anything else is parsed as a timestamp. */
 export const toInstant = (d: string | Date): Date =>
   typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)
@@ -155,7 +165,8 @@ export function computeReport(input: {
 
   const maintCost = input.maintenance
     .filter((m) => inRange(m.completed_date ?? m.scheduled_date, start))
-    .reduce((s, m) => s + Number(m.cost ?? 0), 0);
+    // A cost below zero is invalid input, never a refund: it must not lower expenses
+    .reduce((s, m) => s + validMaintenanceCost(m.cost), 0);
 
   const bookingsInRange = input.bookings.filter((b) => inRange(b.created_at, start));
   const notCancelled = bookingsInRange.filter((b) => b.status !== "cancelled");
