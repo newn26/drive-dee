@@ -39,6 +39,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
 import { categoryLabel, fmtDate, thb } from "@/lib/format";
+import { BOOKING_FEE, rentalCharges } from "@/lib/booking-fee";
 import {
   bookingContract,
   bookingReview,
@@ -157,13 +158,15 @@ function BookingsHistoryPage() {
     }
   };
 
+  const cancellingBooking = bookings.find((b) => b.id === cancellingId);
+
   // Each booking's place in the contract workflow
   const stageOf = (b: BookingWithCarAndReview): CustomerStage =>
     customerStage(b, workflowContract(bookingContract(b)));
   const TABS: { value: string; label: string; stages: CustomerStage[] }[] = [
     { value: "contract", label: "รอสัญญา", stages: ["awaiting_contract"] },
     { value: "review", label: "รอตรวจสัญญา", stages: ["review_contract"] },
-    { value: "approval", label: "รออนุมัติ / แก้ไข", stages: ["awaiting_approval", "revision_requested"] },
+    { value: "approval", label: "ขอแก้ไขสัญญา", stages: ["awaiting_approval", "revision_requested"] },
     { value: "payment", label: "รอชำระเงิน", stages: ["awaiting_payment"] },
     { value: "active", label: "ยืนยันแล้ว/กำลังเช่า", stages: ["confirmed"] },
     { value: "completed", label: "เสร็จสิ้น", stages: ["completed"] },
@@ -326,10 +329,16 @@ function BookingsHistoryPage() {
                   {/* Price & Actions (3 Cols) */}
                   <div className="flex flex-col sm:items-end justify-between gap-3 sm:col-span-3 border-t sm:border-t-0 sm:border-l sm:pl-4 pt-3 sm:pt-0">
                     <div className="sm:text-right">
-                      <span className="text-xs text-muted-foreground">ยอดรวมสุทธิ</span>
+                      <span className="text-xs text-muted-foreground">ค่าเช่ารวม</span>
                       <p className="font-display text-xl font-bold text-primary">
                         {thb(b.total_amount)}
                       </p>
+                      {b.status === "pending" && (
+                        <p className="text-xs text-muted-foreground" data-testid="fee-breakdown">
+                          ค่าจองออนไลน์ {thb(BOOKING_FEE)} · ชำระวันรับรถ{" "}
+                          {thb(rentalCharges(b.total_amount).dueAtPickup)}
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:flex-col">
@@ -402,6 +411,18 @@ function BookingsHistoryPage() {
               คุณแน่ใจหรือไม่ว่าต้องการยกเลิกการจองนี้? การดำเนินการนี้ไม่สามารถย้อนกลับได้
             </DialogDescription>
           </DialogHeader>
+          {cancellingBooking?.status === "pending" ? (
+            <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+              การจองนี้ยังไม่ได้ชำระค่าจอง ยกเลิกได้โดยไม่มีค่าใช้จ่าย
+            </p>
+          ) : (
+            <p
+              className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+              data-testid="cancel-fee-warning"
+            >
+              เงินที่ชำระออนไลน์แล้ว (ค่าจอง) จะไม่ได้รับคืนเมื่อยกเลิก ตามเงื่อนไขในสัญญา
+            </p>
+          )}
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setCancellingId(null)}>
               ย้อนกลับ

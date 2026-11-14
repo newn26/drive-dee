@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
 import { fmtDateTime, thb } from "@/lib/format";
 import { actorRoleLabel, contractEventLabel, customerContractLabel } from "@/lib/contract-workflow";
+import { rentalCharges } from "@/lib/booking-fee";
 import type { ContractEventRow, ContractRow, ContractVersionRow } from "@/lib/contract-api";
 
 const bkkDateTime = (iso: string | null) => (iso ? fmtDateTime(iso) : "-");
@@ -27,8 +28,7 @@ export function ContractSummary({ v }: { v: ContractVersionRow }) {
     ["สถานที่รับรถ", v.pickup_location ?? "-"],
     ["รับรถ", bkkDateTime(v.pickup_at)],
     ["คืนรถ", `${bkkDateTime(v.return_at)}${v.rental_days ? ` (${v.rental_days} วัน)` : ""}`],
-    ["ค่าเช่ารวม (ชำระออนไลน์)", thb(v.rental_price)],
-    ["เงินประกันความเสียหาย", `${thb(v.deposit)} — ชำระ ณ วันรับรถ ไม่รวมในการชำระเงินออนไลน์`],
+    ...moneyRows(v),
     ["ข้อกำหนดระยะทาง", v.mileage_allowance ?? "-"],
     ["ค่าปรับส่งคืนรถล่าช้า", v.late_penalty ?? "-"],
   ];
@@ -50,6 +50,32 @@ export function ContractSummary({ v }: { v: ContractVersionRow }) {
       )}
     </dl>
   );
+}
+
+/**
+ * Money rows. Versions written after the booking-fee migration (0007) say so in their terms
+ * ("ค่าจอง"): 1,000 THB online, rent + deposit − fee at pickup. Older versions were paid in
+ * full online, so they keep the wording they were signed with.
+ */
+function moneyRows(v: ContractVersionRow): [string, string][] {
+  const rent = Number(v.rental_price ?? 0);
+  if (!v.terms.includes("ค่าจอง")) {
+    return [
+      ["ค่าเช่ารวม (ชำระออนไลน์)", thb(rent)],
+      ["เงินประกันความเสียหาย", `${thb(v.deposit)} — ชำระ ณ วันรับรถ ไม่รวมในการชำระเงินออนไลน์`],
+    ];
+  }
+  const c = rentalCharges(rent);
+  const deposit = Number(v.deposit ?? c.insurance);
+  return [
+    ["ค่าเช่ารวม", `${thb(rent)} — ชำระ ณ วันรับรถ`],
+    ["เงินประกันความเสียหาย", `${thb(deposit)} — ชำระ ณ วันรับรถ ได้คืนเมื่อคืนรถตามสภาพเดิม`],
+    ["ค่าจอง (ชำระออนไลน์)", `${thb(c.fee)} — หลังยืนยันสัญญา ไม่คืนเมื่อยกเลิก`],
+    [
+      "ยอดชำระ ณ วันรับรถ",
+      `${thb(Math.max(rent + deposit - c.fee, 0))} (ค่าเช่า + เงินประกัน − ค่าจอง)`,
+    ],
+  ];
 }
 
 /** Sent / accepted / approved / superseded stamps of a version. */

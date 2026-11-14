@@ -170,7 +170,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
   const [activeTab, setActiveTab] = useState<AdminTab>("overview");
   // Which contracts tab to open (set by the overview work queue)
-  const [contractView, setContractView] = useState<ContractPanelView>("pending_admin_review");
+  const [contractView, setContractView] = useState<ContractPanelView>("create");
 
   // Filters & Search
   const [carSearch, setCarSearch] = useState("");
@@ -500,7 +500,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
   const handleUpdateBookingStatus = async () => {
     if (!updatingBooking) return;
     if (!perms.updateBookingStatus || !adminBookingMoves(updatingBooking.status).includes(newBookingStatus)) {
-      toast.error("เปลี่ยนสถานะนี้ไม่ได้ การยืนยันการจองต้องผ่านการอนุมัติสัญญาและการชำระเงิน");
+      toast.error("เปลี่ยนสถานะนี้ไม่ได้ การยืนยันการจองต้องผ่านการยืนยันสัญญาและการชำระค่าจองของลูกค้า");
       return;
     }
     try {
@@ -936,7 +936,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
                 <Card className="shadow-card border">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-xs font-medium text-muted-foreground">การจองที่รออนุมัติ / กำลังเช่า</CardTitle>
+                    <CardTitle className="text-xs font-medium text-muted-foreground">การจองที่รอดำเนินการ / กำลังเช่า</CardTitle>
                     <Calendar className="h-4 w-4 text-primary" />
                   </CardHeader>
                   <CardContent>
@@ -1794,7 +1794,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             </div>
 
             <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground space-y-1">
-              <p>• การจองที่รอดำเนินการจะ <strong>ยืนยัน</strong> ได้หลังผู้ดูแลอนุมัติสัญญาและลูกค้าชำระเงินแล้วเท่านั้น</p>
+              <p>• การจองที่รอดำเนินการจะ <strong>ยืนยัน</strong> ได้หลังลูกค้ายืนยันสัญญาและชำระค่าจองแล้วเท่านั้น</p>
               <p>• เมื่อเปลี่ยนเป็น <strong>กำลังเช่า (Active)</strong> ระบบจะปรับสถานะรถคันนี้เป็น "ถูกเช่า" อัตโนมัติ</p>
               <p>• เมื่อเปลี่ยนเป็น <strong>เสร็จสิ้น (Completed)</strong> รถจะกลับสู่สถานะ "ว่าง" พร้อมให้บริการต่อ</p>
             </div>

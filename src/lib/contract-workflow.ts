@@ -23,7 +23,7 @@ export const isContractStatus = (s: unknown): s is ContractStatus =>
 export const contractStatusLabel: Record<ContractStatus, string> = {
   draft: "ฉบับร่าง",
   pending_customer: "รอลูกค้าตรวจสอบ",
-  pending_admin_review: "รอผู้ดูแลอนุมัติ",
+  pending_admin_review: "รอผู้ดูแลอนุมัติ (ระบบเดิม)",
   revision_requested: "ขอแก้ไขสัญญา",
   approved: "ลูกค้ายืนยันแล้ว · รอชำระค่าจอง",
   paid: "ชำระเงินแล้ว",
@@ -129,7 +129,7 @@ export function customerStage(
 export const customerStageLabel: Record<CustomerStage, string> = {
   awaiting_contract: "รอสัญญา",
   review_contract: "รอตรวจสัญญา",
-  awaiting_approval: "รออนุมัติ",
+  awaiting_approval: "รอผู้ดูแล (ระบบเดิม)",
   revision_requested: "ขอแก้ไขสัญญา",
   awaiting_payment: "รอชำระเงิน",
   confirmed: "ยืนยันแล้ว",
@@ -167,7 +167,7 @@ export const contractEventLabel: Record<string, string> = {
   sent: "ส่งให้ลูกค้าตรวจสอบ",
   accepted: "ลูกค้ายอมรับสัญญา",
   revision_requested: "ขอแก้ไขสัญญา",
-  approved: "ผู้ดูแลอนุมัติสัญญา",
+  approved: "ผู้ดูแลอนุมัติสัญญา (ระบบเดิม)",
   paid: "ชำระเงิน (DEMO)",
   cancelled: "ยกเลิก",
   expired: "หมดเวลา",
@@ -187,7 +187,7 @@ export const actorRoleLabel: Record<string, string> = {
 
 export const refundStatusLabel: Record<string, string> = {
   none: "-",
-  not_refunded: "ยกเลิกแล้ว · ยังไม่คืนเงิน (DEMO ไม่มีระบบคืนเงิน)",
+  not_refunded: "ยกเลิกแล้ว · ไม่คืนเงิน (ค่าจองไม่คืนเมื่อยกเลิก ตามเงื่อนไขในสัญญา)",
   refunded: "คืนเงินแล้ว",
 };
 

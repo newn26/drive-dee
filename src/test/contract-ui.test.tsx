@@ -341,7 +341,9 @@ describe("customer booking page", () => {
         refund_status: "not_refunded",
       },
     });
-    expect(await screen.findByTestId("refund-status")).toHaveTextContent("ยังไม่คืนเงิน");
+    expect(await screen.findByTestId("refund-status")).toHaveTextContent(
+      "ไม่คืนเงิน (ค่าจองไม่คืนเมื่อยกเลิก",
+    );
     expect(screen.getByText("การจองนี้ถูกยกเลิกแล้ว")).toBeInTheDocument();
   });
 });
@@ -404,6 +406,7 @@ describe("D08 admin contracts panel", () => {
     renderWithQuery(
       <AdminContractsPanel
         perms={dashboardPermissions("admin")}
+        initialView="pending_admin_review"
         contracts={[reviewContract]}
         bookings={[panelBooking]}
         profileMap={profiles}
@@ -473,6 +476,7 @@ describe("D08 admin contracts panel", () => {
     renderWithQuery(
       <AdminContractsPanel
         perms={perms}
+        initialView="pending_admin_review"
         contracts={[reviewContract]}
         bookings={[panelBooking]}
         profileMap={profiles}
@@ -533,5 +537,83 @@ describe("G02 booking history", () => {
     expect(screen.getByRole("tab", { name: "ยืนยันแล้ว/กำลังเช่า (1)" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /ตรวจสอบสัญญา/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /ดูสัญญาเช่า/ })).toBeInTheDocument();
+  });
+});
+
+describe("booking-fee wording", () => {
+  it("a booking-fee contract shows fee online and rent + deposit at pickup, not rent online", () => {
+    const v = versionRow({
+      terms: "สัญญาเช่ารถยนต์ ... ค่าจอง (ชำระออนไลน์หลังยืนยันสัญญา): 1,000.00 บาท",
+    });
+    renderWithQuery(
+      <ContractView contract={contractRow()} versions={[v]} events={[]} audience="customer" />,
+    );
+    expect(screen.queryByText("ค่าเช่ารวม (ชำระออนไลน์)")).not.toBeInTheDocument();
+    expect(screen.getByText("ค่าจอง (ชำระออนไลน์)")).toBeInTheDocument();
+    // rent 2,970 + deposit 5,000 (fixture) - fee 1,000
+    expect(screen.getByText(/6,970/)).toBeInTheDocument();
+  });
+
+  it("a contract signed before the fee keeps its original wording", () => {
+    renderWithQuery(
+      <ContractView
+        contract={contractRow()}
+        versions={[versionRow()]}
+        events={[]}
+        audience="customer"
+      />,
+    );
+    expect(screen.getByText("ค่าเช่ารวม (ชำระออนไลน์)")).toBeInTheDocument();
+    expect(screen.queryByText("ค่าจอง (ชำระออนไลน์)")).not.toBeInTheDocument();
+  });
+
+  it("booking list: rent label, fee breakdown for pending, cancel warns about the fee", async () => {
+    const { Route: BookingsRoute } = await import("@/routes/bookings");
+    const Page = (BookingsRoute as unknown as { component: ComponentType }).component;
+    mocks.tables = {
+      bookings: [
+        {
+          ...BOOKING,
+          id: "b-paid",
+          booking_code: "BK261114PAID1",
+          status: "confirmed",
+          hold_expires_at: null,
+          reviews: null,
+          contracts: { id: "ct-p", status: "paid", current_version: 1, sent_version: 1 },
+        },
+        {
+          ...BOOKING,
+          reviews: null,
+          contracts: [
+            { id: "ct-1", status: "pending_customer", current_version: 1, sent_version: 1 },
+          ],
+        },
+      ],
+    };
+    renderWithQuery(<Page />);
+    expect(await screen.findByText("BK261114PAID1")).toBeInTheDocument();
+    expect(screen.queryByText("ยอดรวมสุทธิ")).not.toBeInTheDocument();
+    expect(screen.getAllByText("ค่าเช่ารวม").length).toBe(2);
+    // only the pending booking shows the fee split: 2,970 * 2 - 1,000
+    expect(screen.getByTestId("fee-breakdown")).toHaveTextContent("4,940");
+    expect(screen.getByRole("tab", { name: "ขอแก้ไขสัญญา (0)" })).toBeInTheDocument();
+
+    const cancels = screen.getAllByRole("button", { name: /ยกเลิกการจอง/ });
+    fireEvent.click(cancels[0]!); // the confirmed (paid) booking comes first
+    expect(await screen.findByTestId("cancel-fee-warning")).toHaveTextContent("จะไม่ได้รับคืน");
+  });
+
+  it("admin overview hides the old 'waiting for admin approval' tile when nothing waits", async () => {
+    const { ContractWorkQueue } = await import("@/components/admin/contracts-panel");
+    renderWithQuery(<ContractWorkQueue contracts={[]} bookings={[]} onOpen={() => {}} />);
+    expect(screen.queryByText(/รอผู้ดูแลอนุมัติ/)).not.toBeInTheDocument();
+    renderWithQuery(
+      <ContractWorkQueue
+        contracts={[{ status: "pending_admin_review", booking_id: "b-1" }]}
+        bookings={[]}
+        onOpen={() => {}}
+      />,
+    );
+    expect(screen.getByText(/รอผู้ดูแลอนุมัติ \(ระบบเดิม\)/)).toBeInTheDocument();
   });
 });
