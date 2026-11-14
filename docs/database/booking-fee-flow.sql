@@ -1,5 +1,5 @@
 -- =====================================================================
--- Booking fee flow (runs after 0004_contract_approval_workflow.sql)
+-- Booking fee flow (runs after 0004_contract_approval_workflow.sql and 0005)
 --
 -- Business rule (owner's decision, 2026-11-14):
 --   1. The customer books a car. The car is held while the admin prepares the contract
@@ -200,6 +200,19 @@ begin
     'DEMO ' || _method || ' ค่าจอง ' || to_char(fee, 'FM999,999,990') || ' บาท อ้างอิง ' || ref);
   return pid;
 end; $$;
+
+-- ---------------------------------------------------------------------
+-- 6. Undo 0005's self-service contract: a booking must wait for the admin again.
+--    0005 created and sent a contract on every new booking (no admin step) and let the
+--    customer create one for an older booking. Contracts already created stay as they are.
+-- ---------------------------------------------------------------------
+drop trigger if exists trg_create_contract_on_booking on public.bookings;
+do $$
+begin
+  if to_regprocedure('public.customer_prepare_contract(uuid)') is not null then
+    revoke all on function public.customer_prepare_contract(uuid) from public, anon, authenticated;
+  end if;
+end $$;
 
 revoke all on function public.booking_fee() from public, anon;
 grant execute on function public.booking_fee() to authenticated;

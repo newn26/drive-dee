@@ -6,7 +6,8 @@
  *
  * It stubs the parts of Supabase the migrations rely on (auth.users, auth.uid(), the
  * anon/authenticated/service_role roles and Supabase's default grants), applies
- * drizzle/migrations 0000-0003 in order, then 0004 (the contract-workflow migration).
+ * drizzle/migrations 0000-0003 in order, then 0004 (the contract-workflow migration), and
+ * with `applyLater` every later migration too.
  * Queries made through `as(user)` really run as the `authenticated` role with a JWT `sub`
  * claim, so grants, RLS policies and security-definer functions are all exercised.
  *
@@ -66,6 +67,8 @@ export type CreateOptions = {
   beforeProposed?: (db: TestDb) => Promise<void>;
   /** Default true. */
   applyProposed?: boolean;
+  /** Also apply migrations after 0004 (0005+). Default false: the 0004 suites test 0004 itself. */
+  applyLater?: boolean;
 };
 
 export async function createTestDb(options: CreateOptions = {}): Promise<TestDb> {
@@ -125,7 +128,8 @@ export async function createTestDb(options: CreateOptions = {}): Promise<TestDb>
   if (options.beforeProposed) await options.beforeProposed(db);
   if (options.applyProposed !== false) {
     await pg.exec(readFileSync(PROPOSED_MIGRATION, "utf8"));
-    for (const f of later) await pg.exec(readFileSync(path.join(MIGRATIONS_DIR, f), "utf8"));
+    if (options.applyLater)
+      for (const f of later) await pg.exec(readFileSync(path.join(MIGRATIONS_DIR, f), "utf8"));
   }
   return db;
 }

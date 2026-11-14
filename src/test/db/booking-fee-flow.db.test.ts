@@ -1,6 +1,7 @@
 // @vitest-environment node
 /**
- * Booking fee flow (docs/database/booking-fee-flow.sql), applied on top of 0004.
+ * Booking fee flow (docs/database/booking-fee-flow.sql), applied on top of 0004 and 0005
+ * (the live stack).
  * Book → admin sends the draft → customer asks for changes or confirms → pay 1,000 THB
  * within 15 minutes (no admin approval after the customer confirms).
  * Real database (PGlite), real roles and RLS. Fictional people only.
@@ -57,7 +58,7 @@ async function sentDraft(who: TestUser = alice) {
 }
 
 beforeAll(async () => {
-  db = await createTestDb();
+  db = await createTestDb({ applyLater: true });
   await db.exec(FLOW_SQL);
   await db.exec(FLOW_SQL); // idempotent
   admin = await createAdmin(db);
@@ -68,6 +69,20 @@ beforeAll(async () => {
 afterAll(() => db.close());
 
 describe("booking fee flow", () => {
+  it("a new booking waits for the admin: no contract is created for it (0005 undone)", async () => {
+    // The fleet has one car per test: borrow the next one and free it again below.
+    const booking = await createBooking(db, alice, cars[slot]!, 3, 2);
+    expect(
+      await db.sql("select 1 from public.contracts where booking_id = $1", [booking.id]),
+    ).toHaveLength(0);
+    await expect(
+      db.as(alice).sql("select public.customer_prepare_contract($1)", [booking.id]),
+    ).rejects.toThrow(/permission denied/);
+    await db
+      .as(alice)
+      .sql("update public.bookings set status = 'cancelled' where id = $1", [booking.id]);
+  });
+
   it("before the customer confirms a sent draft, payment is refused", async () => {
     const booking = await createBooking(db, alice, cars[slot++]!, 3, 2);
     await expect(pay(db, alice, booking.id, "qr")).rejects.toThrow("กรุณายืนยันสัญญาก่อน");
