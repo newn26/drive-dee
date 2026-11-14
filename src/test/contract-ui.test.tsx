@@ -1,0 +1,457 @@
+/**
+ * UI tests for the contract workflow: the real booking page and admin contracts panel,
+ * with only the router, auth and Supabase client mocked. Fictional data only.
+ * (Permissions themselves are proven against a real database in src/test/db.)
+ */
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ComponentType, ReactNode } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  tables: {} as Record<string, unknown>,
+  rpc: vi.fn(),
+  auth: {
+    user: { id: "cust-1", email: "c@example.test" } as { id: string; email: string } | null,
+    loading: false,
+  },
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+}));
+
+/** Thenable query builder; maybeSingle() resolves to the first row. */
+const builder = (rows: unknown) => {
+  const list = Array.isArray(rows) ? rows : rows === undefined ? [] : [rows];
+  const q: Record<string, unknown> = {};
+  for (const m of ["select", "eq", "order", "in", "limit", "update"]) q[m] = () => q;
+  q["maybeSingle"] = () => Promise.resolve({ data: list[0] ?? null, error: null });
+  q["then"] = (resolve: (v: unknown) => unknown) =>
+    Promise.resolve({ data: list, error: null }).then(resolve);
+  return q;
+};
+
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    from: (t: string) => builder(mocks.tables[t]),
+    rpc: (...args: unknown[]) => mocks.rpc(...args),
+    auth: { getUser: vi.fn(), signOut: vi.fn() },
+  },
+}));
+vi.mock("@/hooks/use-auth", () => ({ useAuth: () => mocks.auth }));
+vi.mock("sonner", () => ({ toast: { error: mocks.toastError, success: mocks.toastSuccess } }));
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+  return {
+    ...actual,
+    createFileRoute: () => (opts: Record<string, unknown>) => ({
+      ...opts,
+      useParams: () => ({ id: "b-1" }),
+      useSearch: () => ({}),
+    }),
+    Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>,
+    useNavigate: () => vi.fn(),
+  };
+});
+
+import { Route as BookingRoute } from "@/routes/bookings_.$id";
+import {
+  AdminContractsPanel,
+  type PanelBooking,
+  type PanelContract,
+} from "@/components/admin/contracts-panel";
+import { ContractView } from "@/components/contract/contract-view";
+import { dashboardPermissions } from "@/lib/roles";
+import type { ContractRow, ContractVersionRow } from "@/lib/contract-api";
+
+const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
+
+const BOOKING = {
+  id: "b-1",
+  booking_code: "BK261112TEST1",
+  user_id: "cust-1",
+  car_id: "car-1",
+  status: "pending",
+  start_date: "2026-12-01",
+  end_date: "2026-12-03",
+  days: 3,
+  total_amount: 2970,
+  pickup_location: "สาขากรุงเทพฯ",
+  created_at: inMinutes(-30),
+  hold_expires_at: inMinutes(60) as string | null,
+  notes: "",
+  cars: {
+    id: "car-1",
+    brand: "Toyota",
+    model: "Yaris Ativ",
+    year: 2024,
+    plate_no: "1กข 1234",
+    category: "eco",
+    price_per_day: 990,
+    image_url: "eco",
+    transmission: "อัตโนมัติ",
+    fuel: "เบนซิน",
+  },
+};
+
+const contractRow = (over: Partial<ContractRow> = {}): ContractRow => ({
+  id: "ct-1",
+  contract_no: "CT261112TEST1",
+  booking_id: "b-1",
+  user_id: "cust-1",
+  terms: "สัญญาเช่ารถยนต์ (ทดสอบ)",
+  status: "pending_customer",
+  customer_accepted_at: null,
+  created_at: inMinutes(-20),
+  current_version: 1,
+  sent_version: 1,
+  approved_at: null,
+  approved_by: null,
+  paid_at: null,
+  cancelled_at: null,
+  revision_reason: null,
+  revision_requested_by: null,
+  updated_at: inMinutes(-5),
+  ...over,
+});
+
+const versionRow = (over: Partial<ContractVersionRow> = {}): ContractVersionRow => ({
+  id: "v-1",
+  contract_id: "ct-1",
+  version: 1,
+  is_legacy: false,
+  customer_name: "ทดสอบ ลูกค้าเอ",
+  customer_phone: "000-000-0001",
+  customer_license_no: null,
+  car_label: "Toyota Yaris Ativ (2024)",
+  car_plate_no: "1กข 1234",
+  pickup_location: "สาขากรุงเทพฯ",
+  pickup_at: "2026-12-01T03:00:00Z",
+  return_at: "2026-12-03T11:00:00Z",
+  rental_days: 3,
+  rental_price: 2970,
+  deposit: 5000,
+  mileage_allowance: "ไม่จำกัดระยะทาง",
+  late_penalty: "500 บาท / ชั่วโมง",
+  additional_conditions: "",
+  terms: "สัญญาเช่ารถยนต์ เลขที่ CT261112TEST1 (ฉบับที่ 1)",
+  created_by: "admin-1",
+  created_at: inMinutes(-20),
+  sent_at: inMinutes(-10),
+  accepted_at: null,
+  accepted_by: null,
+  approved_at: null,
+  approved_by: null,
+  superseded_at: null,
+  ...over,
+});
+
+function renderWithQuery(ui: ReactNode) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
+}
+
+const BookingPage = (BookingRoute as unknown as { component: ComponentType }).component;
+
+function setup(opts: {
+  booking?: Partial<typeof BOOKING>;
+  contract?: ContractRow | null;
+  versions?: ContractVersionRow[];
+  payment?: unknown;
+}) {
+  mocks.tables = {
+    bookings: { ...BOOKING, ...opts.booking },
+    contracts: opts.contract ?? [],
+    contract_versions: opts.versions ?? [],
+    contract_events: [],
+    payments: opts.payment ?? [],
+  };
+  return renderWithQuery(<BookingPage />);
+}
+
+beforeEach(() => {
+  mocks.auth = { user: { id: "cust-1", email: "c@example.test" }, loading: false };
+  mocks.rpc.mockResolvedValue({ data: null, error: null });
+});
+afterEach(() => vi.clearAllMocks());
+
+describe("customer booking page", () => {
+  it("shows a waiting card and no payment before any contract is sent", async () => {
+    setup({ contract: null });
+    expect(await screen.findByText("รอผู้ดูแลจัดทำสัญญาเช่า")).toBeInTheDocument();
+    expect(screen.queryByTestId("payment-card")).not.toBeInTheDocument();
+  });
+
+  it("P13 review stage: accept/revise buttons, no payment", async () => {
+    setup({ contract: contractRow(), versions: [versionRow()] });
+    expect(await screen.findByRole("button", { name: "ยอมรับสัญญาฉบับที่ 1" })).toBeDisabled(); // until ticked
+    expect(screen.getByRole("button", { name: /ขอแก้ไขสัญญา/ })).toBeEnabled();
+    expect(screen.queryByTestId("payment-card")).not.toBeInTheDocument();
+    expect(
+      await screen.findByText(/ชำระ ณ วันรับรถ ไม่รวมในการชำระเงินออนไลน์/),
+    ).toBeInTheDocument();
+  });
+
+  it("A01 accepting sends the exact version shown", async () => {
+    setup({ contract: contractRow(), versions: [versionRow()] });
+    fireEvent.click(await screen.findByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "ยอมรับสัญญาฉบับที่ 1" }));
+    await waitFor(() =>
+      expect(mocks.rpc).toHaveBeenCalledWith("customer_accept_contract", {
+        _contract_id: "ct-1",
+        _version: 1,
+      }),
+    );
+  });
+
+  it("P13 awaiting admin approval: no payment", async () => {
+    setup({
+      contract: contractRow({
+        status: "pending_admin_review",
+        customer_accepted_at: inMinutes(-1),
+      }),
+      versions: [versionRow()],
+    });
+    expect(await screen.findByText("ยอมรับสัญญาแล้ว รอผู้ดูแลอนุมัติ")).toBeInTheDocument();
+    expect(screen.queryByTestId("payment-card")).not.toBeInTheDocument();
+  });
+
+  it("P13 approved: the DEMO payment card appears with the 15-minute countdown", async () => {
+    setup({
+      booking: { hold_expires_at: inMinutes(14) },
+      contract: contractRow({ status: "approved" }),
+      versions: [versionRow()],
+    });
+    const card = await screen.findByTestId("payment-card");
+    expect(
+      within(card).getByRole("button", { name: /จำลองยืนยันการชำระเงินผ่าน QR Code/ }),
+    ).toBeEnabled();
+    expect(within(card).getByText(/สัญญาได้รับอนุมัติแล้ว/)).toBeInTheDocument();
+  });
+
+  it("P08 approved but the window has passed: payment is disabled", async () => {
+    setup({
+      booking: { hold_expires_at: inMinutes(-1) },
+      contract: contractRow({ status: "approved" }),
+      versions: [versionRow()],
+    });
+    const card = await screen.findByTestId("payment-card");
+    expect(
+      within(card).getByRole("button", { name: /จำลองยืนยันการชำระเงินผ่าน QR Code/ }),
+    ).toBeDisabled();
+    expect(within(card).getAllByText("หมดเวลาชำระเงินแล้ว").length).toBeGreaterThan(0);
+  });
+
+  it("P03 QR DEMO payment calls pay_booking once", async () => {
+    setup({
+      booking: { hold_expires_at: inMinutes(14) },
+      contract: contractRow({ status: "approved" }),
+      versions: [versionRow()],
+    });
+    fireEvent.click(
+      await screen.findByRole("button", { name: /จำลองยืนยันการชำระเงินผ่าน QR Code/ }),
+    );
+    await waitFor(() =>
+      expect(mocks.rpc).toHaveBeenCalledWith("pay_booking", { _booking_id: "b-1", _method: "qr" }),
+    );
+  });
+
+  it("P06 the declined test card never reaches the database and shows an error", async () => {
+    setup({
+      booking: { hold_expires_at: inMinutes(14) },
+      contract: contractRow({ status: "approved" }),
+      versions: [versionRow()],
+    });
+    const card = await screen.findByTestId("payment-card");
+    fireEvent.mouseDown(within(card).getByRole("tab", { name: /บัตรเครดิต/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /บัตรทดสอบถูกปฏิเสธ/ }));
+    fireEvent.click(screen.getByRole("button", { name: /จำลองชำระเงิน/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("บัตรถูกปฏิเสธ (DEMO)");
+    expect(mocks.rpc).not.toHaveBeenCalledWith("pay_booking", expect.anything());
+  });
+
+  it("R07 someone other than the customer (an admin) sees no accept or payment controls", async () => {
+    mocks.auth = { user: { id: "admin-1", email: "a@example.test" }, loading: false };
+    setup({ contract: contractRow({ status: "approved" }), versions: [versionRow()] });
+    expect(await screen.findByText(/มีเพียงลูกค้าเจ้าของการจองเท่านั้น/)).toBeInTheDocument();
+    expect(screen.queryByTestId("payment-card")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ยอมรับสัญญา/ })).not.toBeInTheDocument();
+  });
+
+  it("B05 a cancelled paid booking shows the payment kept and not refunded", async () => {
+    setup({
+      booking: { status: "cancelled", hold_expires_at: null },
+      contract: contractRow({ status: "cancelled", paid_at: inMinutes(-60) }),
+      versions: [
+        versionRow({
+          accepted_at: inMinutes(-90),
+          accepted_by: "cust-1",
+          approved_at: inMinutes(-80),
+          approved_by: "admin-1",
+        }),
+      ],
+      payment: {
+        id: "p-1",
+        booking_id: "b-1",
+        user_id: "cust-1",
+        method: "qr",
+        amount: 2970,
+        status: "paid",
+        reference: "DEMO-ABCDEF1234",
+        card_last4: null,
+        paid_at: inMinutes(-60),
+        refund_status: "not_refunded",
+      },
+    });
+    expect(await screen.findByTestId("refund-status")).toHaveTextContent("ยังไม่คืนเงิน");
+    expect(screen.getByText("การจองนี้ถูกยกเลิกแล้ว")).toBeInTheDocument();
+  });
+});
+
+describe("G04 contract view and printing", () => {
+  it("shows a legacy contract's original text with a print button", () => {
+    const legacy = versionRow({
+      is_legacy: true,
+      terms: "สัญญาเดิม ข้อความต้นฉบับ",
+      customer_name: null,
+    });
+    renderWithQuery(
+      <ContractView
+        contract={contractRow({ status: "paid" })}
+        versions={[legacy]}
+        events={[]}
+        audience="customer"
+      />,
+    );
+    expect(screen.getByText("สัญญาเดิม ข้อความต้นฉบับ")).toBeInTheDocument();
+    expect(screen.getByText(/สัญญาฉบับเดิม/)).toBeInTheDocument();
+    const print = screen.getByRole("button", { name: /พิมพ์สัญญา/ });
+    expect(print.className).toContain("print:hidden");
+  });
+
+  it("shows older versions with their stamps on request", () => {
+    const v1 = versionRow({
+      superseded_at: inMinutes(-3),
+      accepted_at: inMinutes(-8),
+      accepted_by: "cust-1",
+    });
+    const v2 = versionRow({ id: "v-2", version: 2, terms: "ฉบับที่สอง" });
+    renderWithQuery(
+      <ContractView
+        contract={contractRow({ current_version: 2, sent_version: 2 })}
+        versions={[v1, v2]}
+        events={[]}
+        audience="customer"
+      />,
+    );
+    expect(screen.getByText("ฉบับที่สอง")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /ดูประวัติสัญญา \(1 ฉบับก่อนหน้า\)/ }));
+    expect(screen.getByText(/ฉบับที่ 1 \(ถูกแทนที่แล้ว\)/)).toBeInTheDocument();
+  });
+});
+
+describe("D08 admin contracts panel", () => {
+  const panelBooking = BOOKING as unknown as PanelBooking;
+  const reviewContract = {
+    ...contractRow({ status: "pending_admin_review", customer_accepted_at: inMinutes(-2) }),
+    bookings: panelBooking,
+  } as PanelContract;
+  const profiles = { "cust-1": { full_name: "ทดสอบ ลูกค้าเอ", phone: "000" } };
+
+  it("an admin with contracts_approve can approve the accepted version", async () => {
+    mocks.tables = {
+      contract_versions: [versionRow({ accepted_at: inMinutes(-2), accepted_by: "cust-1" })],
+      contract_events: [],
+    };
+    renderWithQuery(
+      <AdminContractsPanel
+        perms={dashboardPermissions("admin")}
+        contracts={[reviewContract]}
+        bookings={[panelBooking]}
+        profileMap={profiles}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "เปิดสัญญา" }));
+    fireEvent.click(await screen.findByRole("button", { name: /อนุมัติฉบับที่ 1/ }));
+    await waitFor(() =>
+      expect(mocks.rpc).toHaveBeenCalledWith("admin_approve_contract", {
+        _contract_id: "ct-1",
+        _version: 1,
+      }),
+    );
+  });
+
+  it("an admin without contracts_approve sees no approve button", async () => {
+    mocks.tables = {
+      contract_versions: [versionRow({ accepted_at: inMinutes(-2), accepted_by: "cust-1" })],
+      contract_events: [],
+    };
+    const perms = dashboardPermissions("admin", {
+      is_owner: false,
+      status: "active",
+      permissions: ["contracts_manage"],
+    });
+    renderWithQuery(
+      <AdminContractsPanel
+        perms={perms}
+        contracts={[reviewContract]}
+        bookings={[panelBooking]}
+        profileMap={profiles}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "เปิดสัญญา" }));
+    // wait until the version (with its acceptance stamp) has loaded into the dialog
+    expect(await screen.findByText(/ลูกค้ายอมรับ /)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /อนุมัติฉบับที่/ })).not.toBeInTheDocument();
+  });
+
+  it("lists pending bookings without a contract under 'create'", () => {
+    mocks.tables = {};
+    renderWithQuery(
+      <AdminContractsPanel
+        perms={dashboardPermissions("admin")}
+        contracts={[]}
+        bookings={[panelBooking]}
+        profileMap={profiles}
+      />,
+    );
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /สร้างสัญญา \(1\)/ }));
+    expect(screen.getByText("BK261112TEST1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /สร้างสัญญา$/ })).toBeEnabled();
+  });
+});
+
+describe("G02 booking history", () => {
+  it("lists legacy and new-workflow bookings with the right tabs and actions", async () => {
+    const { Route: BookingsRoute } = await import("@/routes/bookings");
+    const Page = (BookingsRoute as unknown as { component: ComponentType }).component;
+    mocks.tables = {
+      bookings: [
+        // legacy: paid before the migration, contract mapped to 'paid'
+        {
+          ...BOOKING,
+          id: "b-old",
+          booking_code: "BK261101LEGACY",
+          status: "confirmed",
+          hold_expires_at: null,
+          reviews: null,
+          contracts: { id: "ct-old", status: "paid", current_version: 1, sent_version: 1 },
+        },
+        // new workflow: contract sent, waiting for the customer
+        {
+          ...BOOKING,
+          reviews: null,
+          contracts: [
+            { id: "ct-1", status: "pending_customer", current_version: 1, sent_version: 1 },
+          ],
+        },
+      ],
+    };
+    renderWithQuery(<Page />);
+    expect(await screen.findByText("BK261101LEGACY")).toBeInTheDocument();
+    expect(screen.getByText("BK261112TEST1")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "รอตรวจสัญญา (1)" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "ยืนยันแล้ว/กำลังเช่า (1)" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /ตรวจสอบสัญญา/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /ดูสัญญาเช่า/ })).toBeInTheDocument();
+  });
+});

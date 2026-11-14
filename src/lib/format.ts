@@ -26,7 +26,7 @@ export const daysBetween = (start: string, end: string) =>
   Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86400000) + 1;
 
 export const bookingStatusLabel: Record<string, string> = {
-  pending: "รอชำระเงิน",
+  pending: "รอดำเนินการ",
   confirmed: "ยืนยันแล้ว",
   active: "กำลังเช่า",
   completed: "เสร็จสิ้น",

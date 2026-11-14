@@ -108,7 +108,7 @@ function CarDetail() {
       return toast.error(error.message || "ไม่สามารถสร้างการจองได้ กรุณาลองใหม่อีกครั้ง");
     }
     await invalidateBookingData(queryClient);
-    toast.success("สร้างการจองแล้ว กรุณาชำระเงิน");
+    toast.success("สร้างการจองแล้ว ผู้ดูแลจะจัดทำสัญญาให้คุณตรวจสอบ (ยังไม่ต้องชำระเงิน)");
     navigate({ to: "/bookings/$id", params: { id: data.id } });
   };
 
@@ -191,7 +191,7 @@ function CarDetail() {
           disabled={busy || (!!user && !!dateError) || bookedForDates || car.status === "maintenance" || car.status === "unavailable"}
           onClick={book}
         >
-          {user ? "จองและชำระเงิน" : "เข้าสู่ระบบเพื่อจอง"}
+          {user ? "จองรถคันนี้" : "เข้าสู่ระบบเพื่อจอง"}
         </Button>
         {!user && <p className="text-center text-xs text-muted-foreground">ยังไม่มีบัญชี? <Link to="/auth" className="text-primary underline">สมัครสมาชิก</Link></p>}
       </aside>
