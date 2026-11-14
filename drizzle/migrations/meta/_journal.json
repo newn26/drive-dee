@@ -50,6 +50,13 @@
       "when": 1794655993419,
       "tag": "0006_rollback_customer_self_accept_contract",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794657213632,
+      "tag": "0007_booking_fee_flow",
+      "breakpoints": true
     }
   ]
 }

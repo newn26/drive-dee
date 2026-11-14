@@ -59,6 +59,7 @@ import {
   createContract,
   fetchContractEvents,
   fetchContractVersions,
+  adminApplyRequestedName,
   sendContract,
   updateContract,
   type ContractRow,
@@ -242,10 +243,13 @@ export function ContractWorkQueue({
   contracts,
   bookings,
   onOpen,
+  loading = false,
 }: {
   contracts: { status: string; booking_id: string }[];
   bookings: PanelBooking[];
   onOpen: (view: ContractPanelView) => void;
+  /** While the data loads, show a placeholder instead of misleading zeros. */
+  loading?: boolean;
 }) {
   const count = (s: string) => contracts.filter((c) => c.status === s).length;
   const tiles: { view: ContractPanelView; label: string; n: number; urgent?: boolean }[] = [
@@ -284,19 +288,24 @@ export function ContractWorkQueue({
         <CardDescription>กดเพื่อเปิดรายการในแท็บสัญญาเช่าดิจิทัล</CardDescription>
       </CardHeader>
       <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {tiles.map((t) => (
-          <button
-            key={t.view}
-            type="button"
-            onClick={() => onOpen(t.view)}
-            className={`rounded-lg border p-3 text-left transition hover:bg-muted/60 ${
-              t.urgent && t.n > 0 ? "border-amber-400 bg-amber-50 text-amber-900" : "bg-card"
-            }`}
-          >
-            <span className="block text-2xl font-bold">{t.n}</span>
-            <span className="text-xs">{t.label}</span>
-          </button>
-        ))}
+        {tiles
+          // the old flow's admin approval: shown only while such a contract is still waiting
+          .filter((t) => t.view !== "pending_admin_review" || (!loading && t.n > 0))
+          .map((t) => (
+            <button
+              key={t.view}
+              type="button"
+              onClick={() => onOpen(t.view)}
+              className={`rounded-lg border p-3 text-left transition hover:bg-muted/60 ${
+                t.urgent && t.n > 0 ? "border-amber-400 bg-amber-50 text-amber-900" : "bg-card"
+              }`}
+            >
+              <span className="block text-2xl font-bold" aria-busy={loading}>
+              {loading ? "…" : t.n}
+            </span>
+              <span className="text-xs">{t.label}</span>
+            </button>
+          ))}
       </CardContent>
     </Card>
   );
@@ -307,7 +316,7 @@ export function AdminContractsPanel({
   contracts,
   bookings,
   profileMap,
-  initialView = "pending_admin_review",
+  initialView = "create",
 }: {
   perms: DashboardPermissions;
   contracts: PanelContract[];
@@ -440,6 +449,10 @@ export function AdminContractsPanel({
     if (problem) return void toast.error(problem);
     void run(
       async () => {
+        // The contract takes the name from the profile: apply the requested name first
+        if (requested.customerName !== (currentVersion?.customer_name ?? "")) {
+          await adminApplyRequestedName(open.id, requested.customerName);
+        }
         await updateContract(open.id, next, b.start_date, b.end_date);
         await sendContract(open.id);
       },
@@ -484,7 +497,12 @@ export function AdminContractsPanel({
         </CardDescription>
         <Tabs value={view} onValueChange={(v) => setView(v as View)} className="mt-3">
           <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4 [&>button]:whitespace-normal">
-            {VIEWS.map((v) => (
+            {VIEWS.filter(
+              (v) =>
+                v.value !== "pending_admin_review" ||
+                (counts["pending_admin_review"] ?? 0) > 0 ||
+                view === "pending_admin_review",
+            ).map((v) => (
               <TabsTrigger key={v.value} value={v.value} className="text-xs">
                 {v.label} ({counts[v.value] ?? 0})
               </TabsTrigger>
@@ -700,8 +718,8 @@ export function AdminContractsPanel({
               </Table>
               <p className="text-xs">
                 กดยืนยันแล้ว ระบบสร้างฉบับที่ {open.current_version + 1}{" "}
-                ตามที่ลูกค้าขอและส่งให้ลูกค้าทันที ชื่อในสัญญามาจากโปรไฟล์ลูกค้า
-                ซึ่งลูกค้าแก้ไว้แล้วตอนส่งคำขอ
+                ตามที่ลูกค้าขอ (รวมถึงเปลี่ยนชื่อในโปรไฟล์ลูกค้าถ้าขอเปลี่ยนชื่อ)
+                และส่งให้ลูกค้าทันที ถ้าไม่ต้องการใช้ชื่อหรือเวลาที่ขอ ให้แก้ไขสัญญาเองด้านล่างแทน
               </p>
               <Button size="sm" disabled={busy} onClick={handleApplyRequest}>
                 <CheckCheck className="mr-1 h-4 w-4" /> ยืนยันการแก้ไขและส่งให้ลูกค้า

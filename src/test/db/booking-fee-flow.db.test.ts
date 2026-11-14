@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
- * Booking fee flow (docs/database/booking-fee-flow.sql), applied on top of 0004 and 0005
- * (the live stack).
+ * Booking fee flow (migration 0007) plus the pending pickup payment
+ * (docs/database/pickup-payment.sql), on the live stack 0000-0007.
  * Book → admin sends the draft → customer asks for changes or confirms → pay 1,000 THB
  * within 15 minutes (no admin approval after the customer confirms).
  * Real database (PGlite), real roles and RLS. Fictional people only.
@@ -25,8 +25,9 @@ import {
   terms,
 } from "./harness";
 
-const FLOW_SQL = readFileSync(
-  path.resolve(__dirname, "../../../docs/database/booking-fee-flow.sql"),
+/** Applied after 0000-0007 (0007 is the booking fee flow); pending in Lovable. */
+const PICKUP_SQL = readFileSync(
+  path.resolve(__dirname, "../../../docs/database/pickup-payment.sql"),
   "utf8",
 );
 
@@ -67,8 +68,8 @@ async function sentDraft(who: TestUser = alice) {
 
 beforeAll(async () => {
   db = await createTestDb({ applyLater: true });
-  await db.exec(FLOW_SQL);
-  await db.exec(FLOW_SQL); // idempotent
+  await db.exec(PICKUP_SQL);
+  await db.exec(PICKUP_SQL); // idempotent
   admin = await createAdmin(db);
   alice = await createUser(db, { name: "ทดสอบ ลูกค้าเอ" });
   bob = await createUser(db, { name: "ทดสอบ ลูกค้าบี" });
@@ -196,6 +197,18 @@ describe("booking fee flow", () => {
       booking.id,
     ]);
     expect(b.status).toBe("confirmed");
+  });
+
+  it("a booking that paid the full rent before the booking fee has nothing left to pay online", async () => {
+    const booking = await createBooking(db, bob, cars[1]!, 70, 2);
+    await db.sql(
+      "insert into public.payments (booking_id, user_id, method, amount, status) values ($1, $2, 'qr', $3, 'paid')",
+      [booking.id, bob.id, booking.total_amount],
+    );
+    await db.sql("update public.bookings set status = 'confirmed' where id = $1", [booking.id]);
+    await expect(
+      db.as(bob).sql("select public.pay_pickup($1, 'qr'::payment_method)", [booking.id]),
+    ).rejects.toThrow(/ไม่มียอดวันรับรถ/);
   });
 
   it("cancelling a paid booking keeps the fee (not refunded)", async () => {

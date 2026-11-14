@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ComponentType, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const fromSpy = vi.hoisted(() => vi.fn());
 const mocks = vi.hoisted(() => ({
   tables: {} as Record<string, unknown>,
   rpc: vi.fn(),
@@ -32,7 +33,10 @@ const builder = (rows: unknown) => {
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    from: (t: string) => builder(mocks.tables[t]),
+    from: (t: string) => {
+      fromSpy(t);
+      return builder(mocks.tables[t]);
+    },
     rpc: (...args: unknown[]) => mocks.rpc(...args),
     auth: { getUser: vi.fn(), signOut: vi.fn() },
   },
@@ -157,12 +161,13 @@ function setup(opts: {
   contract?: ContractRow | null;
   versions?: ContractVersionRow[];
   payment?: unknown;
+  events?: unknown[];
 }) {
   mocks.tables = {
     bookings: { ...BOOKING, ...opts.booking },
     contracts: opts.contract ?? [],
     contract_versions: opts.versions ?? [],
-    contract_events: [],
+    contract_events: opts.events ?? [],
     payments: opts.payment ?? [],
   };
   return renderWithQuery(<BookingPage />);
@@ -401,7 +406,9 @@ describe("customer booking page", () => {
         refund_status: "not_refunded",
       },
     });
-    expect(await screen.findByTestId("refund-status")).toHaveTextContent("ยังไม่คืนเงิน");
+    expect(await screen.findByTestId("refund-status")).toHaveTextContent(
+      "ไม่คืนเงิน (ค่าจองไม่คืนเมื่อยกเลิก",
+    );
     expect(screen.getByText("การจองนี้ถูกยกเลิกแล้ว")).toBeInTheDocument();
   });
 });
@@ -464,6 +471,7 @@ describe("D08 admin contracts panel", () => {
     renderWithQuery(
       <AdminContractsPanel
         perms={dashboardPermissions("admin")}
+        initialView="pending_admin_review"
         contracts={[reviewContract]}
         bookings={[panelBooking]}
         profileMap={profiles}
@@ -533,6 +541,7 @@ describe("D08 admin contracts panel", () => {
     renderWithQuery(
       <AdminContractsPanel
         perms={perms}
+        initialView="pending_admin_review"
         contracts={[reviewContract]}
         bookings={[panelBooking]}
         profileMap={profiles}
@@ -593,5 +602,195 @@ describe("G02 booking history", () => {
     expect(screen.getByRole("tab", { name: "ยืนยันแล้ว/กำลังเช่า (1)" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /ตรวจสอบสัญญา/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /ดูสัญญาเช่า/ })).toBeInTheDocument();
+  });
+});
+
+describe("booking-fee wording", () => {
+  it("a booking-fee contract shows fee online and rent + deposit at pickup, not rent online", () => {
+    const v = versionRow({
+      terms: "สัญญาเช่ารถยนต์ ... ค่าจอง (ชำระออนไลน์หลังยืนยันสัญญา): 1,000.00 บาท",
+    });
+    renderWithQuery(
+      <ContractView contract={contractRow()} versions={[v]} events={[]} audience="customer" />,
+    );
+    expect(screen.queryByText("ค่าเช่ารวม (ชำระออนไลน์)")).not.toBeInTheDocument();
+    expect(screen.getByText("ค่าจอง (ชำระออนไลน์)")).toBeInTheDocument();
+    // rent 2,970 + deposit 5,000 (fixture) - fee 1,000
+    expect(screen.getByText(/6,970/)).toBeInTheDocument();
+  });
+
+  it("a contract signed before the fee keeps its original wording", () => {
+    renderWithQuery(
+      <ContractView
+        contract={contractRow()}
+        versions={[versionRow()]}
+        events={[]}
+        audience="customer"
+      />,
+    );
+    expect(screen.getByText("ค่าเช่ารวม (ชำระออนไลน์)")).toBeInTheDocument();
+    expect(screen.queryByText("ค่าจอง (ชำระออนไลน์)")).not.toBeInTheDocument();
+  });
+
+  it("booking list: rent label, fee breakdown for pending, cancel warns about the fee", async () => {
+    const { Route: BookingsRoute } = await import("@/routes/bookings");
+    const Page = (BookingsRoute as unknown as { component: ComponentType }).component;
+    mocks.tables = {
+      bookings: [
+        {
+          ...BOOKING,
+          id: "b-paid",
+          booking_code: "BK261114PAID1",
+          status: "confirmed",
+          hold_expires_at: null,
+          reviews: null,
+          contracts: { id: "ct-p", status: "paid", current_version: 1, sent_version: 1 },
+        },
+        {
+          ...BOOKING,
+          reviews: null,
+          contracts: [
+            { id: "ct-1", status: "pending_customer", current_version: 1, sent_version: 1 },
+          ],
+        },
+      ],
+    };
+    renderWithQuery(<Page />);
+    expect(await screen.findByText("BK261114PAID1")).toBeInTheDocument();
+    expect(screen.queryByText("ยอดรวมสุทธิ")).not.toBeInTheDocument();
+    expect(screen.getAllByText("ค่าเช่ารวม").length).toBe(2);
+    // only the pending booking shows the fee split: 2,970 * 2 - 1,000
+    expect(screen.getByTestId("fee-breakdown")).toHaveTextContent("4,940");
+    expect(screen.getByRole("tab", { name: "ขอแก้ไขสัญญา (0)" })).toBeInTheDocument();
+
+    const cancels = screen.getAllByRole("button", { name: /ยกเลิกการจอง/ });
+    fireEvent.click(cancels[0]!); // the confirmed (paid) booking comes first
+    expect(await screen.findByTestId("cancel-fee-warning")).toHaveTextContent("จะไม่ได้รับคืน");
+  });
+
+  it("admin overview hides the old 'waiting for admin approval' tile when nothing waits", async () => {
+    const { ContractWorkQueue } = await import("@/components/admin/contracts-panel");
+    renderWithQuery(<ContractWorkQueue contracts={[]} bookings={[]} onOpen={() => {}} />);
+    expect(screen.queryByText(/รอผู้ดูแลอนุมัติ/)).not.toBeInTheDocument();
+    renderWithQuery(
+      <ContractWorkQueue
+        contracts={[{ status: "pending_admin_review", booking_id: "b-1" }]}
+        bookings={[]}
+        onOpen={() => {}}
+      />,
+    );
+    expect(screen.getByText(/รอผู้ดูแลอนุมัติ \(ระบบเดิม\)/)).toBeInTheDocument();
+  });
+});
+
+describe("revision rules (name applied by the admin, at most 2 requests)", () => {
+  const customerRequest = (i: number) => ({
+    id: `e-${i}`,
+    contract_id: "ct-1",
+    booking_id: "b-1",
+    version: i,
+    actor_id: "cust-1",
+    actor_role: "customer",
+    action: "revision_requested",
+    note: "ชื่อลูกค้า: ทดสอบ ลูกค้าเอ\nเวลารับรถ: 09:00 น.\nเวลาคืนรถ: 18:00 น.",
+    created_at: inMinutes(-10 + i),
+  });
+
+  it("a new name in the request is not written to the profile by the customer", async () => {
+    setup({ contract: contractRow(), versions: [versionRow()] });
+    await screen.findByText(/ชำระ ณ วันรับรถ ไม่รวมในการชำระเงินออนไลน์/);
+    expect(screen.getByTestId("revisions-left")).toHaveTextContent("ขอแก้ไขได้อีก 2 ครั้ง");
+    fireEvent.click(screen.getByRole("button", { name: /ขอแก้ไขสัญญา/ }));
+    fireEvent.change(await screen.findByLabelText("ชื่อลูกค้า"), {
+      target: { value: "ทดสอบ ชื่อใหม่" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "ส่งคำขอแก้ไข" }));
+    await waitFor(() =>
+      expect(mocks.rpc).toHaveBeenCalledWith(
+        "customer_request_revision",
+        expect.objectContaining({ _reason: expect.stringContaining("ชื่อลูกค้า: ทดสอบ ชื่อใหม่") }),
+      ),
+    );
+    // the only database call is the request itself (the profile is not touched)
+    expect(mocks.rpc.mock.calls.map((c) => c[0])).toEqual(["customer_request_revision"]);
+    expect(fromSpy).not.toHaveBeenCalledWith("profiles");
+  });
+
+  it("after 2 requests the customer can only confirm or cancel", async () => {
+    setup({
+      contract: contractRow({ current_version: 3, sent_version: 3 }),
+      versions: [versionRow({ version: 3 })],
+      events: [customerRequest(1), customerRequest(2)],
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("revisions-left")).toHaveTextContent("ขอแก้ไขครบ 2 ครั้งแล้ว"),
+    );
+    expect(screen.getByRole("button", { name: /ขอแก้ไขสัญญา/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "ยืนยันสัญญาฉบับที่ 3" })).toBeInTheDocument();
+  });
+
+  it("applying a request with a new name sends the name to the database before the new version", async () => {
+    mocks.tables = {
+      contract_versions: [versionRow({ sent_at: inMinutes(-30) })],
+      contract_events: [],
+    };
+    const requested = {
+      ...contractRow({
+        status: "revision_requested",
+        revision_requested_by: "customer",
+        revision_reason: "ชื่อลูกค้า: ทดสอบ ชื่อใหม่\nเวลารับรถ: 10:00 น.\nเวลาคืนรถ: 18:00 น.",
+      }),
+      bookings: BOOKING as unknown as PanelBooking,
+    } as PanelContract;
+    renderWithQuery(
+      <AdminContractsPanel
+        perms={dashboardPermissions("admin")}
+        contracts={[requested]}
+        bookings={[BOOKING as unknown as PanelBooking]}
+        profileMap={{ "cust-1": { full_name: "ทดสอบ ลูกค้าเอ" } }}
+        initialView="revision_requested"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "เปิดสัญญา" }));
+    const card = await screen.findByTestId("customer-request");
+    fireEvent.click(within(card).getByRole("button", { name: /ยืนยันการแก้ไขและส่งให้ลูกค้า/ }));
+    await waitFor(() =>
+      expect(mocks.rpc).toHaveBeenCalledWith("admin_send_contract", { _contract_id: "ct-1" }),
+    );
+    const order = mocks.rpc.mock.calls.map((c) => c[0]);
+    expect(order).toEqual([
+      "admin_apply_requested_name",
+      "admin_update_contract",
+      "admin_send_contract",
+    ]);
+    expect(mocks.rpc).toHaveBeenCalledWith("admin_apply_requested_name", {
+      _contract_id: "ct-1",
+      _name: "ทดสอบ ชื่อใหม่",
+    });
+  });
+});
+
+describe("7. review stars are named for screen readers", () => {
+  it("each star is a radio with its number of stars", async () => {
+    const { Route: BookingsRoute } = await import("@/routes/bookings");
+    const Page = (BookingsRoute as unknown as { component: ComponentType }).component;
+    mocks.tables = {
+      bookings: [
+        {
+          ...BOOKING,
+          status: "completed",
+          hold_expires_at: null,
+          reviews: null,
+          contracts: { id: "ct-1", status: "paid", current_version: 1, sent_version: 1 },
+        },
+      ],
+    };
+    renderWithQuery(<Page />);
+    fireEvent.click(await screen.findByRole("button", { name: "เขียนรีวิว" }));
+    expect(await screen.findByRole("radiogroup", { name: "คะแนนความพึงพอใจ" })).toBeInTheDocument();
+    const four = screen.getByRole("radio", { name: "4 ดาว" });
+    fireEvent.click(four);
+    expect(four).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "5 ดาว" })).toHaveAttribute("aria-checked", "false");
   });
 });

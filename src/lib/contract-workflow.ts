@@ -23,7 +23,7 @@ export const isContractStatus = (s: unknown): s is ContractStatus =>
 export const contractStatusLabel: Record<ContractStatus, string> = {
   draft: "ฉบับร่าง",
   pending_customer: "รอลูกค้าตรวจสอบ",
-  pending_admin_review: "รอผู้ดูแลอนุมัติ",
+  pending_admin_review: "รอผู้ดูแลอนุมัติ (ระบบเดิม)",
   revision_requested: "ขอแก้ไขสัญญา",
   approved: "ลูกค้ายืนยันแล้ว · รอชำระค่าจอง",
   paid: "ชำระเงินแล้ว",
@@ -129,7 +129,7 @@ export function customerStage(
 export const customerStageLabel: Record<CustomerStage, string> = {
   awaiting_contract: "รอสัญญา",
   review_contract: "รอตรวจสัญญา",
-  awaiting_approval: "รออนุมัติ",
+  awaiting_approval: "รอผู้ดูแล (ระบบเดิม)",
   revision_requested: "ขอแก้ไขสัญญา",
   awaiting_payment: "รอชำระเงิน",
   confirmed: "ยืนยันแล้ว",
@@ -156,6 +156,29 @@ export const ADMIN_BOOKING_MOVES: Readonly<Record<string, readonly string[]>> = 
 export const adminBookingMoves = (status: string): readonly string[] =>
   ADMIN_BOOKING_MOVES[status] ?? [];
 
+/**
+ * The move the status dialog starts on: the first move that is not a cancellation.
+ * Cancelling is never preselected (one careless "save" would cancel a paid booking); when it is
+ * the only move, the admin must choose it. Returns "" when nothing should be preselected.
+ */
+export const defaultBookingMove = (moves: readonly string[]): string =>
+  moves.find((m) => m !== "cancelled") ?? "";
+
+/** Handing the car over (active) or taking it back (completed) only from the pickup day on. */
+export const PICKUP_DAY_MOVES = ["active", "completed"] as const;
+
+/**
+ * The moves an admin may make today: adminBookingMoves without "active"/"completed" before the
+ * pickup day (`today` and `start_date` are Bangkok YYYY-MM-DD). Enforced in the admin UI.
+ */
+export const bookingMovesOn = (
+  b: { status: string; start_date: string },
+  today: string,
+): readonly string[] =>
+  adminBookingMoves(b.status).filter(
+    (m) => !(PICKUP_DAY_MOVES as readonly string[]).includes(m) || today >= b.start_date,
+  );
+
 // ---------------------------------------------------------------------------
 // Contract events
 // ---------------------------------------------------------------------------
@@ -167,7 +190,7 @@ export const contractEventLabel: Record<string, string> = {
   sent: "ส่งให้ลูกค้าตรวจสอบ",
   accepted: "ลูกค้ายอมรับสัญญา",
   revision_requested: "ขอแก้ไขสัญญา",
-  approved: "ผู้ดูแลอนุมัติสัญญา",
+  approved: "ผู้ดูแลอนุมัติสัญญา (ระบบเดิม)",
   paid: "ชำระเงิน (DEMO)",
   cancelled: "ยกเลิก",
   expired: "หมดเวลา",
@@ -187,7 +210,7 @@ export const actorRoleLabel: Record<string, string> = {
 
 export const refundStatusLabel: Record<string, string> = {
   none: "-",
-  not_refunded: "ยกเลิกแล้ว · ยังไม่คืนเงิน (DEMO ไม่มีระบบคืนเงิน)",
+  not_refunded: "ยกเลิกแล้ว · ไม่คืนเงิน (ค่าจองไม่คืนเมื่อยกเลิก ตามเงื่อนไขในสัญญา)",
   refunded: "คืนเงินแล้ว",
 };
 
@@ -251,6 +274,13 @@ export const OPENING_TIME = "08:00";
 export const CLOSING_TIME = "18:00";
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const withinHours = (t: string) => HHMM.test(t) && t >= OPENING_TIME && t <= CLOSING_TIME;
+
+/** Change requests a customer may make per contract; must match max_customer_revisions(). */
+export const MAX_CUSTOMER_REVISIONS = 2;
+
+/** How many change requests the customer has made (from the contract events). */
+export const customerRevisionCount = (events: { action: string; actor_role: string }[]) =>
+  events.filter((e) => e.action === "revision_requested" && e.actor_role === "customer").length;
 
 /** What a customer can ask to change in a sent contract. */
 export type RevisionRequest = { customerName: string; pickupTime: string; returnTime: string };

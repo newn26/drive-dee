@@ -113,7 +113,7 @@ const LEGACY_CONTRACT = {
   bookings: LEGACY,
 };
 
-function renderDashboard(auth: Record<string, unknown>) {
+function renderDashboard(auth: Record<string, unknown>, extra: Record<string, unknown[]> = {}) {
   mocks.auth = { loading: false, ...auth };
   mocks.tables = {
     cars: [CAR],
@@ -139,6 +139,7 @@ function renderDashboard(auth: Record<string, unknown>) {
     admin_members: [],
     admin_invitations: [],
     admin_audit_log: [],
+    ...extra,
   };
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -224,5 +225,77 @@ describe("admin dashboard", () => {
     const buttons = screen.getAllByRole("button", { name: "เปลี่ยนสถานะ" });
     expect(buttons.length).toBe(2);
     for (const b of buttons) expect(b).toBeDisabled();
+  });
+});
+
+describe("maintenance closed before its scheduled day", () => {
+  it("asks for confirmation instead of closing at once", async () => {
+    const future = new Date(Date.now() + 6 * 86_400_000).toISOString().slice(0, 10);
+    renderDashboard(
+      { ...admin, adminMember: member() },
+      {
+        maintenance: [
+          {
+            id: "m-1",
+            car_id: "car-1",
+            title: "เปลี่ยนยาง (ทดสอบ)",
+            description: null,
+            scheduled_date: future,
+            completed_date: null,
+            cost: 4000,
+            status: "scheduled",
+            created_at: inMinutes(-60),
+            cars: CAR,
+          },
+        ],
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /งานซ่อมบำรุง/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "เสร็จสิ้น" }));
+    expect(await screen.findByText("ยังไม่ถึงวันนัดหมาย")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ยืนยันว่าเสร็จแล้ววันนี้" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "ยังไม่เสร็จ" }));
+  });
+});
+
+describe("overdue bookings on the overview", () => {
+  it("shows the card (nothing overdue in this fixture)", async () => {
+    renderDashboard({ ...admin, adminMember: member() });
+    expect(await screen.findByTestId("overdue-bookings")).toHaveTextContent(
+      "ต้องดำเนินการวันนี้ (0)",
+    );
+  });
+});
+
+describe("negative maintenance cost", () => {
+  it("an existing negative cost is flagged in the table", async () => {
+    renderDashboard(
+      { ...admin, adminMember: member() },
+      {
+        maintenance: [
+          {
+            id: "m-neg",
+            car_id: "car-1",
+            title: "เปลี่ยนยาง (ทดสอบ)",
+            description: null,
+            scheduled_date: "2026-11-12",
+            completed_date: "2026-11-12",
+            cost: -50,
+            status: "completed",
+            created_at: inMinutes(-60),
+            cars: CAR,
+          },
+        ],
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /งานซ่อมบำรุง/ }));
+    expect(await screen.findByTestId("negative-cost")).toHaveTextContent("ไม่นับในรายงาน");
+  });
+
+  it("the form refuses a negative cost", async () => {
+    renderDashboard({ ...admin, adminMember: member() });
+    fireEvent.click(await screen.findByRole("button", { name: /บันทึกซ่อมบำรุง/ }));
+    const cost = await screen.findByLabelText(/ค่าใช้จ่ายโดยประมาณ/);
+    expect(cost).toHaveAttribute("min", "0");
   });
 });

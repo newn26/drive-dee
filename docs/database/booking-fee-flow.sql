@@ -1,5 +1,5 @@
 -- =====================================================================
--- Booking fee flow (runs after 0004_contract_approval_workflow.sql, 0005 and 0006)
+-- Booking fee flow (runs after 0004_contract_approval_workflow.sql and 0005)
 --
 -- Business rule (owner's decision, 2026-11-14):
 --   1. The customer books a car. The car is held while the admin prepares the contract
@@ -8,16 +8,14 @@
 --   3. The customer asks for changes (the admin sends a new version) or confirms it.
 --      Confirming no longer waits for admin approval: it opens payment straight away.
 --   4. The customer pays a fixed booking fee of 1,000 THB (DEMO, QR or card) within 15 minutes.
---   5. After the fee, the customer pays the rest online (pay_pickup, any time before or at
---      pickup): rent + insurance deposit (= rent) - booking fee. The deposit is returned when
---      the car comes back (shown only, not recorded).
+--   5. At pickup the customer pays rent + insurance deposit (= rent) - booking fee; the
+--      deposit is returned when the car comes back. Neither is recorded in the system.
 --   6. The booking fee is not refunded on cancellation (refund_status = 'not_refunded').
 --
--- bookings.total_amount stays the rent (price_per_day * days); payments.amount is what was paid;
--- payments.deposit is its refundable part (revenue = amount - deposit).
+-- bookings.total_amount stays the rent (price_per_day * days); payments.amount is the fee.
 -- admin_approve_contract / admin_request_revision stay for contracts already waiting in
 -- 'pending_admin_review' under 0004; no new contract reaches that status.
--- Idempotent: every statement is create-or-replace or if-(not-)exists.
+-- Idempotent: every statement is create-or-replace.
 -- =====================================================================
 
 create or replace function public.booking_fee()
@@ -192,8 +190,8 @@ begin
   if _method = 'qr' then _card_last4 := null; end if;
 
   ref := 'DEMO-' || upper(substr(md5(random()::text), 1, 10));
-  insert into public.payments (booking_id, user_id, method, amount, status, card_last4, reference, kind)
-  values (b.id, b.user_id, _method, fee, 'paid', _card_last4, ref, 'booking_fee')
+  insert into public.payments (booking_id, user_id, method, amount, status, card_last4, reference)
+  values (b.id, b.user_id, _method, fee, 'paid', _card_last4, ref)
   returning id into pid;
   update public.bookings set status = 'confirmed' where id = b.id;
   perform set_config('app.contract_workflow', 'on', true);
@@ -215,54 +213,6 @@ begin
     revoke all on function public.customer_prepare_contract(uuid) from public, anon, authenticated;
   end if;
 end $$;
-
--- ---------------------------------------------------------------------
--- 7. Second payment: the rest, paid online before or at pickup.
---    payments.kind: 'booking_fee' (1,000 THB, opens the booking) or 'pickup'
---    (rent + deposit - fee). payments.deposit: the refundable part of a payment
---    (the deposit inside a pickup payment); revenue = amount - deposit.
---    One paid payment of each kind per booking.
--- ---------------------------------------------------------------------
-alter table public.payments add column if not exists kind text not null default 'booking_fee';
-alter table public.payments drop constraint if exists payments_kind_check;
-alter table public.payments add constraint payments_kind_check check (kind in ('booking_fee','pickup'));
-alter table public.payments add column if not exists deposit numeric(10,2) not null default 0;
-drop index if exists public.payments_one_paid_per_booking;
-create unique index if not exists payments_one_paid_per_booking_kind
-  on public.payments (booking_id, kind) where status = 'paid';
-
-create or replace function public.pay_pickup(_booking_id uuid, _method payment_method, _card_last4 text default null)
-returns uuid language plpgsql security definer set search_path = public as $$
-declare b public.bookings; pid uuid; ref text; due numeric; dep numeric;
-begin
-  select * into b from public.bookings where id = _booking_id and user_id = auth.uid() for update;
-  if b.id is null then raise exception 'ไม่พบการจอง'; end if;
-  if b.status not in ('confirmed','active') then
-    raise exception 'ชำระยอดวันรับรถได้หลังชำระค่าจองแล้วเท่านั้น';
-  end if;
-  if not exists (select 1 from public.payments
-                 where booking_id = b.id and status = 'paid' and kind = 'booking_fee') then
-    raise exception 'ยังไม่ได้ชำระค่าจอง';
-  end if;
-  if exists (select 1 from public.payments
-             where booking_id = b.id and status = 'paid' and kind = 'pickup') then
-    raise exception 'ชำระยอดวันรับรถแล้ว';
-  end if;
-  if _method = 'card' and (_card_last4 is null or _card_last4 !~ '^[0-9]{4}$') then
-    raise exception 'ข้อมูลบัตรไม่ถูกต้อง';
-  end if;
-  if _method = 'qr' then _card_last4 := null; end if;
-
-  dep := b.total_amount;                                  -- deposit = rent
-  due := greatest(b.total_amount + dep - public.booking_fee(), 0);
-  ref := 'DEMO-' || upper(substr(md5(random()::text), 1, 10));
-  insert into public.payments (booking_id, user_id, method, amount, status, card_last4, reference, kind, deposit)
-  values (b.id, b.user_id, _method, due, 'paid', _card_last4, ref, 'pickup', dep)
-  returning id into pid;
-  return pid;
-end; $$;
-revoke all on function public.pay_pickup(uuid, payment_method, text) from public, anon;
-grant execute on function public.pay_pickup(uuid, payment_method, text) to authenticated;
 
 revoke all on function public.booking_fee() from public, anon;
 grant execute on function public.booking_fee() to authenticated;

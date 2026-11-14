@@ -261,7 +261,7 @@ function AuthForms({
           toast.success("สมัครสมาชิกสำเร็จ กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ");
           return;
         }
-        toast.success("สมัครสมาชิกสำเร็จ! ยินดีต้อนรับสู่ Siam Wheels");
+        toast.success("สมัครสมาชิกสำเร็จ! ยินดีต้อนรับสู่ Drive Dee");
         if (invite) {
           goToInvite(invite);
           return;
@@ -345,7 +345,7 @@ function AuthForms({
           </CardTitle>
           <CardDescription>
             {mode === "login"
-              ? "ยินดีต้อนรับกลับสู่ Siam Wheels Rental Hub"
+              ? "ยินดีต้อนรับกลับสู่ Drive Dee"
               : mode === "register"
                 ? "สร้างบัญชีผู้ใช้งานเพื่อเริ่มต้นจองรถเช่าออนไลน์ได้ทันที"
                 : mode === "demo"

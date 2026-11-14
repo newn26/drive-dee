@@ -1,5 +1,3 @@
-<img width="190" height="183" src="https://github.com/user-attachments/assets/73f3958b-973c-42a4-b950-6d4d92ed66ea" />
-
 # Drive Dee — Siam Wheels Rental Hub
 
 **Siam Wheels Rental Hub** is the car rental management system behind **Drive Dee**
