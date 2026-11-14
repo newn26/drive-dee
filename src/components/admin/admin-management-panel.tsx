@@ -64,11 +64,14 @@ const memberStatusLabel: Record<AdminMemberRow["status"], string> = {
   revoked: "เพิกถอนแล้ว",
 };
 
+/** Not yet an admin: the invited person still has to open the link and press "accept". */
+const PENDING = "รอผู้รับกดยอมรับ";
+
 function invitationState(i: AdminInvitationRow, now: number = Date.now()) {
   if (i.accepted_at) return "รับแล้ว";
   if (i.revoked_at) return "ยกเลิกแล้ว";
   if (new Date(i.expires_at).getTime() <= now) return "หมดอายุ";
-  return "รอรับ";
+  return PENDING;
 }
 
 function PermissionPicker({
@@ -255,8 +258,10 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
             <UserPlus className="h-5 w-5 text-primary" /> เชิญผู้ดูแลใหม่
           </CardTitle>
           <CardDescription>
-            ลิงก์คำเชิญใช้ได้ครั้งเดียว ภายใน 72 ชั่วโมง และเฉพาะบัญชีที่ใช้อีเมลนี้
-            ระบบแสดงลิงก์เพียงครั้งเดียว กรุณาส่งให้ผู้รับด้วยตนเอง
+            ระบบไม่ส่งอีเมลคำเชิญให้ — หลังสร้างลิงก์ กรุณาคัดลอกแล้วส่งให้ผู้รับด้วยตนเอง
+            (ลิงก์แสดงเพียงครั้งเดียว ใช้ได้ครั้งเดียว ภายใน 72 ชั่วโมง และเฉพาะบัญชีที่ใช้อีเมลนี้)
+            ผู้รับต้องเปิดลิงก์ เข้าสู่ระบบหรือสมัครด้วยอีเมลนี้ แล้วกด “ยอมรับคำเชิญ”
+            อีเมลยืนยันตอนสมัครสมาชิกเป็นแค่การยืนยันบัญชี ยังไม่ทำให้เป็นผู้ดูแล
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -286,7 +291,10 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
                 {fmtDateTime(createdLink.expires)})
               </p>
               <p className="break-all font-mono">{createdLink.link}</p>
-              <p>ลิงก์นี้จะไม่แสดงอีก ใครได้ลิงก์ไปก็ใช้ไม่ได้หากไม่ได้เข้าสู่ระบบด้วยอีเมลนี้</p>
+              <p>
+                คัดลอกลิงก์นี้ส่งให้ผู้รับตอนนี้ (ระบบไม่ส่งอีเมลให้ และลิงก์จะไม่แสดงอีก)
+                ใครได้ลิงก์ไปก็ใช้ไม่ได้หากไม่ได้เข้าสู่ระบบด้วยอีเมลนี้
+              </p>
               <Button
                 size="sm"
                 variant="outline"
@@ -321,7 +329,7 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
                   <TableCell className="text-xs">{fmtDateTime(i.expires_at)}</TableCell>
                   <TableCell className="text-xs">{invitationState(i)}</TableCell>
                   <TableCell className="text-right">
-                    {invitationState(i) === "รอรับ" && (
+                    {invitationState(i) === PENDING && (
                       <Button
                         variant="ghost"
                         size="sm"

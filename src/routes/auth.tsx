@@ -12,15 +12,26 @@ import { ResetPasswordForm } from "@/components/reset-password-form";
 import { fetchRole, useAuth } from "@/hooks/use-auth";
 import { createDemoAccount } from "@/lib/demo.functions";
 import { DEMO_ADMIN_SIGN_IN_ENABLED, homeForRole, initialAuthMode } from "@/lib/roles";
+import { invitationLink, inviteTokenFrom } from "@/lib/contract-api";
 
-type AuthSearch = { reset?: boolean | undefined; demo?: boolean | undefined };
+type AuthSearch = {
+  reset?: boolean | undefined;
+  demo?: boolean | undefined;
+  /** Admin invitation token: after signing in (or confirming sign-up) go back to accept it. */
+  invite?: string | undefined;
+  register?: boolean | undefined;
+};
+
+const flag = (v: unknown) => (v === true || v === "true" ? true : undefined);
 
 export const Route = createFileRoute("/auth")({
   // The password-reset email links back to /auth?reset=true.
   // The router parses "true" into a boolean, so accept both forms.
   validateSearch: (s: Record<string, unknown>): AuthSearch => ({
-    reset: s["reset"] === true || s["reset"] === "true" ? true : undefined,
-    demo: s["demo"] === true || s["demo"] === "true" ? true : undefined,
+    reset: flag(s["reset"]),
+    demo: flag(s["demo"]),
+    invite: inviteTokenFrom(s["invite"]),
+    register: flag(s["register"]),
   }),
   head: () => ({
     meta: [
@@ -37,7 +48,9 @@ type AuthMode = "login" | "register" | "forgot" | "demo";
 function AuthPage() {
   const navigate = useNavigate();
   const search = Route.useSearch();
-  const [mode, setMode] = useState<AuthMode>(initialAuthMode(search.demo));
+  const [mode, setMode] = useState<AuthMode>(
+    search.register ? "register" : initialAuthMode(search.demo),
+  );
 
   if (search.reset) {
     return (
@@ -53,11 +66,21 @@ function AuthPage() {
     );
   }
 
-  return <AuthForms mode={mode} setMode={setMode} />;
+  return <AuthForms mode={mode} setMode={setMode} invite={search.invite} />;
 }
 
-function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) => void }) {
+function AuthForms({
+  mode,
+  setMode,
+  invite,
+}: {
+  mode: AuthMode;
+  setMode: (m: AuthMode) => void;
+  invite?: string | undefined;
+}) {
   const navigate = useNavigate();
+  const goToInvite = (token: string) =>
+    navigate({ to: "/admin-invite", search: { token }, replace: true });
   const { user, role, isDemo, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
   // Shown after sign-up when Supabase still needs the user to confirm their email
@@ -164,6 +187,10 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
         }
 
         toast.success("เข้าสู่ระบบสำเร็จ ยินดีต้อนรับกลับมา");
+        if (invite) {
+          goToInvite(invite);
+          return;
+        }
         // Demo admins always land on their restricted dashboard
         navigate({ to: role === "demo_admin" ? homeForRole(role) : "/" });
       } catch (err: unknown) {
@@ -205,7 +232,11 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
           email: email.trim(),
           password,
           options: {
-            emailRedirectTo: window.location.origin,
+            // From an admin invitation, the confirmation link returns to it so the person can accept.
+            // (Supabase falls back to the Site URL if this URL is not in its redirect allow list.)
+            emailRedirectTo: invite
+              ? invitationLink(window.location.origin, invite)
+              : window.location.origin,
             data: {
               full_name: name.trim(),
               phone: cleanPhone,
@@ -231,6 +262,10 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
           return;
         }
         toast.success("สมัครสมาชิกสำเร็จ! ยินดีต้อนรับสู่ Siam Wheels");
+        if (invite) {
+          goToInvite(invite);
+          return;
+        }
         navigate({ to: "/" });
       } catch (err: unknown) {
         const error = err as Error;
@@ -257,6 +292,20 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
           </Button>
         </div>
       )}
+      {invite && (
+        <div role="status" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-semibold">คุณกำลังรับคำเชิญเป็นผู้ดูแลระบบ</p>
+          <p className="mt-1">
+            เข้าสู่ระบบหรือสมัครด้วยอีเมลที่ได้รับเชิญ แล้วระบบจะพากลับไปหน้าคำเชิญ
+            ต้องกด “ยอมรับคำเชิญ” ที่หน้านั้นจึงจะได้สิทธิ์ผู้ดูแล
+          </p>
+          {user && !authLoading && (
+            <Button size="sm" variant="outline" className="mt-3 bg-white" onClick={() => goToInvite(invite)}>
+              กลับไปหน้าคำเชิญด้วยบัญชีนี้
+            </Button>
+          )}
+        </div>
+      )}
       {confirmEmailFor && mode === "login" && (
         <div role="status" className="mb-4 rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm">
           <p className="font-semibold">กรุณายืนยันอีเมลของคุณ</p>
@@ -264,6 +313,12 @@ function AuthForms({ mode, setMode }: { mode: AuthMode; setMode: (m: AuthMode) =
             เราได้ส่งลิงก์ยืนยันไปที่ <strong className="break-all text-foreground">{confirmEmailFor}</strong> แล้ว
             กดลิงก์ในอีเมลก่อน แล้วจึงเข้าสู่ระบบด้านล่าง (หากไม่พบ โปรดตรวจสอบโฟลเดอร์สแปม)
           </p>
+          {invite && (
+            <p className="mt-2 text-muted-foreground">
+              อีเมลนี้เป็นการยืนยันบัญชีเท่านั้น ยังไม่ใช่การรับคำเชิญ
+              หลังยืนยันแล้วต้องกด “ยอมรับคำเชิญ” ในหน้าคำเชิญ
+            </p>
+          )}
         </div>
       )}
       <Card className="shadow-card border">
