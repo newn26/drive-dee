@@ -7,6 +7,7 @@ import {
   countCustomers,
   csvEscape,
   maintenanceReportCsv,
+  maintenanceCostError,
   monthlyRevenueSeries,
   rangeStart,
   toCsv,
@@ -279,5 +280,26 @@ describe("Reports — booking fee: rent collected at pickup counts once the car 
     const cells = row!.split(",");
     expect(cells[cols.indexOf("ชำระแล้ว (THB)")]).toBe("1000");
     expect(cells[cols.indexOf("เก็บ ณ วันรับรถ (THB)")]).toBe("1970");
+  });
+});
+
+describe("Reports — maintenance cost can never lower expenses", () => {
+  it("a negative cost counts as 0; the form rejects it", () => {
+    const r = computeReport({
+      bookings: [],
+      payments: [],
+      maintenance: [
+        { cost: 4000, scheduled_date: "2026-11-10", completed_date: "2026-11-10" },
+        { cost: -50, scheduled_date: "2026-11-10", completed_date: "2026-11-10" },
+        { cost: 0, scheduled_date: "2026-11-10", completed_date: null },
+      ],
+      range: "all",
+      now: NOW,
+    });
+    expect(r.maintCost).toBe(4000);
+    expect(maintenanceCostError(-50)).toMatch(/ตั้งแต่ 0 บาท/);
+    expect(maintenanceCostError(Number.NaN)).toMatch(/ตั้งแต่ 0 บาท/);
+    expect(maintenanceCostError(0)).toBeNull();
+    expect(maintenanceCostError(4000)).toBeNull();
   });
 });
