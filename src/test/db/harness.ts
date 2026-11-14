@@ -66,7 +66,15 @@ export type CreateOptions = {
   beforeProposed?: (db: TestDb) => Promise<void>;
   /** Default true. */
   applyProposed?: boolean;
+  /** Extra SQL files applied last (e.g. a follow-up migration not yet in drizzle/migrations). */
+  after?: string[];
 };
+
+/** Follow-up migration: customer accepts the contract, no Admin review (not yet applied live). */
+export const SELF_ACCEPT_MIGRATION = path.join(
+  ROOT,
+  "docs/database/customer-self-accept-contract.sql",
+);
 
 export async function createTestDb(options: CreateOptions = {}): Promise<TestDb> {
   const pg = new PGlite();
@@ -127,6 +135,7 @@ export async function createTestDb(options: CreateOptions = {}): Promise<TestDb>
     await pg.exec(readFileSync(PROPOSED_MIGRATION, "utf8"));
     for (const f of later) await pg.exec(readFileSync(path.join(MIGRATIONS_DIR, f), "utf8"));
   }
+  for (const f of options.after ?? []) await pg.exec(readFileSync(f, "utf8"));
   return db;
 }
 

@@ -161,9 +161,11 @@ function BookingsHistoryPage() {
   const stageOf = (b: BookingWithCarAndReview): CustomerStage =>
     customerStage(b, workflowContract(bookingContract(b)));
   const TABS: { value: string; label: string; stages: CustomerStage[] }[] = [
-    { value: "contract", label: "รอสัญญา", stages: ["awaiting_contract"] },
-    { value: "review", label: "รอตรวจสัญญา", stages: ["review_contract"] },
-    { value: "approval", label: "รออนุมัติ / แก้ไข", stages: ["awaiting_approval", "revision_requested"] },
+    {
+      value: "review",
+      label: "รอยอมรับสัญญา",
+      stages: ["awaiting_contract", "review_contract", "revision_requested"],
+    },
     { value: "payment", label: "รอชำระเงิน", stages: ["awaiting_payment"] },
     { value: "active", label: "ยืนยันแล้ว/กำลังเช่า", stages: ["confirmed"] },
     { value: "completed", label: "เสร็จสิ้น", stages: ["completed"] },

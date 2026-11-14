@@ -1,8 +1,12 @@
 /**
- * Contract approval workflow: statuses, labels and the rules the UI follows.
+ * Contract workflow: statuses, labels and the rules the UI follows.
  *
- * The database (docs/database/contract-approval-workflow.sql) is the real boundary: every
- * transition below is enforced there too. These helpers only decide what the UI shows.
+ * Flow: the customer books → the contract is created at once (pending_customer) → the customer
+ * accepts (approved = accepted, awaiting payment) → DEMO payment (paid). No Admin step.
+ *
+ * The database (drizzle 0004 + docs/database/customer-self-accept-contract.sql) is the real
+ * boundary: every transition below is enforced there too. These helpers only decide what the UI shows.
+ * draft / pending_admin_review / revision_requested only remain for contracts from the old flow.
  */
 
 export const CONTRACT_STATUSES = [
@@ -22,28 +26,33 @@ export const isContractStatus = (s: unknown): s is ContractStatus =>
 /** Labels for admins. */
 export const contractStatusLabel: Record<ContractStatus, string> = {
   draft: "ฉบับร่าง",
-  pending_customer: "รอลูกค้าตรวจสอบ",
-  pending_admin_review: "รอผู้ดูแลอนุมัติ",
-  revision_requested: "ขอแก้ไขสัญญา",
-  approved: "อนุมัติแล้ว · รอชำระเงิน",
+  pending_customer: "รอลูกค้ายอมรับ",
+  pending_admin_review: "รอผู้ดูแลอนุมัติ (ระบบเดิม)",
+  revision_requested: "ขอแก้ไขสัญญา (ระบบเดิม)",
+  approved: "ลูกค้ายอมรับแล้ว · รอชำระเงิน",
   paid: "ชำระเงินแล้ว",
   cancelled: "ยกเลิก",
 };
 
-/**
- * Labels for the customer. A draft of a contract the customer has already been sent
- * means the admin is preparing a new version.
- */
+/** Labels for the customer. */
 export function customerContractLabel(status: ContractStatus, everSent: boolean): string {
-  if (status === "draft") return everSent ? "ผู้ดูแลกำลังแก้ไขสัญญา" : "รอผู้ดูแลจัดทำสัญญา";
-  if (status === "pending_customer") return "รอคุณตรวจสอบสัญญา";
+  if (status === "draft") return everSent ? "ต้องจองใหม่" : "กำลังจัดทำสัญญา";
+  if (status === "pending_customer") return "รอคุณยอมรับสัญญา";
+  if (status === "approved") return "ยอมรับแล้ว · รอชำระเงิน";
+  if (status === "pending_admin_review" || status === "revision_requested") return "ต้องจองใหม่";
   return contractStatusLabel[status];
 }
 
 /** Allowed status moves; must match guard_contract_update() in the migration. */
 export const CONTRACT_TRANSITIONS: Readonly<Record<ContractStatus, readonly ContractStatus[]>> = {
   draft: ["pending_customer", "cancelled"],
-  pending_customer: ["pending_admin_review", "revision_requested", "draft", "cancelled"],
+  pending_customer: [
+    "approved",
+    "pending_admin_review",
+    "revision_requested",
+    "draft",
+    "cancelled",
+  ],
   pending_admin_review: ["approved", "revision_requested", "draft", "cancelled"],
   revision_requested: ["draft", "cancelled"],
   approved: ["paid", "draft", "cancelled"],
@@ -67,14 +76,14 @@ export type BookingLike = { status: string; hold_expires_at?: string | null };
 export const holdActive = (b: BookingLike, now: number = Date.now()) =>
   b.status === "pending" && !!b.hold_expires_at && new Date(b.hold_expires_at).getTime() > now;
 
-/** Payment is offered only for an approved contract on an open booking. */
+/** Payment is offered only once the customer has accepted the contract (approved), on an open booking. */
 export const canPay = (
   b: BookingLike,
   c: ContractLike | null | undefined,
   now: number = Date.now(),
 ) => !!c && c.status === "approved" && holdActive(b, now);
 
-/** The customer can accept (or ask to revise) only the version they were sent, while it is current. */
+/** The customer can accept only the version they were shown, while it is current. */
 export const canCustomerRespond = (
   b: BookingLike,
   c: ContractLike | null | undefined,
@@ -86,16 +95,10 @@ export const canCustomerRespond = (
   c.sent_version === c.current_version &&
   holdActive(b, now);
 
-/** Admin may edit (in place for an unsent draft, otherwise as a new version) until payment. */
-export const canAdminEdit = (c: ContractLike) => !["paid", "cancelled"].includes(c.status);
-export const canAdminSend = (c: ContractLike) => c.status === "draft";
-export const canAdminReview = (c: ContractLike) => c.status === "pending_admin_review";
-
 /** Which stage a pending booking is in, from the customer's point of view. */
 export type CustomerStage =
   | "awaiting_contract"
   | "review_contract"
-  | "awaiting_approval"
   | "revision_requested"
   | "awaiting_payment"
   | "confirmed"
@@ -109,19 +112,19 @@ export function customerStage(
   if (b.status === "cancelled") return "cancelled";
   if (b.status === "completed") return "completed";
   if (b.status === "confirmed" || b.status === "active") return "confirmed";
-  if (!c || c.status === "draft") return "awaiting_contract";
+  if (!c) return "awaiting_contract";
   if (c.status === "pending_customer") return "review_contract";
-  if (c.status === "pending_admin_review") return "awaiting_approval";
-  if (c.status === "revision_requested") return "revision_requested";
+  // Left over from the old Admin-review flow: the customer cancels and books again
+  if (["draft", "pending_admin_review", "revision_requested"].includes(c.status))
+    return "revision_requested";
   if (c.status === "approved") return "awaiting_payment";
   return "cancelled";
 }
 
 export const customerStageLabel: Record<CustomerStage, string> = {
   awaiting_contract: "รอสัญญา",
-  review_contract: "รอตรวจสัญญา",
-  awaiting_approval: "รออนุมัติ",
-  revision_requested: "ขอแก้ไขสัญญา",
+  review_contract: "รอยอมรับสัญญา",
+  revision_requested: "ต้องจองใหม่",
   awaiting_payment: "รอชำระเงิน",
   confirmed: "ยืนยันแล้ว",
   completed: "เสร็จสิ้น",
@@ -158,7 +161,7 @@ export const contractEventLabel: Record<string, string> = {
   sent: "ส่งให้ลูกค้าตรวจสอบ",
   accepted: "ลูกค้ายอมรับสัญญา",
   revision_requested: "ขอแก้ไขสัญญา",
-  approved: "ผู้ดูแลอนุมัติสัญญา",
+  approved: "ผู้ดูแลอนุมัติสัญญา (ระบบเดิม)",
   paid: "ชำระเงิน (DEMO)",
   cancelled: "ยกเลิก",
   expired: "หมดเวลา",
@@ -181,59 +184,6 @@ export const refundStatusLabel: Record<string, string> = {
   not_refunded: "ยกเลิกแล้ว · ยังไม่คืนเงิน (DEMO ไม่มีระบบคืนเงิน)",
   refunded: "คืนเงินแล้ว",
 };
-
-// ---------------------------------------------------------------------------
-// Contract form helpers
-// ---------------------------------------------------------------------------
-
-/** "YYYY-MM-DD" + "HH:MM" (Bangkok) → ISO timestamp with +07:00. */
-export const bangkokTimestamp = (date: string, time: string) => `${date}T${time}:00+07:00`;
-
-/** "HH:MM" in Bangkok time of an ISO timestamp. */
-export function bangkokTime(iso: string | null | undefined, fallback: string): string {
-  if (!iso) return fallback;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return fallback;
-  const bkk = new Date(d.getTime() + 7 * 3_600_000);
-  return `${String(bkk.getUTCHours()).padStart(2, "0")}:${String(bkk.getUTCMinutes()).padStart(2, "0")}`;
-}
-
-export type ContractForm = {
-  pickupTime: string;
-  returnTime: string;
-  deposit: number;
-  mileageAllowance: string;
-  latePenalty: string;
-  additionalConditions: string;
-  includeLicence: boolean;
-};
-
-export const DEFAULT_CONTRACT_FORM: ContractForm = {
-  pickupTime: "10:00",
-  returnTime: "18:00",
-  deposit: 5000,
-  mileageAllowance: "ไม่จำกัดระยะทาง",
-  latePenalty: "500 บาท / ชั่วโมง",
-  additionalConditions: "",
-  includeLicence: false,
-};
-
-/** Thai error message, or null when the form is valid (the server checks again). */
-export function validateContractForm(
-  f: ContractForm,
-  startDate: string,
-  endDate: string,
-): string | null {
-  const time = /^([01]\d|2[0-3]):[0-5]\d$/;
-  if (!time.test(f.pickupTime) || !time.test(f.returnTime))
-    return "กรุณาระบุเวลารับ-คืนรถให้ถูกต้อง (HH:MM)";
-  if (startDate === endDate && f.returnTime <= f.pickupTime) return "เวลาคืนรถต้องหลังเวลารับรถ";
-  if (!Number.isFinite(f.deposit) || f.deposit < 0)
-    return "เงินประกันต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป";
-  if (!f.mileageAllowance.trim()) return "กรุณาระบุข้อกำหนดระยะทาง";
-  if (!f.latePenalty.trim()) return "กรุณาระบุค่าปรับส่งคืนล่าช้า";
-  return null;
-}
 
 /** A reason for a revision request or a manual confirmation (same minimums as the database). */
 export const reasonError = (reason: string, min: number) =>
