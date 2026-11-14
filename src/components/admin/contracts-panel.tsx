@@ -59,6 +59,7 @@ import {
   createContract,
   fetchContractEvents,
   fetchContractVersions,
+  adminApplyRequestedName,
   sendContract,
   updateContract,
   type ContractRow,
@@ -443,6 +444,10 @@ export function AdminContractsPanel({
     if (problem) return void toast.error(problem);
     void run(
       async () => {
+        // The contract takes the name from the profile: apply the requested name first
+        if (requested.customerName !== (currentVersion?.customer_name ?? "")) {
+          await adminApplyRequestedName(open.id, requested.customerName);
+        }
         await updateContract(open.id, next, b.start_date, b.end_date);
         await sendContract(open.id);
       },
@@ -708,8 +713,8 @@ export function AdminContractsPanel({
               </Table>
               <p className="text-xs">
                 กดยืนยันแล้ว ระบบสร้างฉบับที่ {open.current_version + 1}{" "}
-                ตามที่ลูกค้าขอและส่งให้ลูกค้าทันที ชื่อในสัญญามาจากโปรไฟล์ลูกค้า
-                ซึ่งลูกค้าแก้ไว้แล้วตอนส่งคำขอ
+                ตามที่ลูกค้าขอ (รวมถึงเปลี่ยนชื่อในโปรไฟล์ลูกค้าถ้าขอเปลี่ยนชื่อ)
+                และส่งให้ลูกค้าทันที ถ้าไม่ต้องการใช้ชื่อหรือเวลาที่ขอ ให้แก้ไขสัญญาเองด้านล่างแทน
               </p>
               <Button size="sm" disabled={busy} onClick={handleApplyRequest}>
                 <CheckCheck className="mr-1 h-4 w-4" /> ยืนยันการแก้ไขและส่งให้ลูกค้า

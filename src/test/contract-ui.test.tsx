@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ComponentType, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const fromSpy = vi.hoisted(() => vi.fn());
 const mocks = vi.hoisted(() => ({
   tables: {} as Record<string, unknown>,
   rpc: vi.fn(),
@@ -32,7 +33,10 @@ const builder = (rows: unknown) => {
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    from: (t: string) => builder(mocks.tables[t]),
+    from: (t: string) => {
+      fromSpy(t);
+      return builder(mocks.tables[t]);
+    },
     rpc: (...args: unknown[]) => mocks.rpc(...args),
     auth: { getUser: vi.fn(), signOut: vi.fn() },
   },
@@ -157,12 +161,13 @@ function setup(opts: {
   contract?: ContractRow | null;
   versions?: ContractVersionRow[];
   payment?: unknown;
+  events?: unknown[];
 }) {
   mocks.tables = {
     bookings: { ...BOOKING, ...opts.booking },
     contracts: opts.contract ?? [],
     contract_versions: opts.versions ?? [],
-    contract_events: [],
+    contract_events: opts.events ?? [],
     payments: opts.payment ?? [],
   };
   return renderWithQuery(<BookingPage />);
@@ -615,5 +620,92 @@ describe("booking-fee wording", () => {
       />,
     );
     expect(screen.getByText(/รอผู้ดูแลอนุมัติ \(ระบบเดิม\)/)).toBeInTheDocument();
+  });
+});
+
+describe("revision rules (name applied by the admin, at most 2 requests)", () => {
+  const customerRequest = (i: number) => ({
+    id: `e-${i}`,
+    contract_id: "ct-1",
+    booking_id: "b-1",
+    version: i,
+    actor_id: "cust-1",
+    actor_role: "customer",
+    action: "revision_requested",
+    note: "ชื่อลูกค้า: ทดสอบ ลูกค้าเอ\nเวลารับรถ: 09:00 น.\nเวลาคืนรถ: 18:00 น.",
+    created_at: inMinutes(-10 + i),
+  });
+
+  it("a new name in the request is not written to the profile by the customer", async () => {
+    setup({ contract: contractRow(), versions: [versionRow()] });
+    await screen.findByText(/ชำระ ณ วันรับรถ ไม่รวมในการชำระเงินออนไลน์/);
+    expect(screen.getByTestId("revisions-left")).toHaveTextContent("ขอแก้ไขได้อีก 2 ครั้ง");
+    fireEvent.click(screen.getByRole("button", { name: /ขอแก้ไขสัญญา/ }));
+    fireEvent.change(await screen.findByLabelText("ชื่อลูกค้า"), {
+      target: { value: "ทดสอบ ชื่อใหม่" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "ส่งคำขอแก้ไข" }));
+    await waitFor(() =>
+      expect(mocks.rpc).toHaveBeenCalledWith(
+        "customer_request_revision",
+        expect.objectContaining({ _reason: expect.stringContaining("ชื่อลูกค้า: ทดสอบ ชื่อใหม่") }),
+      ),
+    );
+    // the only database call is the request itself (the profile is not touched)
+    expect(mocks.rpc.mock.calls.map((c) => c[0])).toEqual(["customer_request_revision"]);
+    expect(fromSpy).not.toHaveBeenCalledWith("profiles");
+  });
+
+  it("after 2 requests the customer can only confirm or cancel", async () => {
+    setup({
+      contract: contractRow({ current_version: 3, sent_version: 3 }),
+      versions: [versionRow({ version: 3 })],
+      events: [customerRequest(1), customerRequest(2)],
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("revisions-left")).toHaveTextContent("ขอแก้ไขครบ 2 ครั้งแล้ว"),
+    );
+    expect(screen.getByRole("button", { name: /ขอแก้ไขสัญญา/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "ยืนยันสัญญาฉบับที่ 3" })).toBeInTheDocument();
+  });
+
+  it("applying a request with a new name sends the name to the database before the new version", async () => {
+    mocks.tables = {
+      contract_versions: [versionRow({ sent_at: inMinutes(-30) })],
+      contract_events: [],
+    };
+    const requested = {
+      ...contractRow({
+        status: "revision_requested",
+        revision_requested_by: "customer",
+        revision_reason: "ชื่อลูกค้า: ทดสอบ ชื่อใหม่\nเวลารับรถ: 10:00 น.\nเวลาคืนรถ: 18:00 น.",
+      }),
+      bookings: BOOKING as unknown as PanelBooking,
+    } as PanelContract;
+    renderWithQuery(
+      <AdminContractsPanel
+        perms={dashboardPermissions("admin")}
+        contracts={[requested]}
+        bookings={[BOOKING as unknown as PanelBooking]}
+        profileMap={{ "cust-1": { full_name: "ทดสอบ ลูกค้าเอ" } }}
+        initialView="revision_requested"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "เปิดสัญญา" }));
+    const card = await screen.findByTestId("customer-request");
+    fireEvent.click(within(card).getByRole("button", { name: /ยืนยันการแก้ไขและส่งให้ลูกค้า/ }));
+    await waitFor(() =>
+      expect(mocks.rpc).toHaveBeenCalledWith("admin_send_contract", { _contract_id: "ct-1" }),
+    );
+    const order = mocks.rpc.mock.calls.map((c) => c[0]);
+    expect(order).toEqual([
+      "admin_apply_requested_name",
+      "admin_update_contract",
+      "admin_send_contract",
+    ]);
+    expect(mocks.rpc).toHaveBeenCalledWith("admin_apply_requested_name", {
+      _contract_id: "ct-1",
+      _name: "ทดสอบ ชื่อใหม่",
+    });
   });
 });

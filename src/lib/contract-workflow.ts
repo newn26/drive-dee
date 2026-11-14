@@ -252,6 +252,13 @@ export const CLOSING_TIME = "18:00";
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const withinHours = (t: string) => HHMM.test(t) && t >= OPENING_TIME && t <= CLOSING_TIME;
 
+/** Change requests a customer may make per contract; must match max_customer_revisions(). */
+export const MAX_CUSTOMER_REVISIONS = 2;
+
+/** How many change requests the customer has made (from the contract events). */
+export const customerRevisionCount = (events: { action: string; actor_role: string }[]) =>
+  events.filter((e) => e.action === "revision_requested" && e.actor_role === "customer").length;
+
 /** What a customer can ask to change in a sent contract. */
 export type RevisionRequest = { customerName: string; pickupTime: string; returnTime: string };
 

@@ -12,6 +12,8 @@ export type ReportBooking = {
   status: string;
   created_at: string;
   total_amount: Amount;
+  /** Pickup day (YYYY-MM-DD); dates the rent collected at the branch. */
+  start_date?: string;
 };
 export type ReportMaintenance = {
   cost: Amount;
@@ -82,10 +84,34 @@ export const isRevenuePayment = (p: ReportPayment, statusByBooking: Record<strin
   p.status === "paid" &&
   (REVENUE_BOOKING_STATUSES as readonly string[]).includes(statusByBooking[p.booking_id] ?? "");
 
+/** Once the car is picked up (active/completed) the branch has collected the rest of the rent. */
+export const PICKUP_COLLECTED_STATUSES = ["active", "completed"] as const;
+
 /**
- * Revenue comes from recorded payments (by payment date), not from booking totals,
- * so unpaid pending bookings are never counted. Maintenance cost is dated by the
- * completion date when there is one, otherwise the scheduled date.
+ * Rent collected at the branch on the pickup day: rent minus what was already paid online.
+ * Booking-fee bookings paid 1,000 THB online, so the rest of the rent comes at pickup
+ * (the deposit is returned, so it is not revenue). Bookings that paid the full rent online
+ * (before the booking fee) have nothing left to collect. Not recorded in the database; derived.
+ */
+export function pickupCollections(bookings: ReportBooking[], payments: ReportPayment[]) {
+  const paidOnline = new Map<string, number>();
+  for (const p of payments)
+    if (p.status === "paid")
+      paidOnline.set(p.booking_id, (paidOnline.get(p.booking_id) ?? 0) + Number(p.amount ?? 0));
+  return bookings
+    .filter((b) => (PICKUP_COLLECTED_STATUSES as readonly string[]).includes(b.status))
+    .map((b) => ({
+      booking_id: b.id,
+      date: b.start_date ?? b.created_at,
+      amount: Math.max(Number(b.total_amount ?? 0) - (paidOnline.get(b.id) ?? 0), 0),
+    }))
+    .filter((c) => c.amount > 0);
+}
+
+/**
+ * Revenue = recorded online payments (by payment date) + rent collected at pickup for bookings
+ * whose car has been picked up (by pickup date). Unpaid pending bookings are never counted.
+ * Maintenance cost is dated by the completion date when there is one, otherwise the scheduled date.
  */
 export function computeReport(input: {
   bookings: ReportBooking[];
@@ -100,7 +126,11 @@ export function computeReport(input: {
   const revenuePayments = input.payments.filter(
     (p) => isRevenuePayment(p, statusByBooking) && inRange(p.paid_at, start),
   );
-  const revenue = revenuePayments.reduce((s, p) => s + Number(p.amount ?? 0), 0);
+  const onlineRevenue = revenuePayments.reduce((s, p) => s + Number(p.amount ?? 0), 0);
+  const pickupRevenue = pickupCollections(input.bookings, input.payments)
+    .filter((c) => inRange(c.date, start))
+    .reduce((s, c) => s + c.amount, 0);
+  const revenue = onlineRevenue + pickupRevenue;
 
   const maintCost = input.maintenance
     .filter((m) => inRange(m.completed_date ?? m.scheduled_date, start))
@@ -111,6 +141,8 @@ export function computeReport(input: {
 
   return {
     revenue,
+    onlineRevenue,
+    pickupRevenue,
     maintCost,
     profit: revenue - maintCost,
     paidCount: revenuePayments.length,
@@ -127,6 +159,7 @@ export function monthlyRevenueSeries(
   statusByBooking: Record<string, string>,
   now: Date = new Date(),
   months = 12,
+  bookings: ReportBooking[] = [],
 ) {
   const p = bkkParts(now);
   const y = Number(p.year);
@@ -155,6 +188,11 @@ export function monthlyRevenueSeries(
       bucket.revenue += Number(pay.amount ?? 0);
       bucket.bookings += 1;
     }
+  }
+  // rent collected at the branch, in the month of the pickup day
+  for (const c of pickupCollections(bookings, payments)) {
+    const bucket = byKey.get(bkkMonthKey(c.date));
+    if (bucket) bucket.revenue += c.amount;
   }
   return series;
 }
@@ -212,6 +250,7 @@ export const BOOKING_CSV_HEADERS = [
   "สถานะการจอง",
   "ยอดรวม (THB)",
   "ชำระแล้ว (THB)",
+  "เก็บ ณ วันรับรถ (THB)",
   "ช่องทางชำระ",
   "เลขอ้างอิงการชำระ",
   "วันที่ชำระ",
@@ -231,6 +270,9 @@ export function bookingReportCsv(input: {
   const statusByBooking = bookingStatusMap(input.bookings);
   const paidByBooking = new Map<string, CsvPayment>();
   for (const p of input.payments) if (p.status === "paid") paidByBooking.set(p.booking_id, p);
+  const atPickup = new Map(
+    pickupCollections(input.bookings, input.payments).map((c) => [c.booking_id, c.amount]),
+  );
 
   const rows = input.bookings
     .filter((b) => inRange(b.created_at, start))
@@ -249,6 +291,7 @@ export function bookingReportCsv(input: {
         input.statusLabels[b.status] ?? b.status,
         Number(b.total_amount ?? 0),
         pay ? Number(pay.amount ?? 0) : 0,
+        atPickup.get(b.id) ?? 0,
         pay ? (pay.method === "qr" ? "QR PromptPay (DEMO)" : "บัตรเครดิต (DEMO)") : "",
         pay?.reference ?? "",
         bkkDateTime(pay?.paid_at),

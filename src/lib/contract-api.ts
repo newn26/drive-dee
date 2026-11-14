@@ -177,6 +177,19 @@ export const updateContract = (
 export const sendContract = (contractId: string) =>
   call("admin_send_contract", { _contract_id: contractId });
 
+/**
+ * Applies the name from the customer's open change request to their profile (the contract
+ * text takes the name from the profile). The database only accepts the exact requested name.
+ */
+export async function adminApplyRequestedName(contractId: string, name: string): Promise<void> {
+  // Not in the generated types until Lovable applies docs/database/revision-limits.sql.
+  const { error } = await db.rpc(
+    "admin_apply_requested_name" as never,
+    { _contract_id: contractId, _name: name.trim() } as never,
+  );
+  if (error) throw new Error(error.message);
+}
+
 export const acceptContract = (contractId: string, version: number) =>
   call("customer_accept_contract", { _contract_id: contractId, _version: version });
 
