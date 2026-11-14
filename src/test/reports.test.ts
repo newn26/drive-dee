@@ -228,3 +228,56 @@ describe("CSV download", () => {
     click.mockRestore();
   });
 });
+
+describe("Reports — booking fee: rent collected at pickup counts once the car is picked up", () => {
+  const b = (id: string, status: string, total: number, start = "2026-11-05") => ({
+    ...booking(id, status, "2026-11-01T03:00:00Z", total),
+    start_date: start,
+  });
+  const fee = (id: string) => payment(id, 1000, "2026-11-01T03:05:00Z");
+
+  it("confirmed (not picked up yet) counts only the fee; active/completed count the full rent", () => {
+    const bookings = [
+      b("conf", "confirmed", 2970),
+      b("act", "active", 2970),
+      b("done", "completed", 1980),
+    ];
+    const payments = [fee("conf"), fee("act"), fee("done")];
+    const r = computeReport({ bookings, payments, maintenance: [], range: "all", now: NOW });
+    expect(r.onlineRevenue).toBe(3000);
+    expect(r.pickupRevenue).toBe(1970 + 980);
+    expect(r.revenue).toBe(1000 + 2970 + 1980);
+  });
+
+  it("a booking that paid the full rent online has nothing left to collect", () => {
+    const bookings = [b("legacy", "completed", 1500)];
+    const payments = [payment("legacy", 1500, "2026-11-01T03:05:00Z")];
+    const r = computeReport({ bookings, payments, maintenance: [], range: "all", now: NOW });
+    expect(r.pickupRevenue).toBe(0);
+    expect(r.revenue).toBe(1500);
+  });
+
+  it("the monthly chart puts the pickup collection in the pickup month", () => {
+    const bookings = [b("act", "active", 2970, "2026-10-20")];
+    const payments = [fee("act")]; // paid in November
+    const series = monthlyRevenueSeries(payments, bookingStatusMap(bookings), NOW, 12, bookings);
+    expect(series.find((s) => s.key === "2026-10")!.revenue).toBe(1970);
+    expect(series.find((s) => s.key === "2026-11")!.revenue).toBe(1000);
+  });
+
+  it("CSV shows what was collected at pickup", () => {
+    const csv = bookingReportCsv({
+      bookings: [b("act", "active", 2970)],
+      payments: [fee("act")],
+      customerNames: {},
+      statusLabels: bookingStatusLabel,
+      range: "all",
+      now: NOW,
+    });
+    const [header, row] = csv.replace(/^﻿/, "").split(/\r?\n/);
+    const cols = header!.split(",");
+    const cells = row!.split(",");
+    expect(cells[cols.indexOf("ชำระแล้ว (THB)")]).toBe("1000");
+    expect(cells[cols.indexOf("เก็บ ณ วันรับรถ (THB)")]).toBe("1970");
+  });
+});

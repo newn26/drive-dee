@@ -74,6 +74,8 @@ import {
   bangkokTime,
   CLOSING_TIME,
   OPENING_TIME,
+  customerRevisionCount,
+  MAX_CUSTOMER_REVISIONS,
   revisionReasonText,
   revisionRequestError,
   type RevisionRequest,
@@ -329,16 +331,7 @@ function BookingDetailsPage() {
     }
     setSendingRevision(true);
     try {
-      // The contract takes the name from the profile, so a new name goes there first
-      const name = revision.customerName.trim();
-      const current = versions.find((x) => x.version === contract.sent_version)?.customer_name;
-      if (name !== current) {
-        const { error } = await supabase
-          .from("profiles")
-          .update({ full_name: name, updated_at: new Date().toISOString() })
-          .eq("id", user.id);
-        if (error) throw error;
-      }
+      // A new name is only a request: the admin applies it (admin_apply_requested_name)
       await customerRequestRevision(
         contract.id,
         contract.sent_version,
@@ -413,6 +406,7 @@ function BookingDetailsPage() {
   const isOwner = booking.user_id === user.id;
   const paymentOpen = isOwner && canPay(booking, contract, now);
   const canRespond = isOwner && canCustomerRespond(booking, contract, now);
+  const revisionsLeft = Math.max(MAX_CUSTOMER_REVISIONS - customerRevisionCount(events), 0);
   const charges = rentalCharges(Number(booking.total_amount));
   const holdText =
     booking.status !== "pending"
@@ -661,12 +655,17 @@ function BookingDetailsPage() {
                   <Button
                     variant="outline"
                     className="flex-1"
-                    disabled={!canRespond}
+                    disabled={!canRespond || revisionsLeft === 0}
                     onClick={openRevision}
                   >
                     <MessageSquareWarning className="mr-1.5 h-4 w-4" /> ขอแก้ไขสัญญา
                   </Button>
                 </div>
+                <p className="text-xs text-muted-foreground" data-testid="revisions-left">
+                  {revisionsLeft > 0
+                    ? `ขอแก้ไขได้อีก ${revisionsLeft} ครั้ง (สูงสุด ${MAX_CUSTOMER_REVISIONS} ครั้งต่อการจอง)`
+                    : `ขอแก้ไขครบ ${MAX_CUSTOMER_REVISIONS} ครั้งแล้ว กรุณายืนยันสัญญา หรือยกเลิกการจองหากไม่ต้องการเช่าต่อ`}
+                </p>
               </CardContent>
             </Card>
           )}
@@ -991,7 +990,8 @@ function BookingDetailsPage() {
           <DialogHeader>
             <DialogTitle>ขอแก้ไขสัญญาฉบับที่ {contract?.sent_version}</DialogTitle>
             <DialogDescription>
-              แก้ชื่อหรือเวลาที่ต้องการ ผู้ดูแลจะจัดทำฉบับใหม่ให้คุณตรวจสอบและยืนยันอีกครั้ง
+              แก้ชื่อหรือเวลาที่ต้องการ ผู้ดูแลจะตรวจสอบและจัดทำฉบับใหม่ให้คุณยืนยันอีกครั้ง
+              (ชื่อในโปรไฟล์จะเปลี่ยนเมื่อผู้ดูแลยืนยันการแก้ไข)
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

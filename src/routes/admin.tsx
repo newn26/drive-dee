@@ -676,7 +676,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
   );
 
   // Chart Data: revenue for the last 12 months (by payment date, Bangkok time)
-  const chartData = useMemo(() => monthlyRevenueSeries(payments, statusByBooking), [payments, statusByBooking]);
+  const chartData = useMemo(
+    () => monthlyRevenueSeries(payments, statusByBooking, new Date(), 12, bookings),
+    [payments, statusByBooking, bookings],
+  );
 
   const exportBookingsCsv = () => {
     const names: Record<string, string> = {};
@@ -904,7 +907,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                     <p className="text-xs text-muted-foreground mt-1">
                       กำไรจากการดำเนินงาน: <span className="font-semibold text-success">{thb(metrics.netProfit)}</span>
                     </p>
-                    <p className="text-[11px] text-muted-foreground">นับจากยอดชำระเงินจริง (DEMO) ไม่รวมรายการรอชำระ</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      ค่าจองที่ชำระออนไลน์ (DEMO) + ค่าเช่าส่วนที่เหลือที่เก็บ ณ วันรับรถ (นับเมื่อสถานะเป็นกำลังเช่า/เสร็จสิ้น) ไม่รวมเงินประกัน
+                    </p>
                   </CardContent>
                 </Card>
 
@@ -974,7 +979,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               <Card className="shadow-card border">
                 <CardHeader>
                   <CardTitle className="text-base font-semibold">แนวโน้มรายได้และจำนวนการจองรายเดือน</CardTitle>
-                  <CardDescription>รายได้จากการชำระเงิน 12 เดือนล่าสุด (ตามวันที่ชำระ เวลาประเทศไทย)</CardDescription>
+                  <CardDescription>รายได้ 12 เดือนล่าสุด: ค่าจองตามวันที่ชำระ + ค่าเช่าที่เก็บ ณ วันรับรถ ตามวันรับรถ (เวลาประเทศไทย)</CardDescription>
                 </CardHeader>
                 <CardContent className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
@@ -1489,6 +1494,14 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                         <span className="text-muted-foreground">รายได้จากการเช่า:</span>
                         <span className="font-semibold text-primary">{thb(reportMetrics.revenue)}</span>
                       </div>
+                      <div className="flex justify-between pl-3 text-xs" data-testid="revenue-online">
+                        <span className="text-muted-foreground">· ชำระออนไลน์ (ค่าจอง):</span>
+                        <span>{thb(reportMetrics.onlineRevenue)}</span>
+                      </div>
+                      <div className="flex justify-between pl-3 text-xs" data-testid="revenue-pickup">
+                        <span className="text-muted-foreground">· เก็บ ณ วันรับรถ (ค่าเช่าส่วนที่เหลือ):</span>
+                        <span>{thb(reportMetrics.pickupRevenue)}</span>
+                      </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">ค่าใช้จ่ายซ่อมบำรุงรวม:</span>
                         <span className="font-semibold text-destructive">- {thb(reportMetrics.maintCost)}</span>
@@ -1514,8 +1527,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       </span>
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      รายได้นับจากการชำระเงิน (โหมด DEMO) ของการจองที่ยืนยันแล้ว กำลังเช่า หรือเสร็จสิ้น ตามวันที่ชำระ
-                      ไม่รวมการจองที่รอชำระหรือถูกยกเลิก
+                      รายได้ = ค่าจองที่ชำระออนไลน์ (DEMO) ของการจองที่ยืนยันแล้ว กำลังเช่า หรือเสร็จสิ้น ตามวันที่ชำระ
+                      + ค่าเช่าส่วนที่เหลือที่เก็บ ณ วันรับรถ ตามวันรับรถ เมื่อผู้ดูแลเปลี่ยนสถานะเป็น "กำลังเช่า" หรือ "เสร็จสิ้น"
+                      ไม่รวมเงินประกัน (คืนให้ลูกค้า) การจองที่รอชำระ หรือถูกยกเลิก
                     </p>
 
                     <div className="pt-4 border-t">
