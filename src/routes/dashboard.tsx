@@ -118,7 +118,7 @@ function CustomerDashboardPage() {
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
-            สวัสดี, {profile?.full_name || user.user_metadata?.["full_name"] || "ลูกค้า Siam Wheels"}
+            สวัสดี, {profile?.full_name || user.user_metadata?.["full_name"] || "ลูกค้า Drive Dee"}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             ยินดีต้อนรับสู่แดชบอร์ดส่วนบุคคล ติดตามทริปการเดินทางและจัดการเอกสารเช่ารถ
@@ -285,7 +285,7 @@ function CustomerDashboardPage() {
                   <CarIcon className="mx-auto h-12 w-12 text-muted-foreground/40" />
                   <h4 className="mt-3 font-semibold">ไม่มีการเช่าที่กำลังดำเนินอยู่</h4>
                   <p className="text-xs text-muted-foreground mt-1">
-                    พร้อมออกเดินทางไปกับ Siam Wheels แล้วหรือยัง? ค้นหารถที่เหมาะกับคุณได้ทันที
+                    พร้อมออกเดินทางไปกับ Drive Dee แล้วหรือยัง? ค้นหารถที่เหมาะกับคุณได้ทันที
                   </p>
                   <Button className="mt-4" size="sm" asChild>
                     <Link to="/cars">ค้นหารถว่าง</Link>
@@ -303,7 +303,7 @@ function CustomerDashboardPage() {
                 <span>บริการช่วยเหลือฉุกเฉิน 24 ชั่วโมง</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                หากพบปัญหาเกี่ยวกับตัวรถหรือเกิดอุบัติเหตุ ติดต่อทีมช่วยเหลือ Siam Wheels ได้ตลอดเวลา
+                หากพบปัญหาเกี่ยวกับตัวรถหรือเกิดอุบัติเหตุ ติดต่อทีมช่วยเหลือ Drive Dee ได้ตลอดเวลา
               </p>
             </div>
             <a

@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Fuel, Settings2, Star, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { carImage } from "@/lib/car-images";
+import { carImage, isStockCarImage } from "@/lib/car-images";
 import { categoryLabel, thb } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 
@@ -24,6 +24,11 @@ export function CarCard({ car, rating }: { car: Tables<"cars">; rating?: { avg: 
         <Badge className="absolute left-3 top-3" variant="secondary">
           {categoryLabel[car.category] ?? car.category}
         </Badge>
+        {isStockCarImage(car.image_url) && (
+          <span className="absolute bottom-2 right-2 rounded-full bg-background/85 px-2 py-0.5 text-[10px] text-muted-foreground">
+            ภาพประกอบ
+          </span>
+        )}
       </div>
       <div className="space-y-3 p-4">
         <div className="flex items-start justify-between gap-2">

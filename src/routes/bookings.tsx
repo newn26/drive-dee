@@ -447,15 +447,19 @@ function BookingsHistoryPage() {
           <form onSubmit={handleSubmitReview} className="space-y-4 pt-2">
             <div>
               <Label className="text-xs">คะแนนความพึงพอใจ (1-5 ดาว)</Label>
-              <div className="flex gap-2 mt-2">
+              <div className="flex gap-2 mt-2" role="radiogroup" aria-label="คะแนนความพึงพอใจ">
                 {[1, 2, 3, 4, 5].map((star) => (
                   <button
                     key={star}
                     type="button"
+                    role="radio"
+                    aria-checked={star === reviewRating}
+                    aria-label={`${star} ดาว`}
                     onClick={() => setReviewRating(star)}
                     className="p-1 hover:scale-110 transition"
                   >
                     <Star
+                      aria-hidden
                       className={`h-7 w-7 ${star <= reviewRating ? "fill-accent text-accent" : "text-muted-foreground/30"}`}
                     />
                   </button>

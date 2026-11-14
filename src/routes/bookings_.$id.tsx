@@ -546,28 +546,24 @@ function BookingDetailsPage() {
                   <span>เงินประกันความเสียหาย (เท่ากับค่าเช่า)</span>
                   <span>{thb(charges.insurance)}</span>
                 </div>
-                <div className="flex justify-between text-muted-foreground">
-                  <span>หักค่าจองที่ชำระออนไลน์</span>
-                  <span>−{thb(charges.fee)}</span>
-                </div>
                 <Separator />
                 <div className="flex items-baseline justify-between pt-1">
                   <span className="text-base font-semibold text-foreground">
-                    ชำระออนไลน์ (ค่าจอง)
+                    1. ชำระออนไลน์ (ค่าจอง)
                   </span>
                   <span className="font-display text-2xl font-bold text-primary">
                     {thb(charges.fee)}
                   </span>
                 </div>
                 <div className="flex items-baseline justify-between">
-                  <span className="font-semibold text-foreground">ชำระ ณ วันรับรถ</span>
+                  <span className="font-semibold text-foreground">2. ชำระ ณ วันรับรถ</span>
                   <span className="font-semibold text-foreground" data-testid="due-at-pickup">
                     {thb(charges.dueAtPickup)}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  ค่าจองไม่คืนเมื่อยกเลิกการจอง · เงินประกัน {thb(charges.insurance)}{" "}
-                  ได้รับคืนเมื่อนำรถมาคืน
+                  ยอดวันรับรถ = ค่าเช่า + เงินประกัน − ค่าจองที่จ่ายไปแล้ว · ค่าจองไม่คืนเมื่อยกเลิกการจอง ·
+                  เงินประกัน {thb(charges.insurance)} ได้รับคืนเมื่อนำรถมาคืน
                 </p>
               </div>
             </CardContent>
@@ -769,7 +765,7 @@ function BookingDetailsPage() {
                       </div>
                       <div className="mt-4 space-y-1">
                         <p className="text-sm font-semibold text-foreground">
-                          บจก. สยาม วีลส์ เรนทัล (Siam Wheels)
+                          ไดร์ฟดี รถเช่า (Drive Dee)
                         </p>
                         <p className="font-mono text-xs text-muted-foreground">
                           เลขอ้างอิง: {booking.booking_code}

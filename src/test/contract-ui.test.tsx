@@ -709,3 +709,28 @@ describe("revision rules (name applied by the admin, at most 2 requests)", () =>
     });
   });
 });
+
+describe("7. review stars are named for screen readers", () => {
+  it("each star is a radio with its number of stars", async () => {
+    const { Route: BookingsRoute } = await import("@/routes/bookings");
+    const Page = (BookingsRoute as unknown as { component: ComponentType }).component;
+    mocks.tables = {
+      bookings: [
+        {
+          ...BOOKING,
+          status: "completed",
+          hold_expires_at: null,
+          reviews: null,
+          contracts: { id: "ct-1", status: "paid", current_version: 1, sent_version: 1 },
+        },
+      ],
+    };
+    renderWithQuery(<Page />);
+    fireEvent.click(await screen.findByRole("button", { name: "เขียนรีวิว" }));
+    expect(await screen.findByRole("radiogroup", { name: "คะแนนความพึงพอใจ" })).toBeInTheDocument();
+    const four = screen.getByRole("radio", { name: "4 ดาว" });
+    fireEvent.click(four);
+    expect(four).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "5 ดาว" })).toHaveAttribute("aria-checked", "false");
+  });
+});
