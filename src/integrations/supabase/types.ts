@@ -708,6 +708,10 @@ export type Database = {
         Args: { _contract_id: string; _version: number }
         Returns: undefined
       }
+      customer_prepare_contract: {
+        Args: { _booking_id: string }
+        Returns: string
+      }
       customer_request_revision: {
         Args: { _contract_id: string; _reason: string; _version: number }
         Returns: undefined
@@ -803,6 +807,10 @@ export type Database = {
         Returns: string
       }
       require_owner: { Args: never; Returns: string }
+      start_customer_contract: {
+        Args: { _b: Database["public"]["Tables"]["bookings"]["Row"] }
+        Returns: string
+      }
       validate_admin_permissions: {
         Args: { _permissions: string[] }
         Returns: string[]
