@@ -908,7 +908,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       กำไรจากการดำเนินงาน: <span className="font-semibold text-success">{thb(metrics.netProfit)}</span>
                     </p>
                     <p className="text-[11px] text-muted-foreground">
-                      ค่าจองที่ชำระออนไลน์ (DEMO) + ค่าเช่าส่วนที่เหลือที่เก็บ ณ วันรับรถ (นับเมื่อสถานะเป็นกำลังเช่า/เสร็จสิ้น) ไม่รวมเงินประกัน
+                      เงินที่ชำระออนไลน์ (DEMO) + ค่าเช่าส่วนที่เหลือที่เก็บ ณ วันรับรถ (นับเมื่อสถานะเป็นกำลังเช่า/เสร็จสิ้น) ไม่รวมเงินประกัน
                     </p>
                   </CardContent>
                 </Card>
@@ -1495,7 +1495,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                         <span className="font-semibold text-primary">{thb(reportMetrics.revenue)}</span>
                       </div>
                       <div className="flex justify-between pl-3 text-xs" data-testid="revenue-online">
-                        <span className="text-muted-foreground">· ชำระออนไลน์ (ค่าจอง):</span>
+                        <span className="text-muted-foreground">· ชำระออนไลน์:</span>
                         <span>{thb(reportMetrics.onlineRevenue)}</span>
                       </div>
                       <div className="flex justify-between pl-3 text-xs" data-testid="revenue-pickup">
@@ -1527,7 +1527,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       </span>
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      รายได้ = ค่าจองที่ชำระออนไลน์ (DEMO) ของการจองที่ยืนยันแล้ว กำลังเช่า หรือเสร็จสิ้น ตามวันที่ชำระ
+                      รายได้ = เงินที่ชำระออนไลน์ (DEMO) ของการจองที่ยืนยันแล้ว กำลังเช่า หรือเสร็จสิ้น ตามวันที่ชำระ
                       + ค่าเช่าส่วนที่เหลือที่เก็บ ณ วันรับรถ ตามวันรับรถ เมื่อผู้ดูแลเปลี่ยนสถานะเป็น "กำลังเช่า" หรือ "เสร็จสิ้น"
                       ไม่รวมเงินประกัน (คืนให้ลูกค้า) การจองที่รอชำระ หรือถูกยกเลิก
                     </p>
