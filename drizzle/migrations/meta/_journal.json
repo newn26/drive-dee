@@ -43,6 +43,13 @@
       "when": 1794654969538,
       "tag": "0005_customer_self_accept_contract",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794655993419,
+      "tag": "0006_rollback_customer_self_accept_contract",
+      "breakpoints": true
     }
   ]
 }
