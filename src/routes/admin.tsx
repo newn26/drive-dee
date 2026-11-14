@@ -103,6 +103,8 @@ import {
 import { AdminManagementPanel } from "@/components/admin/admin-management-panel";
 import { bookingMovesOn, defaultBookingMove, reasonError } from "@/lib/contract-workflow";
 import { ownerManualConfirm } from "@/lib/contract-api";
+import { fleetCounts } from "@/lib/fleet";
+import { OverdueBookingsCard } from "@/components/admin/overdue-bookings-card";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -222,6 +224,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
   // Owner-only manual confirmation (reason required, audited in the database)
   const [manualConfirmFor, setManualConfirmFor] = useState<BookingWithCar | null>(null);
+  // A maintenance job being closed before its scheduled day (asks for confirmation first)
+  const [earlyComplete, setEarlyComplete] = useState<MaintenanceWithCar | null>(null);
   const [manualReason, setManualReason] = useState("");
   const [confirmingManually, setConfirmingManually] = useState(false);
 
@@ -536,6 +540,12 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       toast.error("กรุณาเลือกรถและระบุชื่องานซ่อมบำรุง");
       return;
     }
+    if (maintForm.status === "completed" && maintForm.scheduled_date > todayBkk()) {
+      toast.error(
+        "ยังไม่ถึงวันนัดหมาย จึงบันทึกว่าเสร็จสิ้นไม่ได้ ถ้าทำเสร็จแล้วจริง ให้แก้วันนัดหมายเป็นวันที่ทำ",
+      );
+      return;
+    }
 
     try {
       const { error } = await supabase.from("maintenance").insert({
@@ -661,10 +671,12 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
   }, [payments]);
 
   const metrics = useMemo(() => {
-    const totalCarsCount = cars.length;
-    const availableCarsCount = cars.filter((c) => c.status === "available").length;
-    const rentedCarsCount = cars.filter((c) => c.status === "rented").length;
-    const maintenanceCarsCount = cars.filter((c) => c.status === "maintenance").length;
+    // Counts a car as rented when it is with a customer today, even if the hand-over was not recorded
+    const fleet = fleetCounts(cars, bookings, todayBkk());
+    const totalCarsCount = fleet.total;
+    const availableCarsCount = fleet.available;
+    const rentedCarsCount = fleet.rented;
+    const maintenanceCarsCount = fleet.maintenance;
 
     const allTime = computeReport({ bookings, payments, maintenance: maintenanceRecords, range: "all" });
 
@@ -679,7 +691,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       totalRevenue: allTime.revenue,
       totalMaintenanceCost: allTime.maintCost,
       netProfit: allTime.profit,
-      utilizationRate: totalCarsCount > 0 ? Math.round((rentedCarsCount / totalCarsCount) * 100) : 0,
+      utilizationRate: fleet.utilizationRate,
     };
   }, [cars, bookings, payments, maintenanceRecords, roles]);
 
@@ -910,6 +922,18 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                   }}
                 />
               )}
+              <OverdueBookingsCard
+                bookings={bookings}
+                today={todayBkk()}
+                customerName={(b) => profileMap[b.user_id]?.full_name || "ลูกค้าสมาชิก"}
+                canUpdate={perms.updateBookingStatus}
+                onUpdate={(b) => {
+                  setUpdatingBooking(b);
+                  setNewBookingStatus(
+                    defaultBookingMove(bookingMovesOn(b, todayBkk())) as Tables<"bookings">["status"] | "",
+                  );
+                }}
+              />
               {/* 6 Key Operational Metrics */}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <Card className="shadow-card border">
@@ -949,7 +973,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                   <CardContent>
                     <div className="text-2xl font-bold text-foreground">{metrics.utilizationRate}%</div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      กำลังถูกเช่าจริง {metrics.rentedCarsCount} จาก {metrics.totalCarsCount} คัน
+                      อยู่กับลูกค้า {metrics.rentedCarsCount} จาก {metrics.totalCarsCount} คัน (รวมที่ถึงวันรับรถแล้ว)
                     </p>
                   </CardContent>
                 </Card>
@@ -1436,6 +1460,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                           {m.completed_date && (
                             <span className="block text-[11px] text-muted-foreground mt-1">
                               เสร็จ {fmtDate(m.completed_date)}
+                              {m.completed_date < m.scheduled_date && (
+                                <span className="text-amber-700"> (ก่อนวันนัด)</span>
+                              )}
                             </span>
                           )}
                         </TableCell>
@@ -1449,7 +1476,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                             )}
                             {m.status !== "completed" && (
                               <Button size="sm" className="text-xs h-7"
-                                onClick={() => handleMaintenanceStatus(m, "completed")}>
+                                onClick={() =>
+                                  m.scheduled_date > todayBkk()
+                                    ? setEarlyComplete(m)
+                                    : handleMaintenanceStatus(m, "completed")
+                                }>
                                 เสร็จสิ้น
                               </Button>
                             )}
@@ -1966,6 +1997,33 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       {/* ------------------------------------------------------------- */}
       {/* DIALOG 4: OWNER MANUAL CONFIRMATION (exceptional, audited) */}
       {/* ------------------------------------------------------------- */}
+      <Dialog open={!!earlyComplete} onOpenChange={(open) => !open && setEarlyComplete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ยังไม่ถึงวันนัดหมาย</DialogTitle>
+            <DialogDescription>
+              งาน "{earlyComplete?.title}" ของ {earlyComplete?.cars?.brand} {earlyComplete?.cars?.model} นัดไว้วันที่{" "}
+              {earlyComplete ? fmtDate(earlyComplete.scheduled_date) : ""} ยืนยันว่าทำเสร็จแล้ววันนี้ (
+              {fmtDate(todayBkk())}) ใช่ไหม? ระบบจะบันทึกวันที่เสร็จเป็นวันนี้ และแสดงว่า "ก่อนวันนัด"
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setEarlyComplete(null)}>
+              ยังไม่เสร็จ
+            </Button>
+            <Button
+              onClick={() => {
+                const m = earlyComplete;
+                setEarlyComplete(null);
+                if (m) void handleMaintenanceStatus(m, "completed");
+              }}
+            >
+              ยืนยันว่าเสร็จแล้ววันนี้
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!manualConfirmFor} onOpenChange={(open) => !open && setManualConfirmFor(null)}>
         <DialogContent>
           <DialogHeader>
