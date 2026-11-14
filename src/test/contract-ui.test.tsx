@@ -60,7 +60,6 @@ import {
   type PanelContract,
 } from "@/components/admin/contracts-panel";
 import { ContractView } from "@/components/contract/contract-view";
-import { dashboardPermissions } from "@/lib/roles";
 import type { ContractRow, ContractVersionRow } from "@/lib/contract-api";
 
 const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
@@ -175,16 +174,21 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 describe("customer booking page", () => {
-  it("shows a waiting card and no payment before any contract is sent", async () => {
+  it("a pending booking without a contract (made before the change) asks the server to create it", async () => {
     setup({ contract: null });
-    expect(await screen.findByText("รอผู้ดูแลจัดทำสัญญาเช่า")).toBeInTheDocument();
+    expect(await screen.findByText("กำลังจัดทำสัญญาเช่า")).toBeInTheDocument();
     expect(screen.queryByTestId("payment-card")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.rpc).toHaveBeenCalledWith("customer_prepare_contract", { _booking_id: "b-1" }),
+    );
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
   });
 
-  it("P13 review stage: accept/revise buttons, no payment", async () => {
+  it("P13 review stage: accept button only (no revision, no Admin step), no payment", async () => {
     setup({ contract: contractRow(), versions: [versionRow()] });
     expect(await screen.findByRole("button", { name: "ยอมรับสัญญาฉบับที่ 1" })).toBeDisabled(); // until ticked
-    expect(screen.getByRole("button", { name: /ขอแก้ไขสัญญา/ })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /ขอแก้ไขสัญญา/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/ผู้ดูแลอนุมัติ/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("payment-card")).not.toBeInTheDocument();
     expect(
       await screen.findByText(/ชำระ ณ วันรับรถ ไม่รวมในการชำระเงินออนไลน์/),
@@ -203,7 +207,7 @@ describe("customer booking page", () => {
     );
   });
 
-  it("P13 awaiting admin approval: no payment", async () => {
+  it("a contract left over from the Admin-review flow asks the customer to book again", async () => {
     setup({
       contract: contractRow({
         status: "pending_admin_review",
@@ -211,11 +215,11 @@ describe("customer booking page", () => {
       }),
       versions: [versionRow()],
     });
-    expect(await screen.findByText("ยอมรับสัญญาแล้ว รอผู้ดูแลอนุมัติ")).toBeInTheDocument();
+    expect(await screen.findByText("สัญญานี้ถูกขอแก้ไขไว้ในระบบเดิม")).toBeInTheDocument();
     expect(screen.queryByTestId("payment-card")).not.toBeInTheDocument();
   });
 
-  it("P13 approved: the DEMO payment card appears with the 15-minute countdown", async () => {
+  it("P13 accepted: the DEMO payment card appears with the 15-minute countdown", async () => {
     setup({
       booking: { hold_expires_at: inMinutes(14) },
       contract: contractRow({ status: "approved" }),
@@ -225,7 +229,7 @@ describe("customer booking page", () => {
     expect(
       within(card).getByRole("button", { name: /จำลองยืนยันการชำระเงินผ่าน QR Code/ }),
     ).toBeEnabled();
-    expect(within(card).getByText(/สัญญาได้รับอนุมัติแล้ว/)).toBeInTheDocument();
+    expect(within(card).getByText(/คุณยอมรับสัญญาแล้ว/)).toBeInTheDocument();
   });
 
   it("P08 approved but the window has passed: payment is disabled", async () => {
@@ -349,74 +353,36 @@ describe("G04 contract view and printing", () => {
   });
 });
 
-describe("D08 admin contracts panel", () => {
+describe("D08 admin contracts panel (read-only)", () => {
   const panelBooking = BOOKING as unknown as PanelBooking;
-  const reviewContract = {
-    ...contractRow({ status: "pending_admin_review", customer_accepted_at: inMinutes(-2) }),
+  const accepted = {
+    ...contractRow({ status: "approved", customer_accepted_at: inMinutes(-2) }),
     bookings: panelBooking,
   } as PanelContract;
   const profiles = { "cust-1": { full_name: "ทดสอบ ลูกค้าเอ", phone: "000" } };
 
-  it("an admin with contracts_approve can approve the accepted version", async () => {
+  it("shows contracts by stage with no create, send or approve actions", async () => {
     mocks.tables = {
       contract_versions: [versionRow({ accepted_at: inMinutes(-2), accepted_by: "cust-1" })],
       contract_events: [],
     };
     renderWithQuery(
-      <AdminContractsPanel
-        perms={dashboardPermissions("admin")}
-        contracts={[reviewContract]}
-        bookings={[panelBooking]}
-        profileMap={profiles}
-      />,
+      <AdminContractsPanel initialView="approved" contracts={[accepted]} profileMap={profiles} />,
     );
+    expect(screen.queryByRole("tab", { name: /สร้างสัญญา/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /ระบบเดิม/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "เปิดสัญญา" }));
-    fireEvent.click(await screen.findByRole("button", { name: /อนุมัติฉบับที่ 1/ }));
-    await waitFor(() =>
-      expect(mocks.rpc).toHaveBeenCalledWith("admin_approve_contract", {
-        _contract_id: "ct-1",
-        _version: 1,
-      }),
-    );
-  });
-
-  it("an admin without contracts_approve sees no approve button", async () => {
-    mocks.tables = {
-      contract_versions: [versionRow({ accepted_at: inMinutes(-2), accepted_by: "cust-1" })],
-      contract_events: [],
-    };
-    const perms = dashboardPermissions("admin", {
-      is_owner: false,
-      status: "active",
-      permissions: ["contracts_manage"],
-    });
-    renderWithQuery(
-      <AdminContractsPanel
-        perms={perms}
-        contracts={[reviewContract]}
-        bookings={[panelBooking]}
-        profileMap={profiles}
-      />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "เปิดสัญญา" }));
-    // wait until the version (with its acceptance stamp) has loaded into the dialog
     expect(await screen.findByText(/ลูกค้ายอมรับ /)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /อนุมัติฉบับที่/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /อนุมัติ/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ส่งให้ลูกค้า/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ขอแก้ไข/ })).not.toBeInTheDocument();
   });
 
-  it("lists pending bookings without a contract under 'create'", () => {
+  it("groups contracts from the old flow under 'ระบบเดิม'", () => {
     mocks.tables = {};
-    renderWithQuery(
-      <AdminContractsPanel
-        perms={dashboardPermissions("admin")}
-        contracts={[]}
-        bookings={[panelBooking]}
-        profileMap={profiles}
-      />,
-    );
-    fireEvent.mouseDown(screen.getByRole("tab", { name: /สร้างสัญญา \(1\)/ }));
-    expect(screen.getByText("BK261112TEST1")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /สร้างสัญญา$/ })).toBeEnabled();
+    const old = { ...accepted, status: "pending_admin_review" } as PanelContract;
+    renderWithQuery(<AdminContractsPanel contracts={[old]} profileMap={profiles} />);
+    expect(screen.getByRole("tab", { name: "ระบบเดิม (1)" })).toBeInTheDocument();
   });
 });
 
@@ -449,7 +415,7 @@ describe("G02 booking history", () => {
     renderWithQuery(<Page />);
     expect(await screen.findByText("BK261101LEGACY")).toBeInTheDocument();
     expect(screen.getByText("BK261112TEST1")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "รอตรวจสัญญา (1)" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "รอยอมรับสัญญา (1)" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "ยืนยันแล้ว/กำลังเช่า (1)" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /ตรวจสอบสัญญา/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /ดูสัญญาเช่า/ })).toBeInTheDocument();

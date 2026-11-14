@@ -6,23 +6,21 @@ import {
   ADMIN_BOOKING_MOVES,
   CONTRACT_STATUSES,
   CONTRACT_TRANSITIONS,
-  bangkokTime,
-  bangkokTimestamp,
-  canAdminEdit,
-  canAdminReview,
-  canAdminSend,
   canCustomerRespond,
   canPay,
   canTransition,
   customerContractLabel,
   customerStage,
   reasonError,
-  validateContractForm,
-  DEFAULT_CONTRACT_FORM,
 } from "@/lib/contract-workflow";
 
 const SQL = readFileSync(
   path.resolve(__dirname, "../../drizzle/migrations/0004_contract_approval_workflow.sql"),
+  "utf8",
+);
+/** 0005: its guard_contract_update() replaces the one in 0004. */
+const SELF_ACCEPT_SQL = readFileSync(
+  path.resolve(__dirname, "../../drizzle/migrations/0005_customer_self_accept_contract.sql"),
   "utf8",
 );
 const NOW = new Date("2026-11-12T10:00:00Z").getTime();
@@ -36,7 +34,8 @@ const contract = (status: string, current = 1, sent: number | null = 1) => ({
 
 describe("S01 the UI state machine matches the database", () => {
   it("allows exactly the transitions guard_contract_update() allows", () => {
-    const block = /guard_contract_update[\s\S]*?array\[([\s\S]*?)\]\)\)/.exec(SQL)?.[1] ?? "";
+    const block =
+      /guard_contract_update[\s\S]*?array\[([\s\S]*?)\]\)\)/.exec(SELF_ACCEPT_SQL)?.[1] ?? "";
     const fromSql = [...block.matchAll(/'([a-z_]+)>([a-z_]+)'/g)]
       .map((m) => `${m[1]}>${m[2]}`)
       .sort();
@@ -58,6 +57,7 @@ describe("S01 the UI state machine matches the database", () => {
     expect(Object.values(ADMIN_BOOKING_MOVES).flat()).not.toContain("pending");
     expect(canTransition("paid", "draft")).toBe(false);
     expect(canTransition("approved", "paid")).toBe(true);
+    expect(canTransition("pending_customer", "approved")).toBe(true);
   });
 });
 
@@ -66,16 +66,16 @@ describe("customer stage and gating", () => {
 
   it("maps every contract status to a customer stage", () => {
     expect(customerStage(pending, null)).toBe("awaiting_contract");
-    expect(customerStage(pending, contract("draft", 1, null))).toBe("awaiting_contract");
+    expect(customerStage(pending, contract("draft", 1, null))).toBe("revision_requested");
     expect(customerStage(pending, contract("pending_customer"))).toBe("review_contract");
-    expect(customerStage(pending, contract("pending_admin_review"))).toBe("awaiting_approval");
+    expect(customerStage(pending, contract("pending_admin_review"))).toBe("revision_requested");
     expect(customerStage(pending, contract("revision_requested"))).toBe("revision_requested");
     expect(customerStage(pending, contract("approved"))).toBe("awaiting_payment");
     expect(customerStage({ status: "confirmed" }, contract("paid"))).toBe("confirmed");
     expect(customerStage({ status: "cancelled" }, contract("approved"))).toBe("cancelled");
   });
 
-  it("P13 payment is offered only for an approved contract with time left", () => {
+  it("P13 payment is offered only once the customer accepted (approved), with time left", () => {
     for (const s of [
       "draft",
       "pending_customer",
@@ -109,47 +109,16 @@ describe("customer stage and gating", () => {
     ).toBe(false);
   });
 
-  it("admin actions per status", () => {
-    expect(canAdminSend(contract("draft"))).toBe(true);
-    expect(canAdminSend(contract("pending_customer"))).toBe(false);
-    expect(canAdminReview(contract("pending_admin_review"))).toBe(true);
-    expect(canAdminEdit(contract("approved"))).toBe(true);
-    expect(canAdminEdit(contract("paid"))).toBe(false);
-    expect(canAdminEdit(contract("cancelled"))).toBe(false);
-  });
-
-  it("customer wording for a draft depends on whether anything was sent before", () => {
-    expect(customerContractLabel("draft", false)).toBe("รอผู้ดูแลจัดทำสัญญา");
-    expect(customerContractLabel("draft", true)).toBe("ผู้ดูแลกำลังแก้ไขสัญญา");
+  it("customer wording", () => {
+    expect(customerContractLabel("draft", false)).toBe("กำลังจัดทำสัญญา");
+    expect(customerContractLabel("pending_customer", true)).toBe("รอคุณยอมรับสัญญา");
+    expect(customerContractLabel("approved", true)).toBe("ยอมรับแล้ว · รอชำระเงิน");
+    expect(customerContractLabel("pending_admin_review", true)).toBe("ต้องจองใหม่");
   });
 });
 
-describe("contract form helpers", () => {
-  it("builds and reads Bangkok times", () => {
-    expect(bangkokTimestamp("2026-11-20", "09:30")).toBe("2026-11-20T09:30:00+07:00");
-    expect(bangkokTime("2026-11-20T02:30:00Z", "10:00")).toBe("09:30");
-    expect(bangkokTime(null, "10:00")).toBe("10:00");
-  });
-
-  it("validates the admin form like the database", () => {
-    expect(validateContractForm(DEFAULT_CONTRACT_FORM, "2026-11-20", "2026-11-22")).toBeNull();
-    expect(
-      validateContractForm({ ...DEFAULT_CONTRACT_FORM, deposit: -1 }, "2026-11-20", "2026-11-22"),
-    ).toMatch(/เงินประกัน/);
-    expect(
-      validateContractForm(
-        { ...DEFAULT_CONTRACT_FORM, pickupTime: "18:00", returnTime: "10:00" },
-        "2026-11-20",
-        "2026-11-20",
-      ),
-    ).toMatch(/เวลาคืนรถ/);
-    expect(
-      validateContractForm(
-        { ...DEFAULT_CONTRACT_FORM, latePenalty: " " },
-        "2026-11-20",
-        "2026-11-22",
-      ),
-    ).toMatch(/ค่าปรับ/);
+describe("reasons", () => {
+  it("requires a minimum length", () => {
     expect(reasonError("สั้น", 5)).toMatch(/อย่างน้อย 5/);
     expect(reasonError("เหตุผลยาวพอ", 5)).toBeNull();
   });

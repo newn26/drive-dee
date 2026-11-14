@@ -52,7 +52,7 @@ const auditActions = async () =>
   ).map((r) => r.action);
 
 beforeAll(async () => {
-  db = await createTestDb();
+  db = await createTestDb({ laterMigrations: false });
   owner = await createOwner(db);
   admin = await createAdmin(db);
   cars = await allCarIds(db);

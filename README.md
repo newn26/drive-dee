@@ -42,22 +42,25 @@ Asia/Bangkok time zone.
 
 ## 1. Project overview
 
-A customer books a car online. The booking holds the car while an administrator prepares a
-rental contract, the customer reviews and accepts it, and an administrator approves it. Only
-then can the customer pay (DEMO), which confirms the booking.
+A customer books a car online. The rental contract is created from the booking straight away
+and shown to the customer, who reads and accepts it, then pays (DEMO) within 15 minutes, which
+confirms the booking. There is no administrator step.
 
 ```mermaid
 flowchart LR
-  A[Customer books a car] --> B[Admin creates and sends contract]
+  A[Customer books a car] --> B[Contract created automatically]
   B --> C[Customer accepts]
-  C --> D[Admin approves]
-  D --> E[Customer pays — DEMO]
-  E --> F[Booking confirmed]
+  C --> D[Customer pays — DEMO]
+  D --> E[Booking confirmed]
 ```
 
 Every rule in this flow is enforced in PostgreSQL (functions, triggers and Row Level
 Security), not only in the user interface. The main implementation lives in
-[`drizzle/migrations/0004_contract_approval_workflow.sql`](drizzle/migrations/0004_contract_approval_workflow.sql).
+[`drizzle/migrations/0004_contract_approval_workflow.sql`](drizzle/migrations/0004_contract_approval_workflow.sql),
+changed by [`drizzle/migrations/0005_customer_self_accept_contract.sql`](drizzle/migrations/0005_customer_self_accept_contract.sql)
+(contract created on booking; accepting goes straight to payment). Section 5 below still
+describe the original Admin-review design of 0004; its admin functions remain in the database
+but the app no longer uses them.
 
 ## 2. Main features
 
@@ -69,19 +72,19 @@ Security), not only in the user interface. The main implementation lives in
 - Car detail page with specifications, reviews and a booking form with five pickup points
   (Bangkok Sukhumvit, Suvarnabhumi Airport, Don Mueang Airport, Chiang Mai, Phuket).
 - Booking with a server-generated booking code and a price calculated by the database.
-- Contract review: read the contract sent by the administrator, **accept** it or **request a
-  revision** with a reason; see the version history and contract timeline; print the contract.
-- DEMO payment by QR code or test card once the contract is approved, with a countdown.
+- Contract review: read the contract created for the booking and **accept** it; see the
+  contract timeline; print the contract.
+- DEMO payment by QR code or test card once the contract is accepted, with a 15-minute countdown.
 - Booking history with stage filters, and cancellation of pending or confirmed bookings.
 - One review (1–5 stars and a comment) per confirmed, active or completed booking.
 - **Demo Customer** mode: a one-click account with fictional details.
 
 ### Administrators (`/admin`)
 
-- **Overview** with a contract **work queue** (bookings waiting for a contract, drafts, waiting
-  for customer, waiting for approval, revision requested, approved, paid, cancelled) and key
-  metrics (revenue, fleet utilisation, active bookings, customers, maintenance cost).
-- **Contracts**: create, edit, send, approve or request revision; view versions and events.
+- **Overview** with contract counts by stage (waiting for customer, accepted/awaiting payment,
+  paid, cancelled) and key metrics (revenue, fleet utilisation, active bookings, customers,
+  maintenance cost).
+- **Contracts**: read-only list and detail (versions and events); no approval step.
 - **Bookings**: view all bookings and move them through `confirmed → active → completed` or
   cancel them. `pending → confirmed` is never offered by hand.
 - **Cars**: add, edit, delete, set status. Car status is recomputed from maintenance and
