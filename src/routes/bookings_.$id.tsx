@@ -35,6 +35,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { StatusBadge } from "@/components/status-badge";
 import { ContractView } from "@/components/contract/contract-view";
 import { supabase } from "@/integrations/supabase/client";
@@ -53,7 +62,7 @@ import {
 } from "@/lib/demo-payment";
 import {
   acceptContract,
-  customerPrepareContract,
+  customerRequestRevision,
   fetchContractEvents,
   fetchContractForBooking,
   fetchContractVersions,
@@ -63,6 +72,7 @@ import {
   canPay,
   customerStage,
   customerStageLabel,
+  reasonError,
   refundStatusLabel,
 } from "@/lib/contract-workflow";
 import { LoadError } from "@/components/load-error";
@@ -98,6 +108,9 @@ function BookingDetailsPage() {
   const [submittingPayment, setSubmittingPayment] = useState(false);
   const [acceptingContract, setAcceptingContract] = useState(false);
   const [contractAgreed, setContractAgreed] = useState(false);
+  const [revisionOpen, setRevisionOpen] = useState(false);
+  const [revisionReason, setRevisionReason] = useState("");
+  const [sendingRevision, setSendingRevision] = useState(false);
 
   // Credit Card Form State
   const [cardName, setCardName] = useState("");
@@ -150,7 +163,7 @@ function BookingDetailsPage() {
   });
 
   // 3. Contract, its versions and history (RLS: customers only ever see sent versions)
-  const { data: contract, isSuccess: contractLoaded } = useQuery({
+  const { data: contract } = useQuery({
     queryKey: contractQueryKey(id),
     queryFn: () => fetchContractForBooking(id),
     enabled: !!id && !!booking,
@@ -165,26 +178,6 @@ function BookingDetailsPage() {
     queryFn: () => fetchContractEvents(id),
     enabled: !!contract,
   });
-
-  // A pending booking made before contracts were created automatically: create it now
-  const [preparing, setPreparing] = useState(false);
-  const needsContract =
-    !!booking &&
-    !!user &&
-    booking.user_id === user.id &&
-    booking.status === "pending" &&
-    holdSecondsLeft(booking, Date.now()) > 0 &&
-    contractLoaded &&
-    !contract;
-  useEffect(() => {
-    if (!needsContract || preparing) return;
-    setPreparing(true);
-    customerPrepareContract(id)
-      .catch((err: unknown) => toast.error((err as Error).message || "จัดทำสัญญาไม่สำเร็จ"))
-      .finally(() => {
-        void queryClient.invalidateQueries({ queryKey: contractQueryKey(id) });
-      });
-  }, [needsContract, preparing, id, queryClient]);
 
   const timeLeft = booking ? holdSecondsLeft(booking, now) : 0;
   const holdExpired = booking?.status === "pending" && timeLeft === 0;
@@ -213,14 +206,14 @@ function BookingDetailsPage() {
     setCardExpiry(cleaned.length >= 3 ? `${cleaned.slice(0, 2)}/${cleaned.slice(2)}` : cleaned);
   };
 
-  // Payment Submission (DEMO). The database refuses it until the customer has accepted the contract.
+  // Payment Submission (DEMO). The database refuses it unless the contract is approved.
   const handlePayment = async (method: "qr" | "card") => {
     if (!booking) return;
     if (!canPay(booking, contract, Date.now())) {
       toast.error(
         holdExpired
           ? "หมดเวลาชำระเงิน กรุณาจองใหม่อีกครั้ง"
-          : "ยังชำระเงินไม่ได้ กรุณายอมรับสัญญาเช่าก่อน",
+          : "ยังชำระเงินไม่ได้ ต้องรอผู้ดูแลอนุมัติสัญญาก่อน",
       );
       return;
     }
@@ -294,7 +287,7 @@ function BookingDetailsPage() {
     setAcceptingContract(true);
     try {
       await acceptContract(contract.id, contract.sent_version);
-      toast.success("ยอมรับสัญญาแล้ว กรุณาชำระเงินภายใน 15 นาที");
+      toast.success(`ยอมรับสัญญาฉบับที่ ${contract.sent_version} แล้ว รอผู้ดูแลอนุมัติ`);
       setContractAgreed(false);
       await refreshAll();
     } catch (err: unknown) {
@@ -302,6 +295,27 @@ function BookingDetailsPage() {
       await refreshAll();
     } finally {
       setAcceptingContract(false);
+    }
+  };
+
+  const handleRequestRevision = async () => {
+    if (!contract || contract.sent_version === null) return;
+    const problem = reasonError(revisionReason, 5);
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
+    setSendingRevision(true);
+    try {
+      await customerRequestRevision(contract.id, contract.sent_version, revisionReason);
+      toast.success("ส่งคำขอแก้ไขสัญญาแล้ว ผู้ดูแลจะจัดทำฉบับใหม่ให้");
+      setRevisionOpen(false);
+      setRevisionReason("");
+      await refreshAll();
+    } catch (err: unknown) {
+      toast.error((err as Error).message || "ส่งคำขอแก้ไขไม่สำเร็จ");
+    } finally {
+      setSendingRevision(false);
     }
   };
 
@@ -360,7 +374,7 @@ function BookingDetailsPage() {
   const car = booking.cars;
   const stage = customerStage(booking, contract);
   const isPaid = stage === "confirmed" || stage === "completed";
-  // Admins can open any booking, but only the customer who made it can accept or pay
+  // Admins can open any booking, but only the customer who made it can accept, revise or pay
   const isOwner = booking.user_id === user.id;
   const paymentOpen = isOwner && canPay(booking, contract, now);
   const canRespond = isOwner && canCustomerRespond(booking, contract, now);
@@ -526,9 +540,10 @@ function BookingDetailsPage() {
               <span>ขั้นตอนการเช่า</span>
             </div>
             <ol className="list-decimal space-y-0.5 pl-5 text-xs leading-relaxed">
-              <li>จองรถ ระบบจัดทำสัญญาเช่าให้ทันที</li>
-              <li>ตรวจสอบและยอมรับสัญญา</li>
-              <li>ชำระเงินภายใน 15 นาทีหลังยอมรับสัญญา (DEMO)</li>
+              <li>ผู้ดูแลจัดทำสัญญาเช่าและส่งให้คุณ</li>
+              <li>คุณตรวจสอบและยอมรับสัญญา (หรือขอแก้ไข)</li>
+              <li>ผู้ดูแลอนุมัติสัญญาฉบับที่คุณยอมรับ</li>
+              <li>ชำระเงินภายใน 15 นาทีหลังอนุมัติ (DEMO)</li>
             </ol>
           </div>
         </div>
@@ -543,6 +558,7 @@ function BookingDetailsPage() {
                 <CardDescription>
                   การจองนี้เป็นของลูกค้า
                   มีเพียงลูกค้าเจ้าของการจองเท่านั้นที่ยอมรับสัญญาและชำระเงินได้
+                  จัดการสัญญาได้ที่แดชบอร์ดผู้ดูแล
                   {holdText && ` · ${holdText}`}
                 </CardDescription>
               </CardHeader>
@@ -552,8 +568,12 @@ function BookingDetailsPage() {
           {booking.status === "pending" && isOwner && stage === "awaiting_contract" && (
             <StageCard
               icon={<Hourglass className="h-6 w-6 text-warning" />}
-              title="กำลังจัดทำสัญญาเช่า"
-              text="ระบบกำลังจัดทำสัญญาจากข้อมูลการจองของคุณ สัญญาจะแสดงที่หน้านี้ในอีกสักครู่"
+              title={contract?.sent_version ? "ผู้ดูแลกำลังแก้ไขสัญญา" : "รอผู้ดูแลจัดทำสัญญาเช่า"}
+              text={
+                contract?.sent_version
+                  ? "ผู้ดูแลกำลังจัดทำสัญญาฉบับใหม่ คุณจะต้องตรวจสอบและยอมรับฉบับใหม่อีกครั้ง ฉบับก่อนหน้าแสดงไว้ด้านล่าง"
+                  : "ผู้ดูแลจะจัดทำสัญญาจากข้อมูลการจองของคุณ เมื่อส่งแล้วคุณจะเห็นสัญญาที่หน้านี้ ยังไม่ต้องชำระเงิน"
+              }
             />
           )}
 
@@ -564,8 +584,8 @@ function BookingDetailsPage() {
                   กรุณาตรวจสอบสัญญาฉบับที่ {contract?.sent_version}
                 </CardTitle>
                 <CardDescription>
-                  อ่านรายละเอียดสัญญาด้านล่าง แล้วกดยอมรับเพื่อไปขั้นตอนชำระเงิน
-                  หากไม่ต้องการเช่าต่อ ยกเลิกการจองได้จากหน้าการจองของฉัน
+                  อ่านรายละเอียดสัญญาด้านล่าง แล้วยอมรับ หรือขอให้ผู้ดูแลแก้ไข
+                  คุณไม่สามารถแก้ไขข้อความสัญญาเองได้ ยังไม่ต้องชำระเงินในขั้นตอนนี้
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -581,28 +601,46 @@ function BookingDetailsPage() {
                     {contract?.sent_version} ทุกประการ
                   </Label>
                 </div>
-                <Button
-                  className="w-full"
-                  disabled={!canRespond || !contractAgreed || acceptingContract}
-                  onClick={handleAcceptContract}
-                >
-                  {acceptingContract
-                    ? "กำลังบันทึก..."
-                    : `ยอมรับสัญญาฉบับที่ ${contract?.sent_version}`}
-                </Button>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button
+                    className="flex-1"
+                    disabled={!canRespond || !contractAgreed || acceptingContract}
+                    onClick={handleAcceptContract}
+                  >
+                    {acceptingContract
+                      ? "กำลังบันทึก..."
+                      : `ยอมรับสัญญาฉบับที่ ${contract?.sent_version}`}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    disabled={!canRespond}
+                    onClick={() => setRevisionOpen(true)}
+                  >
+                    <MessageSquareWarning className="mr-1.5 h-4 w-4" /> ขอแก้ไขสัญญา
+                  </Button>
+                </div>
               </CardContent>
             </Card>
+          )}
+
+          {booking.status === "pending" && isOwner && stage === "awaiting_approval" && (
+            <StageCard
+              icon={<CheckCircle2 className="h-6 w-6 text-success" />}
+              title="ยอมรับสัญญาแล้ว รอผู้ดูแลอนุมัติ"
+              text={`คุณยอมรับสัญญาเมื่อ ${fmtDateTime(contract?.customer_accepted_at)} เมื่อผู้ดูแลอนุมัติ คุณจะชำระเงินได้ภายใน 15 นาที`}
+            />
           )}
 
           {booking.status === "pending" && isOwner && stage === "revision_requested" && (
             <StageCard
               icon={<MessageSquareWarning className="h-6 w-6 text-orange-600" />}
-              title="สัญญานี้ถูกขอแก้ไขไว้ในระบบเดิม"
-              text="การจองนี้ไม่สามารถดำเนินการต่อได้ กรุณายกเลิกการจองแล้วจองใหม่ ระบบจะจัดทำสัญญาให้ทันที"
+              title="กำลังแก้ไขสัญญา"
+              text="ผู้ดูแลจะจัดทำสัญญาฉบับใหม่ คุณจะต้องตรวจสอบและยอมรับฉบับใหม่อีกครั้งก่อนชำระเงิน"
             />
           )}
 
-          {/* Payment: only once the customer has accepted the contract */}
+          {/* Payment: only for an approved contract */}
           {booking.status === "pending" && isOwner && stage === "awaiting_payment" && (
             <Card className="border shadow-card" data-testid="payment-card">
               <CardHeader>
@@ -613,7 +651,7 @@ function BookingDetailsPage() {
                   </Badge>
                 </div>
                 <CardDescription>
-                  คุณยอมรับสัญญาแล้ว · ยอดที่ต้องชำระ:{" "}
+                  สัญญาได้รับอนุมัติแล้ว · ยอดที่ต้องชำระ:{" "}
                   <strong className="text-foreground">{thb(booking.total_amount)}</strong>
                   {" · "}
                   {holdExpired ? (
@@ -894,6 +932,36 @@ function BookingDetailsPage() {
           )}
         </div>
       </div>
+
+      <Dialog open={revisionOpen} onOpenChange={setRevisionOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ขอแก้ไขสัญญาฉบับที่ {contract?.sent_version}</DialogTitle>
+            <DialogDescription>
+              บอกผู้ดูแลว่าต้องการให้แก้ไขส่วนใด
+              ผู้ดูแลจะจัดทำฉบับใหม่ให้คุณตรวจสอบและยอมรับอีกครั้ง
+            </DialogDescription>
+          </DialogHeader>
+          <Label htmlFor="revision-reason" className="text-xs">
+            เหตุผล / สิ่งที่ต้องการแก้ไข
+          </Label>
+          <Textarea
+            id="revision-reason"
+            value={revisionReason}
+            onChange={(e) => setRevisionReason(e.target.value)}
+            maxLength={1000}
+            placeholder="เช่น ขอเปลี่ยนเวลารับรถเป็น 09:00 น."
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevisionOpen(false)}>
+              ยกเลิก
+            </Button>
+            <Button onClick={handleRequestRevision} disabled={sendingRevision}>
+              {sendingRevision ? "กำลังส่ง..." : "ส่งคำขอแก้ไข"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
