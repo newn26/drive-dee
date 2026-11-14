@@ -35,7 +35,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -72,10 +71,16 @@ import {
   canPay,
   customerStage,
   customerStageLabel,
-  reasonError,
+  bangkokTime,
+  CLOSING_TIME,
+  OPENING_TIME,
+  revisionReasonText,
+  revisionRequestError,
+  type RevisionRequest,
   refundStatusLabel,
 } from "@/lib/contract-workflow";
 import { LoadError } from "@/components/load-error";
+import { BOOKING_FEE, rentalCharges } from "@/lib/booking-fee";
 
 export const Route = createFileRoute("/bookings_/$id")({
   head: () => ({
@@ -109,7 +114,11 @@ function BookingDetailsPage() {
   const [acceptingContract, setAcceptingContract] = useState(false);
   const [contractAgreed, setContractAgreed] = useState(false);
   const [revisionOpen, setRevisionOpen] = useState(false);
-  const [revisionReason, setRevisionReason] = useState("");
+  const [revision, setRevision] = useState<RevisionRequest>({
+    customerName: "",
+    pickupTime: "10:00",
+    returnTime: "18:00",
+  });
   const [sendingRevision, setSendingRevision] = useState(false);
 
   // Credit Card Form State
@@ -213,7 +222,7 @@ function BookingDetailsPage() {
       toast.error(
         holdExpired
           ? "หมดเวลาชำระเงิน กรุณาจองใหม่อีกครั้ง"
-          : "ยังชำระเงินไม่ได้ ต้องรอผู้ดูแลอนุมัติสัญญาก่อน",
+          : "ยังชำระเงินไม่ได้ กรุณายืนยันสัญญาก่อน",
       );
       return;
     }
@@ -261,7 +270,7 @@ function BookingDetailsPage() {
       if (error) throw error;
 
       setCardName("");
-      toast.success("ชำระเงินสำเร็จ (DEMO)! การจองได้รับการยืนยันแล้ว");
+      toast.success("ชำระค่าจองสำเร็จ (DEMO)! การจองได้รับการยืนยันแล้ว");
       await refreshAll();
     } catch (err: unknown) {
       const error = err as Error;
@@ -287,7 +296,9 @@ function BookingDetailsPage() {
     setAcceptingContract(true);
     try {
       await acceptContract(contract.id, contract.sent_version);
-      toast.success(`ยอมรับสัญญาฉบับที่ ${contract.sent_version} แล้ว รอผู้ดูแลอนุมัติ`);
+      toast.success(
+        `ยืนยันสัญญาฉบับที่ ${contract.sent_version} แล้ว กรุณาชำระค่าจอง ${thb(BOOKING_FEE)} ภายใน 15 นาที`,
+      );
       setContractAgreed(false);
       await refreshAll();
     } catch (err: unknown) {
@@ -298,19 +309,43 @@ function BookingDetailsPage() {
     }
   };
 
+  // Prefill the request with what the sent version says now
+  const openRevision = () => {
+    const v = versions.find((x) => x.version === contract?.sent_version);
+    setRevision({
+      customerName: v?.customer_name ?? "",
+      pickupTime: bangkokTime(v?.pickup_at, "10:00"),
+      returnTime: bangkokTime(v?.return_at, "18:00"),
+    });
+    setRevisionOpen(true);
+  };
+
   const handleRequestRevision = async () => {
-    if (!contract || contract.sent_version === null) return;
-    const problem = reasonError(revisionReason, 5);
+    if (!contract || contract.sent_version === null || !booking || !user) return;
+    const problem = revisionRequestError(revision, booking.start_date === booking.end_date);
     if (problem) {
       toast.error(problem);
       return;
     }
     setSendingRevision(true);
     try {
-      await customerRequestRevision(contract.id, contract.sent_version, revisionReason);
+      // The contract takes the name from the profile, so a new name goes there first
+      const name = revision.customerName.trim();
+      const current = versions.find((x) => x.version === contract.sent_version)?.customer_name;
+      if (name !== current) {
+        const { error } = await supabase
+          .from("profiles")
+          .update({ full_name: name, updated_at: new Date().toISOString() })
+          .eq("id", user.id);
+        if (error) throw error;
+      }
+      await customerRequestRevision(
+        contract.id,
+        contract.sent_version,
+        revisionReasonText(revision),
+      );
       toast.success("ส่งคำขอแก้ไขสัญญาแล้ว ผู้ดูแลจะจัดทำฉบับใหม่ให้");
       setRevisionOpen(false);
-      setRevisionReason("");
       await refreshAll();
     } catch (err: unknown) {
       toast.error((err as Error).message || "ส่งคำขอแก้ไขไม่สำเร็จ");
@@ -378,6 +413,7 @@ function BookingDetailsPage() {
   const isOwner = booking.user_id === user.id;
   const paymentOpen = isOwner && canPay(booking, contract, now);
   const canRespond = isOwner && canCustomerRespond(booking, contract, now);
+  const charges = rentalCharges(Number(booking.total_amount));
   const holdText =
     booking.status !== "pending"
       ? null
@@ -420,7 +456,7 @@ function BookingDetailsPage() {
             {isPaid
               ? "ยืนยันการจองและสัญญาเช่า"
               : stage === "awaiting_payment"
-                ? "ชำระเงินค่าเช่ารถ"
+                ? "ชำระค่าจอง"
                 : "สัญญาเช่ารถ"}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -509,26 +545,35 @@ function BookingDetailsPage() {
                   <span>{thb(car?.price_per_day)} / วัน</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
-                  <span>จำนวนวัน ({booking.days} วัน)</span>
-                  <span>{thb(car ? car.price_per_day * booking.days : booking.total_amount)}</span>
+                  <span>ค่าเช่า ({booking.days} วัน)</span>
+                  <span>{thb(charges.rent)}</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
-                  <span>ประกันภัยชั้น 1 พื้นฐาน</span>
-                  <span className="font-medium text-success">รวมแล้ว</span>
+                  <span>เงินประกันความเสียหาย (เท่ากับค่าเช่า)</span>
+                  <span>{thb(charges.insurance)}</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
-                  <span>ภาษีมูลค่าเพิ่ม (VAT 7%)</span>
-                  <span className="font-medium text-success">รวมแล้ว</span>
+                  <span>หักค่าจองที่ชำระออนไลน์</span>
+                  <span>−{thb(charges.fee)}</span>
                 </div>
                 <Separator />
                 <div className="flex items-baseline justify-between pt-1">
-                  <span className="text-base font-semibold text-foreground">ยอดชำระออนไลน์</span>
+                  <span className="text-base font-semibold text-foreground">
+                    ชำระออนไลน์ (ค่าจอง)
+                  </span>
                   <span className="font-display text-2xl font-bold text-primary">
-                    {thb(booking.total_amount)}
+                    {thb(charges.fee)}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="font-semibold text-foreground">ชำระ ณ วันรับรถ</span>
+                  <span className="font-semibold text-foreground" data-testid="due-at-pickup">
+                    {thb(charges.dueAtPickup)}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  เงินประกันความเสียหายชำระ ณ วันรับรถ ตามที่ระบุในสัญญา
+                  ค่าจองไม่คืนเมื่อยกเลิกการจอง · เงินประกัน {thb(charges.insurance)}{" "}
+                  ได้รับคืนเมื่อนำรถมาคืน
                 </p>
               </div>
             </CardContent>
@@ -540,10 +585,11 @@ function BookingDetailsPage() {
               <span>ขั้นตอนการเช่า</span>
             </div>
             <ol className="list-decimal space-y-0.5 pl-5 text-xs leading-relaxed">
-              <li>ผู้ดูแลจัดทำสัญญาเช่าและส่งให้คุณ</li>
-              <li>คุณตรวจสอบและยอมรับสัญญา (หรือขอแก้ไข)</li>
-              <li>ผู้ดูแลอนุมัติสัญญาฉบับที่คุณยอมรับ</li>
-              <li>ชำระเงินภายใน 15 นาทีหลังอนุมัติ (DEMO)</li>
+              <li>ผู้ดูแลยืนยันการจองและส่งฉบับร่างสัญญาให้คุณ</li>
+              <li>คุณตรวจสอบสัญญา ขอแก้ไขได้ แล้วกดยืนยัน</li>
+              <li>ชำระค่าจอง {thb(BOOKING_FEE)} ด้วย QR หรือบัตร ภายใน 15 นาทีหลังยืนยัน (DEMO)</li>
+              <li>วันรับรถ ชำระค่าเช่า + เงินประกัน หักค่าจองแล้ว</li>
+              <li>คืนรถ รับเงินประกันคืน</li>
             </ol>
           </div>
         </div>
@@ -584,8 +630,9 @@ function BookingDetailsPage() {
                   กรุณาตรวจสอบสัญญาฉบับที่ {contract?.sent_version}
                 </CardTitle>
                 <CardDescription>
-                  อ่านรายละเอียดสัญญาด้านล่าง แล้วยอมรับ หรือขอให้ผู้ดูแลแก้ไข
-                  คุณไม่สามารถแก้ไขข้อความสัญญาเองได้ ยังไม่ต้องชำระเงินในขั้นตอนนี้
+                  อ่านฉบับร่างสัญญาด้านล่าง ถ้าต้องการเปลี่ยนอะไร กด "ขอแก้ไขสัญญา"
+                  ผู้ดูแลจะส่งฉบับใหม่ให้ ถ้าถูกต้องแล้วกดยืนยัน จากนั้นชำระค่าจอง{" "}
+                  {thb(BOOKING_FEE)} ภายใน 15 นาที
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -609,13 +656,13 @@ function BookingDetailsPage() {
                   >
                     {acceptingContract
                       ? "กำลังบันทึก..."
-                      : `ยอมรับสัญญาฉบับที่ ${contract?.sent_version}`}
+                      : `ยืนยันสัญญาฉบับที่ ${contract?.sent_version}`}
                   </Button>
                   <Button
                     variant="outline"
                     className="flex-1"
                     disabled={!canRespond}
-                    onClick={() => setRevisionOpen(true)}
+                    onClick={openRevision}
                   >
                     <MessageSquareWarning className="mr-1.5 h-4 w-4" /> ขอแก้ไขสัญญา
                   </Button>
@@ -651,8 +698,8 @@ function BookingDetailsPage() {
                   </Badge>
                 </div>
                 <CardDescription>
-                  สัญญาได้รับอนุมัติแล้ว · ยอดที่ต้องชำระ:{" "}
-                  <strong className="text-foreground">{thb(booking.total_amount)}</strong>
+                  ยืนยันสัญญาแล้ว · ค่าจอง (ไม่ว่าจะเช่ากี่วัน):{" "}
+                  <strong className="text-foreground">{thb(BOOKING_FEE)}</strong>
                   {" · "}
                   {holdExpired ? (
                     <span className="font-semibold text-destructive">หมดเวลาชำระเงินแล้ว</span>
@@ -711,7 +758,7 @@ function BookingDetailsPage() {
                       {/* Demo QR: not a PromptPay payload, so a real banking app cannot pay it */}
                       <div className="relative rounded-2xl border bg-white p-4 shadow-sm">
                         <QRCodeSVG
-                          value={demoQrValue(booking.booking_code, Number(booking.total_amount))}
+                          value={demoQrValue(booking.booking_code, BOOKING_FEE)}
                           size={190}
                           level="M"
                           includeMargin={false}
@@ -729,7 +776,7 @@ function BookingDetailsPage() {
                           เลขอ้างอิง: {booking.booking_code}
                         </p>
                         <p className="mt-1 font-display text-xl font-bold text-primary">
-                          {thb(booking.total_amount)}
+                          {thb(BOOKING_FEE)}
                         </p>
                       </div>
                       <div className="mt-4 max-w-xs space-y-1 rounded-lg border bg-card p-3 text-left text-xs text-muted-foreground">
@@ -858,7 +905,7 @@ function BookingDetailsPage() {
                     >
                       {submittingPayment
                         ? "กำลังประมวลผลบัตรเครดิต..."
-                        : `จำลองชำระเงิน ${thb(booking.total_amount)} (DEMO)`}
+                        : `จำลองชำระค่าจอง ${thb(BOOKING_FEE)} (DEMO)`}
                     </Button>
                   </TabsContent>
                 </Tabs>
@@ -884,6 +931,12 @@ function BookingDetailsPage() {
               </CardHeader>
               <CardContent className="text-sm">
                 <PaymentDetails loading={paymentLoading} payment={payment ?? null} />
+                <p className="mt-3 text-xs text-muted-foreground">
+                  ชำระ ณ วันรับรถ:{" "}
+                  <strong className="text-foreground">{thb(charges.dueAtPickup)}</strong> (ค่าเช่า{" "}
+                  {thb(charges.rent)} + เงินประกัน {thb(charges.insurance)} − ค่าจอง{" "}
+                  {thb(charges.fee)}) · เงินประกันได้รับคืนเมื่อคืนรถ
+                </p>
               </CardContent>
             </Card>
           )}
@@ -938,20 +991,57 @@ function BookingDetailsPage() {
           <DialogHeader>
             <DialogTitle>ขอแก้ไขสัญญาฉบับที่ {contract?.sent_version}</DialogTitle>
             <DialogDescription>
-              บอกผู้ดูแลว่าต้องการให้แก้ไขส่วนใด
-              ผู้ดูแลจะจัดทำฉบับใหม่ให้คุณตรวจสอบและยอมรับอีกครั้ง
+              แก้ชื่อหรือเวลาที่ต้องการ ผู้ดูแลจะจัดทำฉบับใหม่ให้คุณตรวจสอบและยืนยันอีกครั้ง
             </DialogDescription>
           </DialogHeader>
-          <Label htmlFor="revision-reason" className="text-xs">
-            เหตุผล / สิ่งที่ต้องการแก้ไข
-          </Label>
-          <Textarea
-            id="revision-reason"
-            value={revisionReason}
-            onChange={(e) => setRevisionReason(e.target.value)}
-            maxLength={1000}
-            placeholder="เช่น ขอเปลี่ยนเวลารับรถเป็น 09:00 น."
-          />
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="revision-name" className="text-xs">
+                ชื่อลูกค้า
+              </Label>
+              <Input
+                id="revision-name"
+                className="mt-1"
+                value={revision.customerName}
+                maxLength={100}
+                autoComplete="name"
+                onChange={(e) => setRevision((r) => ({ ...r, customerName: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="revision-pickup" className="text-xs">
+                  เวลารับรถ ({booking && fmtDate(booking.start_date)})
+                </Label>
+                <Input
+                  id="revision-pickup"
+                  type="time"
+                  className="mt-1"
+                  min={OPENING_TIME}
+                  max={CLOSING_TIME}
+                  value={revision.pickupTime}
+                  onChange={(e) => setRevision((r) => ({ ...r, pickupTime: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="revision-return" className="text-xs">
+                  เวลาคืนรถ ({booking && fmtDate(booking.end_date)})
+                </Label>
+                <Input
+                  id="revision-return"
+                  type="time"
+                  className="mt-1"
+                  min={OPENING_TIME}
+                  max={CLOSING_TIME}
+                  value={revision.returnTime}
+                  onChange={(e) => setRevision((r) => ({ ...r, returnTime: e.target.value }))}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              รับและคืนรถได้ระหว่าง {OPENING_TIME}-{CLOSING_TIME} น.
+            </p>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRevisionOpen(false)}>
               ยกเลิก

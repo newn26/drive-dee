@@ -40,7 +40,7 @@ function Index() {
           <div className="space-y-6">
             <span className="inline-block rounded-full bg-accent/20 px-3 py-1 text-sm text-accent">เช่ารถง่าย ทั่วไทย</span>
             <h1 className="text-4xl font-bold leading-tight md:text-5xl">ออกเดินทางได้ทันที<br />กับรถที่ใช่สำหรับคุณ</h1>
-            <p className="max-w-md text-ink-foreground/75">เลือกรถ จองออนไลน์ ชำระผ่าน QR Code หรือบัตรเครดิต รับสัญญาเช่าแบบดิจิทัลทันที</p>
+            <p className="max-w-md text-ink-foreground/75">เลือกรถ จองออนไลน์ ชำระผ่าน QR Code หรือบัตรเครดิต รับสัญญาเช่าแบบดิจิทัลทันที ถ้ารีบมานักก็โปรดสั่งจองไวๆนะจ๊ะ!!!!</p>
             <form
               className="grid gap-3 rounded-2xl bg-card p-4 text-card-foreground shadow-lift sm:grid-cols-[1fr_1fr_auto]"
               onSubmit={(e) => {

@@ -25,7 +25,7 @@ export const contractStatusLabel: Record<ContractStatus, string> = {
   pending_customer: "รอลูกค้าตรวจสอบ",
   pending_admin_review: "รอผู้ดูแลอนุมัติ",
   revision_requested: "ขอแก้ไขสัญญา",
-  approved: "อนุมัติแล้ว · รอชำระเงิน",
+  approved: "ลูกค้ายืนยันแล้ว · รอชำระค่าจอง",
   paid: "ชำระเงินแล้ว",
   cancelled: "ยกเลิก",
 };
@@ -43,7 +43,13 @@ export function customerContractLabel(status: ContractStatus, everSent: boolean)
 /** Allowed status moves; must match guard_contract_update() in the migration. */
 export const CONTRACT_TRANSITIONS: Readonly<Record<ContractStatus, readonly ContractStatus[]>> = {
   draft: ["pending_customer", "cancelled"],
-  pending_customer: ["pending_admin_review", "revision_requested", "draft", "cancelled"],
+  pending_customer: [
+    "approved",
+    "pending_admin_review",
+    "revision_requested",
+    "draft",
+    "cancelled",
+  ],
   pending_admin_review: ["approved", "revision_requested", "draft", "cancelled"],
   revision_requested: ["draft", "cancelled"],
   approved: ["paid", "draft", "cancelled"],
@@ -67,7 +73,10 @@ export type BookingLike = { status: string; hold_expires_at?: string | null };
 export const holdActive = (b: BookingLike, now: number = Date.now()) =>
   b.status === "pending" && !!b.hold_expires_at && new Date(b.hold_expires_at).getTime() > now;
 
-/** Payment is offered only for an approved contract on an open booking. */
+/**
+ * The booking fee is offered once the customer has confirmed the sent contract
+ * (status 'approved'; docs/database/booking-fee-flow.sql), while the 15-minute window runs.
+ */
 export const canPay = (
   b: BookingLike,
   c: ContractLike | null | undefined,
@@ -227,12 +236,48 @@ export function validateContractForm(
   const time = /^([01]\d|2[0-3]):[0-5]\d$/;
   if (!time.test(f.pickupTime) || !time.test(f.returnTime))
     return "กรุณาระบุเวลารับ-คืนรถให้ถูกต้อง (HH:MM)";
+  if (!withinHours(f.pickupTime) || !withinHours(f.returnTime))
+    return `เวลารับรถและคืนรถต้องอยู่ระหว่าง ${OPENING_TIME}-${CLOSING_TIME} น.`;
   if (startDate === endDate && f.returnTime <= f.pickupTime) return "เวลาคืนรถต้องหลังเวลารับรถ";
   if (!Number.isFinite(f.deposit) || f.deposit < 0)
     return "เงินประกันต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป";
   if (!f.mileageAllowance.trim()) return "กรุณาระบุข้อกำหนดระยะทาง";
   if (!f.latePenalty.trim()) return "กรุณาระบุค่าปรับส่งคืนล่าช้า";
   return null;
+}
+
+/** Branch opening hours: pickup and return times must fall inside them. */
+export const OPENING_TIME = "08:00";
+export const CLOSING_TIME = "18:00";
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const withinHours = (t: string) => HHMM.test(t) && t >= OPENING_TIME && t <= CLOSING_TIME;
+
+/** What a customer can ask to change in a sent contract. */
+export type RevisionRequest = { customerName: string; pickupTime: string; returnTime: string };
+
+/** Thai error message, or null when the request is valid. */
+export function revisionRequestError(r: RevisionRequest, sameDay: boolean): string | null {
+  if (r.customerName.trim().length < 2) return "กรุณากรอกชื่อลูกค้า";
+  if (!withinHours(r.pickupTime) || !withinHours(r.returnTime))
+    return `เวลารับรถและคืนรถต้องอยู่ระหว่าง ${OPENING_TIME}-${CLOSING_TIME} น.`;
+  if (sameDay && r.returnTime <= r.pickupTime) return "เวลาคืนรถต้องหลังเวลารับรถ";
+  return null;
+}
+
+/** The reason text sent to the admin (customer_request_revision needs at least 5 characters). */
+export const revisionReasonText = (r: RevisionRequest) =>
+  [
+    `ชื่อลูกค้า: ${r.customerName.trim()}`,
+    `เวลารับรถ: ${r.pickupTime} น.`,
+    `เวลาคืนรถ: ${r.returnTime} น.`,
+  ].join("\n");
+
+/** Reads back a request written by revisionReasonText; null for free-text reasons. */
+export function parseRevisionReason(text: string | null | undefined): RevisionRequest | null {
+  const m = /ชื่อลูกค้า: (.+)\nเวลารับรถ: (\d{2}:\d{2}) น\.\nเวลาคืนรถ: (\d{2}:\d{2}) น\./.exec(
+    (text ?? "").replace(/\r\n/g, "\n"),
+  );
+  return m ? { customerName: m[1]!.trim(), pickupTime: m[2]!, returnTime: m[3]! } : null;
 }
 
 /** A reason for a revision request or a manual confirmation (same minimums as the database). */

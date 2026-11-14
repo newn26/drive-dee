@@ -15,6 +15,7 @@ import { carImage } from "@/lib/car-images";
 import { categoryLabel, daysBetween, fmtDate, thb, todayBkk } from "@/lib/format";
 import { bookedCarIdsQuery, invalidateBookingData } from "@/lib/queries";
 import { adjustEndForStart, rentalDateError } from "@/lib/date-range";
+import { rentalCharges } from "@/lib/booking-fee";
 
 export const Route = createFileRoute("/cars_/$id")({
   head: () => ({
@@ -89,6 +90,7 @@ function CarDetail() {
     );
   }
   const days = datesValid ? daysBetween(start, end) : 0;
+  const charges = rentalCharges(car.price_per_day * days);
   const avg = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
 
   const book = async () => {
@@ -108,7 +110,7 @@ function CarDetail() {
       return toast.error(error.message || "ไม่สามารถสร้างการจองได้ กรุณาลองใหม่อีกครั้ง");
     }
     await invalidateBookingData(queryClient);
-    toast.success("สร้างการจองแล้ว ผู้ดูแลจะจัดทำสัญญาให้คุณตรวจสอบ (ยังไม่ต้องชำระเงิน)");
+    toast.success("สร้างการจองแล้ว รอผู้ดูแลยืนยันและส่งฉบับร่างสัญญาให้คุณตรวจสอบ");
     navigate({ to: "/bookings/$id", params: { id: data.id } });
   };
 
@@ -172,7 +174,11 @@ function CarDetail() {
         </div>
         <div className="space-y-1 rounded-xl bg-muted p-4 text-sm">
           <div className="flex justify-between"><span>{thb(car.price_per_day)} × {days} วัน</span><span>{thb(car.price_per_day * days)}</span></div>
-          <div className="flex justify-between border-t pt-2 font-semibold"><span>ยอดรวม</span><span>{thb(car.price_per_day * days)}</span></div>
+          <div className="flex justify-between"><span>เงินประกัน (เท่ากับค่าเช่า)</span><span>{thb(charges.insurance)}</span></div>
+          <div className="flex justify-between"><span>หักค่าจอง</span><span>−{thb(charges.fee)}</span></div>
+          <div className="flex justify-between border-t pt-2 font-semibold"><span>ค่าจอง (ชำระหลังยืนยันสัญญา)</span><span>{thb(charges.fee)}</span></div>
+          <div className="flex justify-between font-semibold"><span>ชำระ ณ วันรับรถ</span><span>{thb(charges.dueAtPickup)}</span></div>
+          <p className="pt-1 text-xs text-muted-foreground">ค่าจองไม่คืนเมื่อยกเลิก · เงินประกันได้คืนเมื่อคืนรถ</p>
         </div>
         {dateError && (
           <p className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs" role="alert">
