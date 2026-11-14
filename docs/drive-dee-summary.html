@@ -1,0 +1,147 @@
+<title>Drive Dee ใน 1 นาที</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@600;700&family=Noto+Sans+Thai:wght@400;500;600&display=swap">
+<style>
+/* Layout: one narrow card column; numbered steps, a receipt strip for the example, two short notes. */
+:root {
+  --bg: #f6f7f5; --surface: #ffffff; --fg: #1b2420; --muted: #56635d; --line: #dde3df;
+  --accent: #0d6b5c; --on-accent: #ffffff; --accent-soft: #e2f1ed;
+  --money: #8a5200; --money-soft: #fbf0dc; --warn: #a4400f; --warn-soft: #fbe9df;
+  --display: "Bai Jamjuree", "Noto Sans Thai", system-ui, sans-serif;
+  --body: "Noto Sans Thai", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121816; --surface: #1a2220; --fg: #e4ebe7; --muted: #a3b0aa; --line: #2c3834;
+    --accent: #5cc4ae; --on-accent: #0e1a17; --accent-soft: #173a33;
+    --money: #f0b45a; --money-soft: #3a2c14; --warn: #f19a6c; --warn-soft: #3d2216;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121816; --surface: #1a2220; --fg: #e4ebe7; --muted: #a3b0aa; --line: #2c3834;
+  --accent: #5cc4ae; --on-accent: #0e1a17; --accent-soft: #173a33;
+  --money: #f0b45a; --money-soft: #3a2c14; --warn: #f19a6c; --warn-soft: #3d2216;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.7;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 56px;
+}
+.page { max-width: 640px; margin: 0 auto; display: grid; gap: 24px; }
+.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+h1 { font-family: var(--display); font-size: clamp(28px, 6vw, 36px); line-height: 1.2; margin: 0; text-wrap: balance; }
+.sub { color: var(--muted); margin: 6px 0 0; }
+h2 { font-family: var(--display); font-size: 20px; margin: 0 0 12px; }
+.theme-btn {
+  flex: none; font: 500 14px var(--body); color: var(--fg); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 99px; padding: 8px 14px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.theme-btn:hover { border-color: var(--accent); }
+.theme-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.theme-btn svg { width: 16px; height: 16px; }
+
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+ol.steps { list-style: none; margin: 0; padding: 0; counter-reset: s; display: grid; gap: 14px; }
+ol.steps li { counter-increment: s; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 12px; align-items: start; }
+ol.steps li::before {
+  content: counter(s); width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); color: var(--on-accent); font: 700 15px var(--display);
+}
+ol.steps b { display: block; font-family: var(--display); font-size: 17px; }
+ol.steps span { color: var(--muted); }
+
+.receipt { background: var(--money-soft); border: 1px dashed var(--money); border-radius: 12px; padding: 16px 20px; font-variant-numeric: tabular-nums; }
+.receipt p { margin: 0 0 10px; color: var(--muted); }
+.flow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.flow div { background: var(--surface); border-radius: 8px; padding: 10px 12px; }
+.flow small { display: block; color: var(--muted); font-size: 13px; }
+.flow strong { font: 700 20px var(--display); color: var(--money); }
+@media (max-width: 460px) { .flow { grid-template-columns: minmax(0, 1fr); } }
+
+ul.admin { margin: 0; padding-left: 20px; }
+ul.admin li { margin-bottom: 4px; }
+.rule { background: var(--warn-soft); border: 1px solid var(--warn); border-radius: 12px; padding: 14px 18px; }
+.rule strong { color: var(--warn); }
+.rule p { margin: 0; }
+.rule p + p { margin-top: 6px; color: var(--muted); font-size: 14.5px; }
+</style>
+
+<div class="page">
+  <div class="top">
+    <div>
+      <h1>Drive Dee ใน 1 นาที</h1>
+      <p class="sub">ระบบเช่ารถ ลูกค้าจองออนไลน์ ผู้ดูแลจัดการหลังบ้าน (จ่ายเงินแบบจำลอง)</p>
+    </div>
+    <button class="theme-btn" id="theme-btn" type="button" aria-label="เปลี่ยนธีม">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg>
+      <span id="theme-label">ธีมมืด</span>
+    </button>
+  </div>
+
+  <section class="box">
+    <h2>ฝั่งลูกค้า</h2>
+    <ol class="steps">
+      <li><div><b>ค้นหารถ</b><span>เลือกวันที่ ระบบแสดงเฉพาะรถที่ว่าง</span></div></li>
+      <li><div><b>กดจอง</b><span>เลือกวันและสาขารับรถ ระบบคิดค่าเช่า (ราคา/วัน × จำนวนวัน) แล้วรอผู้ดูแล</span></div></li>
+      <li><div><b>ได้ฉบับร่างสัญญา</b><span>ผู้ดูแลยืนยันและส่งฉบับร่าง (ข้อมูลรถ + การจอง) มาให้อ่าน</span></div></li>
+      <li><div><b>ขอแก้ไข หรือ ยืนยัน</b><span>ขอแก้ได้ ผู้ดูแลจะส่งฉบับใหม่ ถูกต้องแล้วกดยืนยัน</span></div></li>
+      <li><div><b>จ่ายค่าจอง 1,000 บาท</b><span>เลือก QR หรือบัตร ภายใน 15 นาทีหลังยืนยัน ไม่ทันการจองถูกยกเลิก</span></div></li>
+      <li><div><b>วันรับรถ</b><span>จ่ายค่าเช่า + เงินประกัน (เท่ากับค่าเช่า) − 1,000</span></div></li>
+      <li><div><b>คืนรถ</b><span>ได้เงินประกันคืน แล้วเขียนรีวิวได้</span></div></li>
+    </ol>
+  </section>
+
+  <section class="receipt">
+    <p>ตัวอย่าง: รถ 990 บาท/วัน × 3 วัน = ค่าเช่า 2,970</p>
+    <div class="flow">
+      <div><small>ยืนยันสัญญาแล้ว จ่าย</small><strong>฿1,000</strong></div>
+      <div><small>รับรถ จ่าย</small><strong>฿4,940</strong></div>
+      <div><small>คืนรถ ได้คืน</small><strong>฿2,970</strong></div>
+    </div>
+  </section>
+
+  <section class="box">
+    <h2>ฝั่งผู้ดูแล</h2>
+    <ul class="admin">
+      <li>ยืนยันการจองและส่งฉบับร่างสัญญาให้ลูกค้า (เงินประกันล็อกเท่ากับค่าเช่า)</li>
+      <li>จัดการรถ การจอง งานซ่อม และรีวิว</li>
+      <li>ดูรายงานรายได้</li>
+      <li>เจ้าของระบบเชิญผู้ดูแลใหม่และกำหนดสิทธิ์ได้</li>
+    </ul>
+  </section>
+
+  <section class="rule">
+    <p><strong>กฎสำคัญ:</strong> ยกเลิกแล้วไม่คืนค่าจอง</p>
+    <p>เว็บจริงตอนนี้ยังใช้แบบเดิม: ลูกค้ายืนยันแล้วต้องรอผู้ดูแลอนุมัติอีกรอบ แล้วจ่ายเต็มจำนวน</p>
+  </section>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById("theme-btn");
+  var label = document.getElementById("theme-label");
+  var media = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  function isDark() {
+    var t = root.getAttribute("data-theme");
+    return t ? t === "dark" : !!(media && media.matches);
+  }
+  function render() { label.textContent = isDark() ? "ธีมสว่าง" : "ธีมมืด"; }
+  try { var saved = localStorage.getItem("dd-theme"); if (saved) root.setAttribute("data-theme", saved); } catch (e) {}
+  render();
+  if (media && media.addEventListener) media.addEventListener("change", render);
+  btn.addEventListener("click", function () {
+    var next = isDark() ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("dd-theme", next); } catch (e) {}
+    render();
+  });
+})();
+</script>
