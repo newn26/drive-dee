@@ -36,6 +36,13 @@
       "when": 1794499958189,
       "tag": "0004_contract_approval_workflow",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794654969538,
+      "tag": "0005_customer_self_accept_contract",
+      "breakpoints": true
     }
   ]
 }

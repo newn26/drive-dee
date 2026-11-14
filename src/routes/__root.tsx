@@ -14,6 +14,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "@/hooks/use-auth";
 import { SiteHeader } from "@/components/site-header";
+import { SiteFooter } from "@/components/site-footer";
 import { PrototypeNotice } from "@/components/prototype-notice";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -151,6 +152,7 @@ function RootComponent() {
         <main className="min-h-[calc(100vh-4rem)]">
           <Outlet />
         </main>
+        <SiteFooter />
         <Toaster richColors position="top-center" />
       </AuthProvider>
     </QueryClientProvider>
