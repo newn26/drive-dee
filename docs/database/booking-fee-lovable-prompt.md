@@ -1,7 +1,8 @@
 # Lovable request: booking fee after the customer confirms the contract
 
-Status: **draft, not applied.** Apply this before merging the `Max-Branch` UI changes into
-`main`; the new pages expect these database functions.
+Status: **applied** as `drizzle/migrations/0007_booking_fee_flow.sql` (identical to the SQL file).
+The follow-up pickup payment (`pay_pickup`) is a separate request: `docs/database/pickup-payment.sql`
+(prompt in `docs/HANDOFF-booking-flow.md`).
 
 Tested locally against migrations 0000–0006 in PGlite: `src/test/db/booking-fee-flow.db.test.ts`.
 

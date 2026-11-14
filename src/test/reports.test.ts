@@ -69,6 +69,25 @@ describe("Reports — revenue comes from payments", () => {
     expect(r.bookingCount).toBe(3);
   });
 
+  it("a pickup payment adds the rent but not the refundable deposit; still one paid booking", () => {
+    const fee = payment("paid", 1000, "2026-11-01T03:05:00Z");
+    // rent 3,000: pickup = 3,000 + deposit 3,000 - fee 1,000
+    const pickup = {
+      ...payment("paid", 5000, "2026-11-02T03:05:00Z"),
+      kind: "pickup",
+      deposit: 3000,
+    };
+    const r = computeReport({
+      bookings: [bookings[0]!],
+      payments: [fee, pickup],
+      maintenance: [],
+      range: "all",
+      now: NOW,
+    });
+    expect(r.revenue).toBe(3000);
+    expect(r.paidCount).toBe(1);
+  });
+
   it("filters revenue by payment date for 30-day range", () => {
     const r = computeReport({ bookings, payments, maintenance: [], range: "30d", now: NOW });
     expect(r.revenue).toBe(3000);

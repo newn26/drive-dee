@@ -13,7 +13,17 @@ export type ReportPayment = {
   status: string;
   paid_at: string;
   refund_status?: string | null;
+  /** Refundable part (the insurance deposit inside a pickup payment); not revenue. */
+  deposit?: Amount;
+  /** 'booking_fee' (or a legacy full payment) or 'pickup', the second payment of a booking. */
+  kind?: string | null;
 };
+
+/** The payment that confirms a booking; a pickup payment is the same booking's second one. */
+const isFirstPayment = (p: ReportPayment) => p.kind !== "pickup";
+
+/** What a payment earns: the amount paid minus the refundable deposit inside it. */
+export const paymentRevenue = (p: ReportPayment) => Number(p.amount ?? 0) - Number(p.deposit ?? 0);
 export type ReportBooking = {
   id: string;
   status: string;
@@ -106,6 +116,7 @@ export const isKeptBookingFee = (p: ReportPayment, statusByBooking: Record<strin
   p.status === "paid" &&
   statusByBooking[p.booking_id] === "cancelled" &&
   p.refund_status === "not_refunded" &&
+  isFirstPayment(p) &&
   Number(p.amount ?? 0) === BOOKING_FEE;
 
 export const isRevenuePayment = (p: ReportPayment, statusByBooking: Record<string, string>) =>
@@ -128,7 +139,7 @@ export function pickupCollections(bookings: ReportBooking[], payments: ReportPay
   const paidOnline = new Map<string, number>();
   for (const p of payments)
     if (p.status === "paid")
-      paidOnline.set(p.booking_id, (paidOnline.get(p.booking_id) ?? 0) + Number(p.amount ?? 0));
+      paidOnline.set(p.booking_id, (paidOnline.get(p.booking_id) ?? 0) + paymentRevenue(p));
   return bookings
     .filter((b) => (PICKUP_COLLECTED_STATUSES as readonly string[]).includes(b.status))
     .map((b) => ({
@@ -157,7 +168,7 @@ export function computeReport(input: {
   const revenuePayments = input.payments.filter(
     (p) => isRevenuePayment(p, statusByBooking) && inRange(p.paid_at, start),
   );
-  const onlineRevenue = revenuePayments.reduce((s, p) => s + Number(p.amount ?? 0), 0);
+  const onlineRevenue = revenuePayments.reduce((s, p) => s + paymentRevenue(p), 0);
   const pickupRevenue = pickupCollections(input.bookings, input.payments)
     .filter((c) => inRange(c.date, start))
     .reduce((s, c) => s + c.amount, 0);
@@ -177,7 +188,7 @@ export function computeReport(input: {
     pickupRevenue,
     maintCost,
     profit: revenue - maintCost,
-    paidCount: revenuePayments.length,
+    paidCount: revenuePayments.filter(isFirstPayment).length,
     bookingCount: notCancelled.length,
     pendingCount: notCancelled.filter((b) => b.status === "pending").length,
     completedCount: notCancelled.filter((b) => b.status === "completed").length,
@@ -217,8 +228,8 @@ export function monthlyRevenueSeries(
     if (!isRevenuePayment(pay, statusByBooking)) continue;
     const bucket = byKey.get(bkkMonthKey(pay.paid_at));
     if (bucket) {
-      bucket.revenue += Number(pay.amount ?? 0);
-      bucket.bookings += 1;
+      bucket.revenue += paymentRevenue(pay);
+      if (isFirstPayment(pay)) bucket.bookings += 1;
     }
   }
   // rent collected at the branch, in the month of the pickup day
@@ -301,7 +312,12 @@ export function bookingReportCsv(input: {
   const start = rangeStart(input.range, input.now);
   const statusByBooking = bookingStatusMap(input.bookings);
   const paidByBooking = new Map<string, CsvPayment>();
-  for (const p of input.payments) if (p.status === "paid") paidByBooking.set(p.booking_id, p);
+  const paidTotal = new Map<string, number>();
+  for (const p of input.payments) {
+    if (p.status !== "paid") continue;
+    if (isFirstPayment(p)) paidByBooking.set(p.booking_id, p);
+    paidTotal.set(p.booking_id, (paidTotal.get(p.booking_id) ?? 0) + Number(p.amount ?? 0));
+  }
   const atPickup = new Map(
     pickupCollections(input.bookings, input.payments).map((c) => [c.booking_id, c.amount]),
   );
@@ -322,7 +338,7 @@ export function bookingReportCsv(input: {
         b.days,
         input.statusLabels[b.status] ?? b.status,
         Number(b.total_amount ?? 0),
-        pay ? Number(pay.amount ?? 0) : 0,
+        paidTotal.get(b.id) ?? 0,
         atPickup.get(b.id) ?? 0,
         pay ? (pay.method === "qr" ? "QR PromptPay (DEMO)" : "บัตรเครดิต (DEMO)") : "",
         pay?.reference ?? "",
