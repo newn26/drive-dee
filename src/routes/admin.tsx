@@ -101,7 +101,7 @@ import {
   type PanelContract,
 } from "@/components/admin/contracts-panel";
 import { AdminManagementPanel } from "@/components/admin/admin-management-panel";
-import { adminBookingMoves, reasonError } from "@/lib/contract-workflow";
+import { bookingMovesOn, reasonError } from "@/lib/contract-workflow";
 import { ownerManualConfirm } from "@/lib/contract-api";
 
 export const Route = createFileRoute("/admin")({
@@ -499,8 +499,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
   const handleUpdateBookingStatus = async () => {
     if (!updatingBooking) return;
-    if (!perms.updateBookingStatus || !adminBookingMoves(updatingBooking.status).includes(newBookingStatus)) {
-      toast.error("เปลี่ยนสถานะนี้ไม่ได้ การยืนยันการจองต้องผ่านการยืนยันสัญญาและการชำระค่าจองของลูกค้า");
+    if (!perms.updateBookingStatus || !bookingMovesOn(updatingBooking, todayBkk()).includes(newBookingStatus)) {
+      toast.error(
+        "เปลี่ยนสถานะนี้ไม่ได้ การยืนยันการจองต้องผ่านการยืนยันสัญญาและการชำระค่าจองของลูกค้า และส่งมอบ/รับรถคืนได้ตั้งแต่วันรับรถเท่านั้น",
+      );
       return;
     }
     try {
@@ -645,6 +647,13 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
   // Operational & Revenue Metrics
   const statusByBooking = useMemo(() => bookingStatusMap(bookings), [bookings]);
+  // What each booking has paid online (DEMO), for the bookings tables
+  const paidOnline = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of payments)
+      if (p.status === "paid") m.set(p.booking_id, (m.get(p.booking_id) ?? 0) + Number(p.amount ?? 0));
+    return m;
+  }, [payments]);
 
   const metrics = useMemo(() => {
     const totalCarsCount = cars.length;
@@ -887,6 +896,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             <div className="space-y-6">
               {perms.viewContracts && (
                 <ContractWorkQueue
+                  loading={contractsQ.isLoading || bookingsQ.isLoading}
                   contracts={contracts}
                   bookings={bookings as unknown as PanelBooking[]}
                   onOpen={(v) => {
@@ -908,7 +918,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       กำไรจากการดำเนินงาน: <span className="font-semibold text-success">{thb(metrics.netProfit)}</span>
                     </p>
                     <p className="text-[11px] text-muted-foreground">
-                      เงินที่ชำระออนไลน์ (DEMO) + ค่าเช่าส่วนที่เหลือที่เก็บ ณ วันรับรถ (นับเมื่อสถานะเป็นกำลังเช่า/เสร็จสิ้น) ไม่รวมเงินประกัน
+                      เงินที่ชำระออนไลน์ (DEMO) + ค่าเช่าส่วนที่เหลือที่เก็บ ณ วันรับรถ (นับเมื่อสถานะเป็นกำลังเช่า/เสร็จสิ้น) + ค่าจองที่ไม่คืนจากการจองที่ยกเลิก ไม่รวมเงินประกัน
                     </p>
                   </CardContent>
                 </Card>
@@ -1017,7 +1027,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                         <TableHead>รถยนต์</TableHead>
                         <TableHead>วันที่เช่า</TableHead>
                         <TableHead>สถานะ</TableHead>
-                        <TableHead className="text-right">ยอดรวม</TableHead>
+                        <TableHead className="text-right">ค่าเช่า</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1038,6 +1048,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                           </TableCell>
                           <TableCell className="text-right font-semibold text-primary">
                             {thb(b.total_amount)}
+                            {paidOnline.has(b.id) && (
+                              <span className="block text-[11px] font-normal text-muted-foreground">
+                                ชำระออนไลน์ {thb(paidOnline.get(b.id))}
+                              </span>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -1248,7 +1263,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       <TableHead>รถยนต์</TableHead>
                       <TableHead>สาขา / วันที่</TableHead>
                       <TableHead>สถานะ</TableHead>
-                      <TableHead>ยอดรวม</TableHead>
+                      <TableHead>ค่าเช่า / ชำระออนไลน์</TableHead>
                       <TableHead className="text-right">การจัดการ</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1285,18 +1300,23 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                           <TableCell>
                             <StatusBadge status={b.status} kind="booking" />
                           </TableCell>
-                          <TableCell className="font-semibold text-primary">{thb(b.total_amount)}</TableCell>
+                          <TableCell className="font-semibold text-primary" data-testid="booking-amounts">
+                            {thb(b.total_amount)}
+                            <span className="block text-[11px] font-normal text-muted-foreground">
+                              {paidOnline.has(b.id) ? `ชำระออนไลน์ ${thb(paidOnline.get(b.id))}` : "ยังไม่ชำระ"}
+                            </span>
+                          </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1.5">
                               <Button
                                 variant="outline"
                                 size="sm"
                                 className="h-7 text-xs"
-                                disabled={!perms.updateBookingStatus || adminBookingMoves(b.status).length === 0}
+                                disabled={!perms.updateBookingStatus || bookingMovesOn(b, todayBkk()).length === 0}
                                 onClick={() => {
                                   setUpdatingBooking(b);
                                   setNewBookingStatus(
-                                    (adminBookingMoves(b.status)[0] ?? b.status) as Tables<"bookings">["status"],
+                                    (bookingMovesOn(b, todayBkk())[0] ?? b.status) as Tables<"bookings">["status"],
                                   );
                                 }}
                               >
@@ -1529,7 +1549,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                     <p className="text-[11px] text-muted-foreground">
                       รายได้ = เงินที่ชำระออนไลน์ (DEMO) ของการจองที่ยืนยันแล้ว กำลังเช่า หรือเสร็จสิ้น ตามวันที่ชำระ
                       + ค่าเช่าส่วนที่เหลือที่เก็บ ณ วันรับรถ ตามวันรับรถ เมื่อผู้ดูแลเปลี่ยนสถานะเป็น "กำลังเช่า" หรือ "เสร็จสิ้น"
-                      ไม่รวมเงินประกัน (คืนให้ลูกค้า) การจองที่รอชำระ หรือถูกยกเลิก
+                      + ค่าจองของการจองที่ถูกยกเลิก (ไม่คืนตามเงื่อนไขสัญญา) ไม่รวมเงินประกัน (คืนให้ลูกค้า)
+                      และการจองที่รอชำระ
                     </p>
 
                     <div className="pt-4 border-t">
@@ -1798,7 +1819,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {adminBookingMoves(updatingBooking?.status ?? "").map((s) => (
+                  {(updatingBooking ? bookingMovesOn(updatingBooking, todayBkk()) : []).map((s) => (
                     <SelectItem key={s} value={s}>
                       {BOOKING_MOVE_LABEL[s] ?? s}
                     </SelectItem>
@@ -1810,6 +1831,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground space-y-1">
               <p>• การจองที่รอดำเนินการจะ <strong>ยืนยัน</strong> ได้หลังลูกค้ายืนยันสัญญาและชำระค่าจองแล้วเท่านั้น</p>
               <p>• เมื่อเปลี่ยนเป็น <strong>กำลังเช่า (Active)</strong> ระบบจะปรับสถานะรถคันนี้เป็น "ถูกเช่า" อัตโนมัติ</p>
+              {updatingBooking && todayBkk() < updatingBooking.start_date && (
+                <p className="font-medium text-amber-700" data-testid="before-pickup-note">
+                  • ส่งมอบรถ (กำลังเช่า) และรับรถคืน (เสร็จสิ้น) ได้ตั้งแต่วันรับรถ {fmtDate(updatingBooking.start_date)} เป็นต้นไป
+                </p>
+              )}
               <p>• เมื่อเปลี่ยนเป็น <strong>เสร็จสิ้น (Completed)</strong> รถจะกลับสู่สถานะ "ว่าง" พร้อมให้บริการต่อ</p>
             </div>
           </div>

@@ -11,7 +11,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { LoadError } from "@/components/load-error";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { carImage } from "@/lib/car-images";
+import { carImage, isStockCarImage } from "@/lib/car-images";
 import { categoryLabel, daysBetween, fmtDate, thb, todayBkk } from "@/lib/format";
 import { bookedCarIdsQuery, invalidateBookingData } from "@/lib/queries";
 import { adjustEndForStart, rentalDateError } from "@/lib/date-range";
@@ -117,7 +117,14 @@ function CarDetail() {
   return (
     <div className="mx-auto grid max-w-7xl gap-10 px-4 py-10 lg:grid-cols-[1fr_380px]">
       <div className="space-y-8">
-        <img src={carImage(car.image_url, car.category)} alt={car.model} width={1024} height={640} className="w-full rounded-3xl border bg-muted object-cover" />
+        <div className="relative">
+          <img src={carImage(car.image_url, car.category)} alt={car.model} width={1024} height={640} className="w-full rounded-3xl border bg-muted object-cover" />
+          {isStockCarImage(car.image_url) && (
+            <span className="absolute bottom-3 right-3 rounded-full bg-background/85 px-2.5 py-1 text-xs text-muted-foreground" data-testid="stock-photo">
+              ภาพประกอบตามประเภทรถ ไม่ใช่รถคันจริง
+            </span>
+          )}
+        </div>
         <div>
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-3xl font-semibold">{car.brand} {car.model}</h1>
@@ -175,9 +182,9 @@ function CarDetail() {
         <div className="space-y-1 rounded-xl bg-muted p-4 text-sm">
           <div className="flex justify-between"><span>{thb(car.price_per_day)} × {days} วัน</span><span>{thb(car.price_per_day * days)}</span></div>
           <div className="flex justify-between"><span>เงินประกัน (เท่ากับค่าเช่า)</span><span>{thb(charges.insurance)}</span></div>
-          <div className="flex justify-between"><span>หักค่าจอง</span><span>−{thb(charges.fee)}</span></div>
-          <div className="flex justify-between border-t pt-2 font-semibold"><span>ค่าจอง (ชำระหลังยืนยันสัญญา)</span><span>{thb(charges.fee)}</span></div>
-          <div className="flex justify-between font-semibold"><span>ชำระ ณ วันรับรถ</span><span>{thb(charges.dueAtPickup)}</span></div>
+          <div className="flex justify-between border-t pt-2 font-semibold" data-testid="fee-online"><span>1. ค่าจอง ชำระออนไลน์หลังยืนยันสัญญา</span><span>{thb(charges.fee)}</span></div>
+          <div className="flex justify-between font-semibold" data-testid="due-at-pickup"><span>2. ชำระ ณ วันรับรถ</span><span>{thb(charges.dueAtPickup)}</span></div>
+          <p className="text-xs text-muted-foreground">ยอดวันรับรถ = ค่าเช่า + เงินประกัน − ค่าจองที่จ่ายไปแล้ว</p>
           <p className="pt-1 text-xs text-muted-foreground">ค่าจองไม่คืนเมื่อยกเลิก · เงินประกันได้คืนเมื่อคืนรถ</p>
         </div>
         {dateError && (

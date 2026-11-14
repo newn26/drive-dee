@@ -243,10 +243,13 @@ export function ContractWorkQueue({
   contracts,
   bookings,
   onOpen,
+  loading = false,
 }: {
   contracts: { status: string; booking_id: string }[];
   bookings: PanelBooking[];
   onOpen: (view: ContractPanelView) => void;
+  /** While the data loads, show a placeholder instead of misleading zeros. */
+  loading?: boolean;
 }) {
   const count = (s: string) => contracts.filter((c) => c.status === s).length;
   const tiles: { view: ContractPanelView; label: string; n: number; urgent?: boolean }[] = [
@@ -287,7 +290,7 @@ export function ContractWorkQueue({
       <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {tiles
           // the old flow's admin approval: shown only while such a contract is still waiting
-          .filter((t) => t.view !== "pending_admin_review" || t.n > 0)
+          .filter((t) => t.view !== "pending_admin_review" || (!loading && t.n > 0))
           .map((t) => (
             <button
               key={t.view}
@@ -297,7 +300,9 @@ export function ContractWorkQueue({
                 t.urgent && t.n > 0 ? "border-amber-400 bg-amber-50 text-amber-900" : "bg-card"
               }`}
             >
-              <span className="block text-2xl font-bold">{t.n}</span>
+              <span className="block text-2xl font-bold" aria-busy={loading}>
+              {loading ? "…" : t.n}
+            </span>
               <span className="text-xs">{t.label}</span>
             </button>
           ))}

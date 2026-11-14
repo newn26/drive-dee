@@ -156,6 +156,21 @@ export const ADMIN_BOOKING_MOVES: Readonly<Record<string, readonly string[]>> = 
 export const adminBookingMoves = (status: string): readonly string[] =>
   ADMIN_BOOKING_MOVES[status] ?? [];
 
+/** Handing the car over (active) or taking it back (completed) only from the pickup day on. */
+export const PICKUP_DAY_MOVES = ["active", "completed"] as const;
+
+/**
+ * The moves an admin may make today: adminBookingMoves without "active"/"completed" before the
+ * pickup day (`today` and `start_date` are Bangkok YYYY-MM-DD). Enforced in the admin UI.
+ */
+export const bookingMovesOn = (
+  b: { status: string; start_date: string },
+  today: string,
+): readonly string[] =>
+  adminBookingMoves(b.status).filter(
+    (m) => !(PICKUP_DAY_MOVES as readonly string[]).includes(m) || today >= b.start_date,
+  );
+
 // ---------------------------------------------------------------------------
 // Contract events
 // ---------------------------------------------------------------------------

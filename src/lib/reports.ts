@@ -1,3 +1,4 @@
+import { BOOKING_FEE } from "@/lib/booking-fee";
 import { TZ } from "@/lib/format";
 
 export type ReportRange = "all" | "30d" | "90d" | "year";
@@ -6,7 +7,13 @@ export type ReportRange = "all" | "30d" | "90d" | "year";
 export const REVENUE_BOOKING_STATUSES = ["confirmed", "active", "completed"] as const;
 
 type Amount = number | string | null | undefined;
-export type ReportPayment = { booking_id: string; amount: Amount; status: string; paid_at: string };
+export type ReportPayment = {
+  booking_id: string;
+  amount: Amount;
+  status: string;
+  paid_at: string;
+  refund_status?: string | null;
+};
 export type ReportBooking = {
   id: string;
   status: string;
@@ -80,9 +87,23 @@ export const bookingStatusMap = (bookings: Pick<ReportBooking, "id" | "status">[
   return map;
 };
 
-export const isRevenuePayment = (p: ReportPayment, statusByBooking: Record<string, string>) =>
+/**
+ * A booking fee is not refunded when the booking is cancelled, so the business keeps it.
+ * Only fee-sized payments count this way: full-rent payments from before the booking fee
+ * (marked not_refunded only because DEMO had no refunds) stay out of revenue.
+ */
+export const isKeptBookingFee = (p: ReportPayment, statusByBooking: Record<string, string>) =>
   p.status === "paid" &&
-  (REVENUE_BOOKING_STATUSES as readonly string[]).includes(statusByBooking[p.booking_id] ?? "");
+  statusByBooking[p.booking_id] === "cancelled" &&
+  p.refund_status === "not_refunded" &&
+  Number(p.amount ?? 0) === BOOKING_FEE;
+
+export const isRevenuePayment = (p: ReportPayment, statusByBooking: Record<string, string>) =>
+  (p.status === "paid" &&
+    (REVENUE_BOOKING_STATUSES as readonly string[]).includes(
+      statusByBooking[p.booking_id] ?? "",
+    )) ||
+  isKeptBookingFee(p, statusByBooking);
 
 /** Once the car is picked up (active/completed) the branch has collected the rest of the rent. */
 export const PICKUP_COLLECTED_STATUSES = ["active", "completed"] as const;
