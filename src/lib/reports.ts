@@ -6,7 +6,22 @@ export type ReportRange = "all" | "30d" | "90d" | "year";
 export const REVENUE_BOOKING_STATUSES = ["confirmed", "active", "completed"] as const;
 
 type Amount = number | string | null | undefined;
-export type ReportPayment = { booking_id: string; amount: Amount; status: string; paid_at: string };
+export type ReportPayment = {
+  booking_id: string;
+  amount: Amount;
+  status: string;
+  paid_at: string;
+  /** Refundable part (the insurance deposit inside a pickup payment); not revenue. */
+  deposit?: Amount;
+  /** 'booking_fee' (or a legacy full payment) or 'pickup', the second payment of a booking. */
+  kind?: string | null;
+};
+
+/** The payment that confirms a booking; a pickup payment is the same booking's second one. */
+const isFirstPayment = (p: ReportPayment) => p.kind !== "pickup";
+
+/** What a payment earns: the amount paid minus the refundable deposit inside it. */
+export const paymentRevenue = (p: ReportPayment) => Number(p.amount ?? 0) - Number(p.deposit ?? 0);
 export type ReportBooking = {
   id: string;
   status: string;
@@ -100,7 +115,7 @@ export function computeReport(input: {
   const revenuePayments = input.payments.filter(
     (p) => isRevenuePayment(p, statusByBooking) && inRange(p.paid_at, start),
   );
-  const revenue = revenuePayments.reduce((s, p) => s + Number(p.amount ?? 0), 0);
+  const revenue = revenuePayments.reduce((s, p) => s + paymentRevenue(p), 0);
 
   const maintCost = input.maintenance
     .filter((m) => inRange(m.completed_date ?? m.scheduled_date, start))
@@ -113,7 +128,7 @@ export function computeReport(input: {
     revenue,
     maintCost,
     profit: revenue - maintCost,
-    paidCount: revenuePayments.length,
+    paidCount: revenuePayments.filter(isFirstPayment).length,
     bookingCount: notCancelled.length,
     pendingCount: notCancelled.filter((b) => b.status === "pending").length,
     completedCount: notCancelled.filter((b) => b.status === "completed").length,
@@ -152,8 +167,8 @@ export function monthlyRevenueSeries(
     if (!isRevenuePayment(pay, statusByBooking)) continue;
     const bucket = byKey.get(bkkMonthKey(pay.paid_at));
     if (bucket) {
-      bucket.revenue += Number(pay.amount ?? 0);
-      bucket.bookings += 1;
+      bucket.revenue += paymentRevenue(pay);
+      if (isFirstPayment(pay)) bucket.bookings += 1;
     }
   }
   return series;
@@ -230,7 +245,12 @@ export function bookingReportCsv(input: {
   const start = rangeStart(input.range, input.now);
   const statusByBooking = bookingStatusMap(input.bookings);
   const paidByBooking = new Map<string, CsvPayment>();
-  for (const p of input.payments) if (p.status === "paid") paidByBooking.set(p.booking_id, p);
+  const paidTotal = new Map<string, number>();
+  for (const p of input.payments) {
+    if (p.status !== "paid") continue;
+    if (isFirstPayment(p)) paidByBooking.set(p.booking_id, p);
+    paidTotal.set(p.booking_id, (paidTotal.get(p.booking_id) ?? 0) + Number(p.amount ?? 0));
+  }
 
   const rows = input.bookings
     .filter((b) => inRange(b.created_at, start))
@@ -248,7 +268,7 @@ export function bookingReportCsv(input: {
         b.days,
         input.statusLabels[b.status] ?? b.status,
         Number(b.total_amount ?? 0),
-        pay ? Number(pay.amount ?? 0) : 0,
+        paidTotal.get(b.id) ?? 0,
         pay ? (pay.method === "qr" ? "QR PromptPay (DEMO)" : "บัตรเครดิต (DEMO)") : "",
         pay?.reference ?? "",
         bkkDateTime(pay?.paid_at),

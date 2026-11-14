@@ -51,7 +51,15 @@ const holdMinutes = async (bookingId: string) =>
 
 /** Booking (3 days) with a sent draft contract. */
 async function sentDraft(who: TestUser = alice) {
-  const booking = await createBooking(db, who, cars[slot++]!, 3, 2);
+  // Cycle through the fleet; each round books a later, non-overlapping window.
+  const n = slot++;
+  const booking = await createBooking(
+    db,
+    who,
+    cars[n % cars.length]!,
+    3 + 4 * Math.floor(n / cars.length),
+    2,
+  );
   const contractId = await adminCreate(db, admin, booking.id, terms(booking, { deposit: 5000 }));
   await send(db, admin, contractId);
   return { booking, contractId };
@@ -70,8 +78,8 @@ afterAll(() => db.close());
 
 describe("booking fee flow", () => {
   it("a new booking waits for the admin: no contract is created for it (0005 undone; 0006 drops it too)", async () => {
-    // The fleet has one car per test: borrow the next one and free it again below.
-    const booking = await createBooking(db, alice, cars[slot]!, 3, 2);
+    // Far-future window on the first car; freed again below.
+    const booking = await createBooking(db, alice, cars[0]!, 60, 2);
     expect(
       await db.sql("select 1 from public.contracts where booking_id = $1", [booking.id]),
     ).toHaveLength(0);
@@ -156,6 +164,38 @@ describe("booking fee flow", () => {
     await accept(db, alice, late.contractId, 1);
     await expireHold(db, late.booking.id);
     await expect(pay(db, alice, late.booking.id, "qr")).rejects.toThrow("หมดเวลาชำระเงิน");
+  });
+
+  it("after the fee, the customer pays the rest online once: rent + deposit - fee", async () => {
+    const { booking, contractId } = await sentDraft();
+    const payPickup = (who: TestUser, method = "qr", last4: string | null = null) =>
+      db
+        .as(who)
+        .sql("select public.pay_pickup($1, $2::payment_method, $3)", [booking.id, method, last4]);
+
+    await expect(payPickup(alice)).rejects.toThrow(/หลังชำระค่าจองแล้ว/);
+    await accept(db, alice, contractId, 1);
+    await expect(payPickup(alice)).rejects.toThrow(/หลังชำระค่าจองแล้ว/);
+    await pay(db, alice, booking.id, "qr");
+
+    await expect(payPickup(bob)).rejects.toThrow(/ไม่พบการจอง/);
+    await expect(payPickup(alice, "card", "12")).rejects.toThrow(/ข้อมูลบัตร/);
+    await payPickup(alice, "card", "4242");
+    await expect(payPickup(alice)).rejects.toThrow(/ชำระยอดวันรับรถแล้ว/);
+
+    const rent = Number(booking.total_amount);
+    const rows = await db.sql<{ kind: string; amount: string; deposit: string }>(
+      "select kind, amount::text, deposit::text from public.payments where booking_id = $1 order by paid_at, kind",
+      [booking.id],
+    );
+    expect(rows.map((r) => [r.kind, Number(r.amount), Number(r.deposit)])).toEqual([
+      ["booking_fee", 1000, 0],
+      ["pickup", rent * 2 - 1000, rent],
+    ]);
+    const b = await one<{ status: string }>("select status from public.bookings where id = $1", [
+      booking.id,
+    ]);
+    expect(b.status).toBe("confirmed");
   });
 
   it("cancelling a paid booking keeps the fee (not refunded)", async () => {

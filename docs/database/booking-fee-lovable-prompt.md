@@ -7,15 +7,15 @@ Tested locally against migrations 0000–0006 in PGlite: `src/test/db/booking-fe
 
 ## What changes
 
-| Step                          | Before (0004)                                                                                      | After                                                                     |
-| ----------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| 1. Book                       | Car held 24 h while the admin prepares the contract (0005's auto-contract was rolled back by 0006) | Same; the SQL also drops that trigger if it still exists                  |
-| 2. Admin                      | Creates and sends the draft                                                                        | Same; deposit is always = rent                                            |
-| 3. Customer                   | Accepts or asks for changes                                                                        | Same (asking for changes → admin sends a new version)                     |
-| 4. After the customer accepts | Waits for admin approval                                                                           | **Payment opens at once**, no admin approval                              |
-| 5. Online payment             | Full rent, 15 min after approval                                                                   | **Booking fee 1,000 THB**, QR or card, 15 min after the customer confirms |
-| At pickup (shown only)        | Deposit                                                                                            | Rent + deposit (= rent) − 1,000                                           |
-| Cancellation                  | Payment kept, not refunded                                                                         | Same                                                                      |
+| Step                          | Before (0004)                                                                                      | After                                                                        |
+| ----------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| 1. Book                       | Car held 24 h while the admin prepares the contract (0005's auto-contract was rolled back by 0006) | Same; the SQL also drops that trigger if it still exists                     |
+| 2. Admin                      | Creates and sends the draft                                                                        | Same; deposit is always = rent                                               |
+| 3. Customer                   | Accepts or asks for changes                                                                        | Same (asking for changes → admin sends a new version)                        |
+| 4. After the customer accepts | Waits for admin approval                                                                           | **Payment opens at once**, no admin approval                                 |
+| 5. Online payment             | Full rent, 15 min after approval                                                                   | **Booking fee 1,000 THB**, QR or card, 15 min after the customer confirms    |
+| Rest of the payment           | Deposit                                                                                            | **`pay_pickup`**: rent + deposit (= rent) − 1,000, paid online after the fee |
+| Cancellation                  | Payment kept, not refunded                                                                         | Same                                                                         |
 
 `bookings.total_amount` stays the rent. `payments.amount` is the booking fee, so revenue
 reports count the 1,000 THB fees only. `admin_approve_contract` stays for contracts already
@@ -28,7 +28,9 @@ waiting for approval under 0004.
 > It removes 0005's trigger (if present) `trg_create_contract_on_booking`, revokes `customer_prepare_contract`,
 > replaces the functions `render_contract_terms`,
 > `write_contract_version`, `guard_contract_update`, `customer_accept_contract` and
-> `pay_booking`, and adds `booking_fee()`. Do not change any table, policy or other function.
+> `pay_booking`, adds `booking_fee()` and `pay_pickup`, adds columns `payments.kind` and
+> `payments.deposit`, and replaces the unique index `payments_one_paid_per_booking` with
+> `payments_one_paid_per_booking_kind`. Do not change anything else.
 > Then regenerate the Supabase types.
 
 ## Check after applying

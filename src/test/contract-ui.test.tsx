@@ -197,6 +197,66 @@ describe("customer booking page", () => {
     expect(within(card).getAllByText("฿1,000").length).toBeGreaterThan(0);
   });
 
+  it("after the booking fee, the customer pays the rest (rent + deposit - fee) online", async () => {
+    const fee = {
+      id: "p-1",
+      booking_id: "b-1",
+      method: "qr",
+      amount: 1000,
+      status: "paid",
+      kind: "booking_fee",
+      deposit: 0,
+      reference: "DEMO-FEE",
+      card_last4: null,
+      paid_at: inMinutes(-5),
+      refund_status: "none",
+    };
+    setup({
+      booking: { status: "confirmed", hold_expires_at: null },
+      contract: contractRow({ status: "paid" }),
+      versions: [versionRow()],
+      payment: [fee],
+    });
+    const card = await screen.findByTestId("payment-card");
+    expect(within(card).getByTestId("pickup-breakdown")).toHaveTextContent("฿4,940");
+    fireEvent.click(
+      within(card).getByRole("button", { name: /จำลองยืนยันการชำระเงินผ่าน QR Code/ }),
+    );
+    await waitFor(() =>
+      expect(mocks.rpc).toHaveBeenCalledWith("pay_pickup", { _booking_id: "b-1", _method: "qr" }),
+    );
+  });
+
+  it("paid in full: no payment card, both payments listed", async () => {
+    const base = {
+      booking_id: "b-1",
+      method: "qr",
+      status: "paid",
+      card_last4: null,
+      paid_at: inMinutes(-5),
+      refund_status: "none",
+    };
+    setup({
+      booking: { status: "confirmed", hold_expires_at: null },
+      contract: contractRow({ status: "paid" }),
+      versions: [versionRow()],
+      payment: [
+        {
+          ...base,
+          id: "p-1",
+          amount: 1000,
+          kind: "booking_fee",
+          deposit: 0,
+          reference: "DEMO-FEE",
+        },
+        { ...base, id: "p-2", amount: 4940, kind: "pickup", deposit: 2970, reference: "DEMO-PICK" },
+      ],
+    });
+    expect(await screen.findByTestId("paid-in-full")).toBeInTheDocument();
+    expect(screen.queryByTestId("payment-card")).not.toBeInTheDocument();
+    expect(screen.getByText("DEMO-PICK")).toBeInTheDocument();
+  });
+
   it("P13 review stage: accept/revise buttons, no payment", async () => {
     setup({ contract: contractRow(), versions: [versionRow()] });
     expect(await screen.findByRole("button", { name: "ยืนยันสัญญาฉบับที่ 1" })).toBeDisabled(); // until ticked

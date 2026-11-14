@@ -99,7 +99,8 @@ export const Route = createFileRoute("/bookings_/$id")({
 type BookingWithCar = Tables<"bookings"> & {
   cars: Tables<"cars"> | null;
 };
-type PaymentRow = Tables<"payments">;
+/** kind/deposit come from docs/database/booking-fee-flow.sql (not in the generated types yet). */
+type PaymentRow = Tables<"payments"> & { kind?: string; deposit?: number | string };
 
 const contractQueryKey = (id: string) => ["contract", id] as const;
 
@@ -156,17 +157,17 @@ function BookingDetailsPage() {
     enabled: !!id,
   });
 
-  // 2. Payment (only once the booking is no longer pending)
-  const { data: payment, isLoading: paymentLoading } = useQuery({
+  // 2. Payments (only once the booking is no longer pending): booking fee, then the pickup amount
+  const { data: payments = [], isLoading: paymentLoading } = useQuery({
     queryKey: ["payment", id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("payments")
         .select("*")
         .eq("booking_id", id)
-        .maybeSingle();
-      if (error) return null;
-      return data as PaymentRow | null;
+        .order("paid_at");
+      if (error) return [];
+      return data as PaymentRow[];
     },
     enabled: !!id && !!booking && booking.status !== "pending",
   });
@@ -217,8 +218,8 @@ function BookingDetailsPage() {
 
   // Payment Submission (DEMO). The database refuses it unless the contract is approved.
   const handlePayment = async (method: "qr" | "card") => {
-    if (!booking) return;
-    if (!canPay(booking, contract, Date.now())) {
+    if (!booking || !payKind) return;
+    if (payKind === "booking_fee" && !canPay(booking, contract, Date.now())) {
       toast.error(
         holdExpired
           ? "หมดเวลาชำระเงิน กรุณาจองใหม่อีกครั้ง"
@@ -266,11 +267,18 @@ function BookingDetailsPage() {
         ? { _booking_id: booking.id, _method: method, _card_last4: last4 }
         : { _booking_id: booking.id, _method: method };
 
-      const { error } = await supabase.rpc("pay_booking", rpcParams);
+      const { error } =
+        payKind === "booking_fee"
+          ? await supabase.rpc("pay_booking", rpcParams)
+          : await supabase.rpc("pay_pickup" as never, rpcParams as never);
       if (error) throw error;
 
       setCardName("");
-      toast.success("ชำระค่าจองสำเร็จ (DEMO)! การจองได้รับการยืนยันแล้ว");
+      toast.success(
+        payKind === "booking_fee"
+          ? "ชำระค่าจองสำเร็จ (DEMO)! การจองได้รับการยืนยันแล้ว"
+          : "ชำระยอดวันรับรถสำเร็จ (DEMO)! นำหลักฐานนี้ไปรับรถได้เลย",
+      );
       await refreshAll();
     } catch (err: unknown) {
       const error = err as Error;
@@ -411,9 +419,21 @@ function BookingDetailsPage() {
   const isPaid = stage === "confirmed" || stage === "completed";
   // Admins can open any booking, but only the customer who made it can accept, revise or pay
   const isOwner = booking.user_id === user.id;
-  const paymentOpen = isOwner && canPay(booking, contract, now);
+  const feePayment = payments.find((p) => (p.kind ?? "booking_fee") === "booking_fee") ?? null;
+  const pickupPayment = payments.find((p) => p.kind === "pickup") ?? null;
+  // Which payment the customer can make now: the 1,000 fee, then the rest (before or at pickup)
+  const payKind: "booking_fee" | "pickup" | null = !isOwner
+    ? null
+    : booking.status === "pending" && stage === "awaiting_payment"
+      ? "booking_fee"
+      : ["confirmed", "active"].includes(booking.status) && !paymentLoading && !pickupPayment
+        ? "pickup"
+        : null;
   const canRespond = isOwner && canCustomerRespond(booking, contract, now);
   const charges = rentalCharges(Number(booking.total_amount));
+  const payAmount = payKind === "pickup" ? charges.dueAtPickup : BOOKING_FEE;
+  const paymentOpen =
+    payKind === "pickup" || (payKind === "booking_fee" && canPay(booking, contract, now));
   const holdText =
     booking.status !== "pending"
       ? null
@@ -687,31 +707,43 @@ function BookingDetailsPage() {
             />
           )}
 
-          {/* Payment: only for an approved contract */}
-          {booking.status === "pending" && isOwner && stage === "awaiting_payment" && (
+          {/* Payment: the booking fee once the contract is confirmed, then the pickup amount */}
+          {payKind && (
             <Card className="border shadow-card" data-testid="payment-card">
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <CardTitle className="text-xl">เลือกช่องทางชำระเงิน</CardTitle>
+                  <CardTitle className="text-xl">
+                    {payKind === "pickup" ? "ชำระยอดวันรับรถ" : "เลือกช่องทางชำระเงิน"}
+                  </CardTitle>
                   <Badge variant="outline" className="border-amber-400 bg-amber-100 text-amber-900">
                     DEMO · ไม่มีการตัดเงินจริง
                   </Badge>
                 </div>
-                <CardDescription>
-                  ยืนยันสัญญาแล้ว · ค่าจอง (ไม่ว่าจะเช่ากี่วัน):{" "}
-                  <strong className="text-foreground">{thb(BOOKING_FEE)}</strong>
-                  {" · "}
-                  {holdExpired ? (
-                    <span className="font-semibold text-destructive">หมดเวลาชำระเงินแล้ว</span>
-                  ) : (
-                    <span>
-                      กรุณาชำระภายใน{" "}
-                      <span className="font-mono font-bold text-warning">
-                        {formatCountdown(timeLeft)}
+                {payKind === "pickup" ? (
+                  <CardDescription data-testid="pickup-breakdown">
+                    ชำระค่าจองแล้ว · ชำระยอดที่เหลือได้ตั้งแต่ตอนนี้จนถึงวันรับรถ: ค่าเช่า{" "}
+                    {thb(charges.rent)} + เงินประกัน {thb(charges.insurance)} − ค่าจอง{" "}
+                    {thb(charges.fee)} ={" "}
+                    <strong className="text-foreground">{thb(charges.dueAtPickup)}</strong>
+                    {" · "}เงินประกันได้รับคืนเมื่อนำรถมาคืนตามสภาพเดิม
+                  </CardDescription>
+                ) : (
+                  <CardDescription>
+                    ยืนยันสัญญาแล้ว · ค่าจอง (ไม่ว่าจะเช่ากี่วัน):{" "}
+                    <strong className="text-foreground">{thb(BOOKING_FEE)}</strong>
+                    {" · "}
+                    {holdExpired ? (
+                      <span className="font-semibold text-destructive">หมดเวลาชำระเงินแล้ว</span>
+                    ) : (
+                      <span>
+                        กรุณาชำระภายใน{" "}
+                        <span className="font-mono font-bold text-warning">
+                          {formatCountdown(timeLeft)}
+                        </span>
                       </span>
-                    </span>
-                  )}
-                </CardDescription>
+                    )}
+                  </CardDescription>
+                )}
               </CardHeader>
               <CardContent>
                 {paymentError && (
@@ -746,19 +778,21 @@ function BookingDetailsPage() {
 
                   <TabsContent value="qr" className="space-y-6 focus-visible:outline-none">
                     <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed bg-muted/30 p-6 text-center">
-                      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        <Clock className="h-3.5 w-3.5 text-warning" />
-                        <span>
-                          หมดอายุใน:{" "}
-                          <span className="font-mono font-bold text-warning">
-                            {formatCountdown(timeLeft)}
+                      {payKind === "booking_fee" && (
+                        <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          <Clock className="h-3.5 w-3.5 text-warning" />
+                          <span>
+                            หมดอายุใน:{" "}
+                            <span className="font-mono font-bold text-warning">
+                              {formatCountdown(timeLeft)}
+                            </span>
                           </span>
-                        </span>
-                      </div>
+                        </div>
+                      )}
                       {/* Demo QR: not a PromptPay payload, so a real banking app cannot pay it */}
                       <div className="relative rounded-2xl border bg-white p-4 shadow-sm">
                         <QRCodeSVG
-                          value={demoQrValue(booking.booking_code, BOOKING_FEE)}
+                          value={demoQrValue(booking.booking_code, payAmount)}
                           size={190}
                           level="M"
                           includeMargin={false}
@@ -776,7 +810,7 @@ function BookingDetailsPage() {
                           เลขอ้างอิง: {booking.booking_code}
                         </p>
                         <p className="mt-1 font-display text-xl font-bold text-primary">
-                          {thb(BOOKING_FEE)}
+                          {thb(payAmount)}
                         </p>
                       </div>
                       <div className="mt-4 max-w-xs space-y-1 rounded-lg border bg-card p-3 text-left text-xs text-muted-foreground">
@@ -905,7 +939,9 @@ function BookingDetailsPage() {
                     >
                       {submittingPayment
                         ? "กำลังประมวลผลบัตรเครดิต..."
-                        : `จำลองชำระค่าจอง ${thb(BOOKING_FEE)} (DEMO)`}
+                        : payKind === "pickup"
+                          ? `จำลองชำระยอดวันรับรถ ${thb(payAmount)} (DEMO)`
+                          : `จำลองชำระค่าจอง ${thb(BOOKING_FEE)} (DEMO)`}
                     </Button>
                   </TabsContent>
                 </Tabs>
@@ -929,14 +965,27 @@ function BookingDetailsPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="text-sm">
-                <PaymentDetails loading={paymentLoading} payment={payment ?? null} />
-                <p className="mt-3 text-xs text-muted-foreground">
-                  ชำระ ณ วันรับรถ:{" "}
-                  <strong className="text-foreground">{thb(charges.dueAtPickup)}</strong> (ค่าเช่า{" "}
-                  {thb(charges.rent)} + เงินประกัน {thb(charges.insurance)} − ค่าจอง{" "}
-                  {thb(charges.fee)}) · เงินประกันได้รับคืนเมื่อคืนรถ
-                </p>
+              <CardContent className="space-y-3 text-sm">
+                <p className="text-xs font-medium text-muted-foreground">ค่าจอง</p>
+                <PaymentDetails loading={paymentLoading} payment={feePayment} />
+                {pickupPayment ? (
+                  <>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      ยอดวันรับรถ (ค่าเช่า + เงินประกัน − ค่าจอง)
+                    </p>
+                    <PaymentDetails loading={false} payment={pickupPayment} />
+                    <p className="text-xs text-muted-foreground" data-testid="paid-in-full">
+                      ชำระครบแล้ว · เงินประกัน {thb(charges.insurance)} ได้รับคืนเมื่อนำรถมาคืน
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    ยอดวันรับรถที่ยังต้องชำระ:{" "}
+                    <strong className="text-foreground">{thb(charges.dueAtPickup)}</strong> (ค่าเช่า{" "}
+                    {thb(charges.rent)} + เงินประกัน {thb(charges.insurance)} − ค่าจอง{" "}
+                    {thb(charges.fee)}) · เงินประกันได้รับคืนเมื่อคืนรถ
+                  </p>
+                )}
               </CardContent>
             </Card>
           )}
@@ -952,9 +1001,11 @@ function BookingDetailsPage() {
                   รายการจองนี้ถูกยกเลิกหรือหมดเวลาแล้ว ไม่สามารถทำสัญญาหรือชำระเงินได้
                 </CardDescription>
               </CardHeader>
-              {payment && (
-                <CardContent className="text-sm">
-                  <PaymentDetails loading={false} payment={payment} />
+              {payments.length > 0 && (
+                <CardContent className="space-y-3 text-sm">
+                  {payments.map((p) => (
+                    <PaymentDetails key={p.id} loading={false} payment={p} />
+                  ))}
                 </CardContent>
               )}
               <CardFooter>
