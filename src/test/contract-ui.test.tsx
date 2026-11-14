@@ -175,15 +175,31 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 describe("customer booking page", () => {
-  it("shows a waiting card and no payment before any contract is sent", async () => {
+  it("a new booking waits for the admin's draft: no payment yet", async () => {
     setup({ contract: null });
     expect(await screen.findByText("รอผู้ดูแลจัดทำสัญญาเช่า")).toBeInTheDocument();
     expect(screen.queryByTestId("payment-card")).not.toBeInTheDocument();
+    // 990 x 3 days: rent 2,970 + insurance 2,970 - fee 1,000
+    expect(screen.getByTestId("due-at-pickup")).toHaveTextContent("4,940");
+  });
+
+  it("once confirmed, the payment card shows the 1,000 THB booking fee", async () => {
+    setup({
+      booking: { hold_expires_at: inMinutes(14) },
+      contract: contractRow({ status: "approved" }),
+      versions: [versionRow()],
+    });
+    const card = await screen.findByTestId("payment-card");
+    expect(within(card).getByText(/ค่าจอง \(ไม่ว่าจะเช่ากี่วัน\)/)).toBeInTheDocument();
+    expect(
+      within(card).getByRole("button", { name: /จำลองยืนยันการชำระเงินผ่าน QR Code/ }),
+    ).toBeEnabled();
+    expect(within(card).getAllByText("฿1,000").length).toBeGreaterThan(0);
   });
 
   it("P13 review stage: accept/revise buttons, no payment", async () => {
     setup({ contract: contractRow(), versions: [versionRow()] });
-    expect(await screen.findByRole("button", { name: "ยอมรับสัญญาฉบับที่ 1" })).toBeDisabled(); // until ticked
+    expect(await screen.findByRole("button", { name: "ยืนยันสัญญาฉบับที่ 1" })).toBeDisabled(); // until ticked
     expect(screen.getByRole("button", { name: /ขอแก้ไขสัญญา/ })).toBeEnabled();
     expect(screen.queryByTestId("payment-card")).not.toBeInTheDocument();
     expect(
@@ -191,10 +207,33 @@ describe("customer booking page", () => {
     ).toBeInTheDocument();
   });
 
+  it("asking for changes: name and times prefilled, times must be 08:00-18:00", async () => {
+    setup({ contract: contractRow(), versions: [versionRow()] });
+    await screen.findByText(/ชำระ ณ วันรับรถ ไม่รวมในการชำระเงินออนไลน์/); // version loaded
+    fireEvent.click(screen.getByRole("button", { name: /ขอแก้ไขสัญญา/ }));
+    expect(await screen.findByLabelText("ชื่อลูกค้า")).toHaveValue("ทดสอบ ลูกค้าเอ");
+    expect(screen.getByLabelText(/เวลารับรถ/)).toHaveValue("10:00");
+    expect(screen.getByLabelText(/เวลาคืนรถ/)).toHaveValue("18:00");
+
+    fireEvent.change(screen.getByLabelText(/เวลารับรถ/), { target: { value: "07:30" } });
+    fireEvent.click(screen.getByRole("button", { name: "ส่งคำขอแก้ไข" }));
+    expect(mocks.rpc).not.toHaveBeenCalledWith("customer_request_revision", expect.anything());
+
+    fireEvent.change(screen.getByLabelText(/เวลารับรถ/), { target: { value: "09:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "ส่งคำขอแก้ไข" }));
+    await waitFor(() =>
+      expect(mocks.rpc).toHaveBeenCalledWith("customer_request_revision", {
+        _contract_id: "ct-1",
+        _version: 1,
+        _reason: "ชื่อลูกค้า: ทดสอบ ลูกค้าเอ\nเวลารับรถ: 09:00 น.\nเวลาคืนรถ: 18:00 น.",
+      }),
+    );
+  });
+
   it("A01 accepting sends the exact version shown", async () => {
     setup({ contract: contractRow(), versions: [versionRow()] });
     fireEvent.click(await screen.findByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: "ยอมรับสัญญาฉบับที่ 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "ยืนยันสัญญาฉบับที่ 1" }));
     await waitFor(() =>
       expect(mocks.rpc).toHaveBeenCalledWith("customer_accept_contract", {
         _contract_id: "ct-1",
@@ -225,7 +264,7 @@ describe("customer booking page", () => {
     expect(
       within(card).getByRole("button", { name: /จำลองยืนยันการชำระเงินผ่าน QR Code/ }),
     ).toBeEnabled();
-    expect(within(card).getByText(/สัญญาได้รับอนุมัติแล้ว/)).toBeInTheDocument();
+    expect(within(card).getByText(/ค่าจอง/)).toBeInTheDocument();
   });
 
   it("P08 approved but the window has passed: payment is disabled", async () => {
@@ -264,7 +303,7 @@ describe("customer booking page", () => {
     const card = await screen.findByTestId("payment-card");
     fireEvent.mouseDown(within(card).getByRole("tab", { name: /บัตรเครดิต/ }));
     fireEvent.click(await screen.findByRole("button", { name: /บัตรทดสอบถูกปฏิเสธ/ }));
-    fireEvent.click(screen.getByRole("button", { name: /จำลองชำระเงิน/ }));
+    fireEvent.click(screen.getByRole("button", { name: /จำลองชำระค่าจอง/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent("บัตรถูกปฏิเสธ (DEMO)");
     expect(mocks.rpc).not.toHaveBeenCalledWith("pay_booking", expect.anything());
   });
@@ -377,6 +416,47 @@ describe("D08 admin contracts panel", () => {
         _contract_id: "ct-1",
         _version: 1,
       }),
+    );
+  });
+
+  it("a customer's change request: admin sees old vs new and applies it in one click", async () => {
+    mocks.tables = {
+      contract_versions: [versionRow({ sent_at: inMinutes(-30) })],
+      contract_events: [],
+    };
+    const requested = {
+      ...contractRow({
+        status: "revision_requested",
+        revision_requested_by: "customer",
+        revision_reason: "ชื่อลูกค้า: ทดสอบ ลูกค้าเอ\nเวลารับรถ: 09:00 น.\nเวลาคืนรถ: 17:00 น.",
+      }),
+      bookings: panelBooking,
+    } as PanelContract;
+    renderWithQuery(
+      <AdminContractsPanel
+        perms={dashboardPermissions("admin")}
+        contracts={[requested]}
+        bookings={[panelBooking]}
+        profileMap={profiles}
+        initialView="revision_requested"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "เปิดสัญญา" }));
+    const card = await screen.findByTestId("customer-request");
+    expect(within(card).getByText(/^09:00/)).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole("button", { name: /ยืนยันการแก้ไขและส่งให้ลูกค้า/ }));
+    await waitFor(() =>
+      expect(mocks.rpc).toHaveBeenCalledWith(
+        "admin_update_contract",
+        expect.objectContaining({
+          _contract_id: "ct-1",
+          _pickup_at: "2026-12-01T09:00:00+07:00",
+          _return_at: "2026-12-03T17:00:00+07:00",
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(mocks.rpc).toHaveBeenCalledWith("admin_send_contract", { _contract_id: "ct-1" }),
     );
   });
 

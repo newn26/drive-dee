@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FilePlus2, Search, Send, ShieldCheck, MessageSquareWarning, Save } from "lucide-react";
+import {
+  CheckCheck,
+  FilePlus2,
+  Search,
+  Send,
+  ShieldCheck,
+  MessageSquareWarning,
+  Save,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -39,6 +47,7 @@ import {
   canAdminReview,
   canAdminSend,
   contractStatusLabel,
+  parseRevisionReason,
   reasonError,
   validateContractForm,
   type ContractForm,
@@ -151,15 +160,15 @@ export function ContractFormFields({
         </div>
         <div>
           <Label htmlFor="cf-deposit" className="text-xs">
-            เงินประกัน (บาท, ชำระ ณ วันรับรถ)
+            เงินประกัน (บาท, เท่ากับค่าเช่า ชำระ ณ วันรับรถ)
           </Label>
+          {/* The database sets deposit = rent (docs/database/booking-fee-flow.sql) */}
           <Input
             id="cf-deposit"
             type="number"
-            min={0}
-            value={form.deposit}
-            disabled={disabled}
-            onChange={(e) => set("deposit", Number(e.target.value))}
+            value={Number(booking.total_amount)}
+            disabled
+            readOnly
             className="mt-1"
           />
         </div>
@@ -413,6 +422,31 @@ export function AdminContractsPanel({
     );
   };
 
+  // A customer's structured request (name + times) that the admin can apply in one click
+  const requested =
+    open?.status === "revision_requested" && open.revision_requested_by === "customer"
+      ? parseRevisionReason(open.revision_reason)
+      : null;
+
+  const handleApplyRequest = () => {
+    if (!open?.bookings || !requested) return;
+    const b = open.bookings;
+    const next: ContractForm = {
+      ...formFromVersion(currentVersion),
+      pickupTime: requested.pickupTime,
+      returnTime: requested.returnTime,
+    };
+    const problem = validateContractForm(next, b.start_date, b.end_date);
+    if (problem) return void toast.error(problem);
+    void run(
+      async () => {
+        await updateContract(open.id, next, b.start_date, b.end_date);
+        await sendContract(open.id);
+      },
+      `ยืนยันการแก้ไขแล้ว ส่งฉบับที่ ${open.current_version + 1} ให้ลูกค้ายืนยัน`,
+    );
+  };
+
   const handleRevision = () => {
     if (!open) return;
     const problem = reasonError(revisionReason, 5);
@@ -445,8 +479,8 @@ export function AdminContractsPanel({
       <CardHeader>
         <CardTitle className="text-xl">สัญญาเช่าดิจิทัล</CardTitle>
         <CardDescription>
-          สร้างสัญญาจากการจอง → ส่งให้ลูกค้า → ลูกค้ายอมรับ → ผู้ดูแลอนุมัติ → ลูกค้าชำระเงิน (DEMO)
-          ภายใน 15 นาที
+          ยืนยันการจองโดยสร้างสัญญา → ส่งฉบับร่างให้ลูกค้า → ลูกค้าขอแก้ไขหรือยืนยัน →
+          ลูกค้าชำระค่าจอง 1,000 บาท (DEMO) ภายใน 15 นาที
         </CardDescription>
         <Tabs value={view} onValueChange={(v) => setView(v as View)} className="mt-3">
           <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4 [&>button]:whitespace-normal">
@@ -619,6 +653,60 @@ export function AdminContractsPanel({
 
           {open && (
             <ContractView contract={open} versions={versions} events={events} audience="admin" />
+          )}
+
+          {open && requested && perms.editContracts && open.bookings?.status === "pending" && (
+            <div
+              className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"
+              data-testid="customer-request"
+            >
+              <p className="font-semibold">ลูกค้าขอแก้ไขฉบับที่ {open.current_version}</p>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="h-8 text-amber-900">รายการ</TableHead>
+                    <TableHead className="h-8 text-amber-900">ฉบับปัจจุบัน</TableHead>
+                    <TableHead className="h-8 text-amber-900">ลูกค้าขอ</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(
+                    [
+                      ["ชื่อลูกค้า", currentVersion?.customer_name ?? "-", requested.customerName],
+                      [
+                        "เวลารับรถ",
+                        bangkokTime(currentVersion?.pickup_at, "-"),
+                        requested.pickupTime,
+                      ],
+                      [
+                        "เวลาคืนรถ",
+                        bangkokTime(currentVersion?.return_at, "-"),
+                        requested.returnTime,
+                      ],
+                    ] as const
+                  ).map(([label, now, want]) => (
+                    <TableRow key={label}>
+                      <TableCell className="py-1.5">{label}</TableCell>
+                      <TableCell className="py-1.5">{now}</TableCell>
+                      <TableCell
+                        className={`py-1.5 ${now !== want ? "font-semibold text-amber-950" : ""}`}
+                      >
+                        {want}
+                        {now !== want && " (เปลี่ยน)"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <p className="text-xs">
+                กดยืนยันแล้ว ระบบสร้างฉบับที่ {open.current_version + 1}{" "}
+                ตามที่ลูกค้าขอและส่งให้ลูกค้าทันที ชื่อในสัญญามาจากโปรไฟล์ลูกค้า
+                ซึ่งลูกค้าแก้ไว้แล้วตอนส่งคำขอ
+              </p>
+              <Button size="sm" disabled={busy} onClick={handleApplyRequest}>
+                <CheckCheck className="mr-1 h-4 w-4" /> ยืนยันการแก้ไขและส่งให้ลูกค้า
+              </Button>
+            </div>
           )}
 
           {open &&
