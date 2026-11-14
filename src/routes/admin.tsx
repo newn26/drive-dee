@@ -101,7 +101,7 @@ import {
   type PanelContract,
 } from "@/components/admin/contracts-panel";
 import { AdminManagementPanel } from "@/components/admin/admin-management-panel";
-import { bookingMovesOn, reasonError } from "@/lib/contract-workflow";
+import { bookingMovesOn, defaultBookingMove, reasonError } from "@/lib/contract-workflow";
 import { ownerManualConfirm } from "@/lib/contract-api";
 
 export const Route = createFileRoute("/admin")({
@@ -217,7 +217,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
   // Booking Status Update Dialog
   const [updatingBooking, setUpdatingBooking] = useState<BookingWithCar | null>(null);
-  const [newBookingStatus, setNewBookingStatus] = useState<Tables<"bookings">["status"]>("confirmed");
+  // "" = nothing chosen yet (cancelling is never preselected)
+  const [newBookingStatus, setNewBookingStatus] = useState<Tables<"bookings">["status"] | "">("");
 
   // Owner-only manual confirmation (reason required, audited in the database)
   const [manualConfirmFor, setManualConfirmFor] = useState<BookingWithCar | null>(null);
@@ -499,6 +500,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
   const handleUpdateBookingStatus = async () => {
     if (!updatingBooking) return;
+    if (!newBookingStatus) {
+      toast.error("กรุณาเลือกสถานะใหม่");
+      return;
+    }
     if (!perms.updateBookingStatus || !bookingMovesOn(updatingBooking, todayBkk()).includes(newBookingStatus)) {
       toast.error(
         "เปลี่ยนสถานะนี้ไม่ได้ การยืนยันการจองต้องผ่านการยืนยันสัญญาและการชำระค่าจองของลูกค้า และส่งมอบ/รับรถคืนได้ตั้งแต่วันรับรถเท่านั้น",
@@ -1316,7 +1321,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                                 onClick={() => {
                                   setUpdatingBooking(b);
                                   setNewBookingStatus(
-                                    (bookingMovesOn(b, todayBkk())[0] ?? b.status) as Tables<"bookings">["status"],
+                                    defaultBookingMove(bookingMovesOn(b, todayBkk())) as Tables<"bookings">["status"] | "",
                                   );
                                 }}
                               >
@@ -1815,8 +1820,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 value={newBookingStatus}
                 onValueChange={(val) => setNewBookingStatus(val as Tables<"bookings">["status"])}
               >
-                <SelectTrigger className="mt-1.5">
-                  <SelectValue />
+                <SelectTrigger className="mt-1.5" aria-label="เลือกสถานะใหม่">
+                  <SelectValue placeholder="เลือกสถานะ..." />
                 </SelectTrigger>
                 <SelectContent>
                   {(updatingBooking ? bookingMovesOn(updatingBooking, todayBkk()) : []).map((s) => (
@@ -1844,7 +1849,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             <Button variant="outline" onClick={() => setUpdatingBooking(null)}>
               ยกเลิก
             </Button>
-            <Button onClick={handleUpdateBookingStatus} disabled={!perms.updateBookingStatus}>
+            <Button
+              onClick={handleUpdateBookingStatus}
+              disabled={!perms.updateBookingStatus || !newBookingStatus}
+              variant={newBookingStatus === "cancelled" ? "destructive" : "default"}
+            >
               บันทึกสถานะ
             </Button>
           </DialogFooter>

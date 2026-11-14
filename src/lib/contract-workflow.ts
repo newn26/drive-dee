@@ -156,6 +156,14 @@ export const ADMIN_BOOKING_MOVES: Readonly<Record<string, readonly string[]>> = 
 export const adminBookingMoves = (status: string): readonly string[] =>
   ADMIN_BOOKING_MOVES[status] ?? [];
 
+/**
+ * The move the status dialog starts on: the first move that is not a cancellation.
+ * Cancelling is never preselected (one careless "save" would cancel a paid booking); when it is
+ * the only move, the admin must choose it. Returns "" when nothing should be preselected.
+ */
+export const defaultBookingMove = (moves: readonly string[]): string =>
+  moves.find((m) => m !== "cancelled") ?? "";
+
 /** Handing the car over (active) or taking it back (completed) only from the pickup day on. */
 export const PICKUP_DAY_MOVES = ["active", "completed"] as const;
 

@@ -14,7 +14,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
   };
 });
 
-import { bookingMovesOn } from "@/lib/contract-workflow";
+import { bookingMovesOn, defaultBookingMove } from "@/lib/contract-workflow";
 import { computeReport, isKeptBookingFee, bookingStatusMap } from "@/lib/reports";
 import { carImage, isStockCarImage } from "@/lib/car-images";
 import { CarCard } from "@/components/car-card";
@@ -106,5 +106,13 @@ describe("8. work queue while loading", () => {
     );
     expect(screen.queryByText("…")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /1\s*ชำระเงินแล้ว/ }));
+  });
+});
+
+describe("the status dialog never preselects cancelling", () => {
+  it("starts on the first non-cancel move, or on nothing when only cancelling is allowed", () => {
+    expect(defaultBookingMove(["active", "completed", "cancelled"])).toBe("active");
+    expect(defaultBookingMove(["cancelled"])).toBe("");
+    expect(defaultBookingMove([])).toBe("");
   });
 });
