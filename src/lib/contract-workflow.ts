@@ -4,7 +4,7 @@
  * Flow: the customer books → the contract is created at once (pending_customer) → the customer
  * accepts (approved = accepted, awaiting payment) → DEMO payment (paid). No Admin step.
  *
- * The database (drizzle 0004 + docs/database/customer-self-accept-contract.sql) is the real
+ * The database (drizzle 0004 + drizzle/migrations/0005_customer_self_accept_contract.sql) is the real
  * boundary: every transition below is enforced there too. These helpers only decide what the UI shows.
  * draft / pending_admin_review / revision_requested only remain for contracts from the old flow.
  */

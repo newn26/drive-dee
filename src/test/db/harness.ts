@@ -66,14 +66,18 @@ export type CreateOptions = {
   beforeProposed?: (db: TestDb) => Promise<void>;
   /** Default true. */
   applyProposed?: boolean;
-  /** Extra SQL files applied last (e.g. a follow-up migration not yet in drizzle/migrations). */
-  after?: string[];
+  /**
+   * Default true: also apply the migrations after 0004. Suites that test the original
+   * Admin-review design of 0004 pass false (0005 creates contracts on booking and lets the
+   * customer's acceptance go straight to payment).
+   */
+  laterMigrations?: boolean;
 };
 
-/** Follow-up migration: customer accepts the contract, no Admin review (not yet applied live). */
+/** 0005: contract created on booking, customer accepts, no Admin review. */
 export const SELF_ACCEPT_MIGRATION = path.join(
-  ROOT,
-  "docs/database/customer-self-accept-contract.sql",
+  MIGRATIONS_DIR,
+  "0005_customer_self_accept_contract.sql",
 );
 
 export async function createTestDb(options: CreateOptions = {}): Promise<TestDb> {
@@ -133,9 +137,9 @@ export async function createTestDb(options: CreateOptions = {}): Promise<TestDb>
   if (options.beforeProposed) await options.beforeProposed(db);
   if (options.applyProposed !== false) {
     await pg.exec(readFileSync(PROPOSED_MIGRATION, "utf8"));
-    for (const f of later) await pg.exec(readFileSync(path.join(MIGRATIONS_DIR, f), "utf8"));
+    if (options.laterMigrations !== false)
+      for (const f of later) await pg.exec(readFileSync(path.join(MIGRATIONS_DIR, f), "utf8"));
   }
-  for (const f of options.after ?? []) await pg.exec(readFileSync(f, "utf8"));
   return db;
 }
 

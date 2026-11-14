@@ -24,6 +24,7 @@ let termsBefore: Record<string, string> = {};
 
 beforeAll(async () => {
   db = await createTestDb({
+    laterMigrations: false,
     beforeProposed: async (pre) => {
       customer = await createUser(pre, { name: "ทดสอบ ลูกค้าเดิม" });
       oldAdmin = await createUser(pre, {

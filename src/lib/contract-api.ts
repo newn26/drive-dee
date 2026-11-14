@@ -144,18 +144,10 @@ export const acceptContract = (contractId: string, version: number) =>
 
 /**
  * Creates the contract of a pending booking made before contracts were created automatically
- * (docs/database/customer-self-accept-contract.sql). Returns the contract id; idempotent.
+ * (drizzle 0005). Returns the contract id; idempotent.
  */
-export async function customerPrepareContract(bookingId: string): Promise<string> {
-  // Not in the generated types until Lovable applies the migration and regenerates them.
-  const rpc = db.rpc as unknown as (
-    fn: string,
-    args: Record<string, unknown>,
-  ) => Promise<{ data: unknown; error: { message: string } | null }>;
-  const { data, error } = await rpc("customer_prepare_contract", { _booking_id: bookingId });
-  if (error) throw new Error(error.message);
-  return String(data);
-}
+export const customerPrepareContract = (bookingId: string) =>
+  call("customer_prepare_contract", { _booking_id: bookingId });
 
 export const ownerManualConfirm = (bookingId: string, reason: string) =>
   call("owner_manual_confirm_booking", { _booking_id: bookingId, _reason: reason.trim() });

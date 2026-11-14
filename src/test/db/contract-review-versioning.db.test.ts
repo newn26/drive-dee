@@ -58,7 +58,7 @@ const holdMinutes = async (bookingId: string) =>
   );
 
 beforeAll(async () => {
-  db = await createTestDb();
+  db = await createTestDb({ laterMigrations: false });
   admin = await createAdmin(db);
   alice = await createUser(db, { name: "ทดสอบ ลูกค้าเอ" });
   bob = await createUser(db, { name: "ทดสอบ ลูกค้าบี" });

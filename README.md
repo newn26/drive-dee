@@ -57,7 +57,7 @@ flowchart LR
 Every rule in this flow is enforced in PostgreSQL (functions, triggers and Row Level
 Security), not only in the user interface. The main implementation lives in
 [`drizzle/migrations/0004_contract_approval_workflow.sql`](drizzle/migrations/0004_contract_approval_workflow.sql),
-changed by [`docs/database/customer-self-accept-contract.sql`](docs/database/customer-self-accept-contract.sql)
+changed by [`drizzle/migrations/0005_customer_self_accept_contract.sql`](drizzle/migrations/0005_customer_self_accept_contract.sql)
 (contract created on booking; accepting goes straight to payment). Section 5 below still
 describe the original Admin-review design of 0004; its admin functions remain in the database
 but the app no longer uses them.

@@ -18,9 +18,9 @@ const SQL = readFileSync(
   path.resolve(__dirname, "../../drizzle/migrations/0004_contract_approval_workflow.sql"),
   "utf8",
 );
-/** Follow-up migration: its guard_contract_update() replaces the one in 0004. */
+/** 0005: its guard_contract_update() replaces the one in 0004. */
 const SELF_ACCEPT_SQL = readFileSync(
-  path.resolve(__dirname, "../../docs/database/customer-self-accept-contract.sql"),
+  path.resolve(__dirname, "../../drizzle/migrations/0005_customer_self_accept_contract.sql"),
   "utf8",
 );
 const NOW = new Date("2026-11-12T10:00:00Z").getTime();

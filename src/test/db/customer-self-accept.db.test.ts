@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * Customer self-accept flow (docs/database/customer-self-accept-contract.sql, applied after 0004):
+ * Customer self-accept flow (drizzle/migrations/0005_customer_self_accept_contract.sql):
  * book → contract shown at once → customer accepts → pay. No Admin step.
  * Real database (PGlite), real roles and RLS. Fictional people only.
  */
@@ -40,7 +40,7 @@ const contractFor = async (bookingId: string) => {
 };
 
 beforeAll(async () => {
-  db = await createTestDb({ after: [SELF_ACCEPT_MIGRATION] });
+  db = await createTestDb();
   alice = await createUser(db, { name: "ทดสอบ ลูกค้าเอ", phone: "000-000-0001" });
   bob = await createUser(db, { name: "ทดสอบ ลูกค้าบี" });
   cars = await allCarIds(db);
@@ -143,7 +143,7 @@ describe("customer self-accept", () => {
 
 describe("migrating contracts that were waiting for an Admin", () => {
   it("S08 pending_admin_review becomes approved with a fresh payment window", async () => {
-    const legacy = await createTestDb();
+    const legacy = await createTestDb({ laterMigrations: false });
     try {
       const admin = await createAdmin(legacy);
       const carol = await createUser(legacy, { name: "ทดสอบ ลูกค้าซี" });
