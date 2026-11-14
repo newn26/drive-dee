@@ -699,6 +699,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      booking_fee: { Args: never; Returns: number }
       bootstrap_owner: { Args: { _email: string }; Returns: undefined }
       contract_hold_until: {
         Args: { _span: string; _start_date: string }
