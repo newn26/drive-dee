@@ -284,19 +284,22 @@ export function ContractWorkQueue({
         <CardDescription>กดเพื่อเปิดรายการในแท็บสัญญาเช่าดิจิทัล</CardDescription>
       </CardHeader>
       <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {tiles.map((t) => (
-          <button
-            key={t.view}
-            type="button"
-            onClick={() => onOpen(t.view)}
-            className={`rounded-lg border p-3 text-left transition hover:bg-muted/60 ${
-              t.urgent && t.n > 0 ? "border-amber-400 bg-amber-50 text-amber-900" : "bg-card"
-            }`}
-          >
-            <span className="block text-2xl font-bold">{t.n}</span>
-            <span className="text-xs">{t.label}</span>
-          </button>
-        ))}
+        {tiles
+          // the old flow's admin approval: shown only while such a contract is still waiting
+          .filter((t) => t.view !== "pending_admin_review" || t.n > 0)
+          .map((t) => (
+            <button
+              key={t.view}
+              type="button"
+              onClick={() => onOpen(t.view)}
+              className={`rounded-lg border p-3 text-left transition hover:bg-muted/60 ${
+                t.urgent && t.n > 0 ? "border-amber-400 bg-amber-50 text-amber-900" : "bg-card"
+              }`}
+            >
+              <span className="block text-2xl font-bold">{t.n}</span>
+              <span className="text-xs">{t.label}</span>
+            </button>
+          ))}
       </CardContent>
     </Card>
   );
@@ -307,7 +310,7 @@ export function AdminContractsPanel({
   contracts,
   bookings,
   profileMap,
-  initialView = "pending_admin_review",
+  initialView = "create",
 }: {
   perms: DashboardPermissions;
   contracts: PanelContract[];
@@ -484,7 +487,12 @@ export function AdminContractsPanel({
         </CardDescription>
         <Tabs value={view} onValueChange={(v) => setView(v as View)} className="mt-3">
           <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4 [&>button]:whitespace-normal">
-            {VIEWS.map((v) => (
+            {VIEWS.filter(
+              (v) =>
+                v.value !== "pending_admin_review" ||
+                (counts["pending_admin_review"] ?? 0) > 0 ||
+                view === "pending_admin_review",
+            ).map((v) => (
               <TabsTrigger key={v.value} value={v.value} className="text-xs">
                 {v.label} ({counts[v.value] ?? 0})
               </TabsTrigger>

@@ -39,7 +39,7 @@ export const ADMIN_PERMISSIONS: readonly AdminPermission[] = [
 
 export const adminPermissionLabel: Record<AdminPermission, string> = {
   contracts_manage: "สร้าง/แก้ไข/ส่งสัญญา",
-  contracts_approve: "อนุมัติสัญญา / ขอแก้ไข",
+  contracts_approve: "อนุมัติสัญญาที่ค้างจากระบบเดิม (การจองใหม่ไม่ต้องอนุมัติ)",
   bookings_manage: "จัดการสถานะการจอง",
   fleet_manage: "จัดการรถและงานซ่อมบำรุง",
   reviews_moderate: "ดูแลรีวิว",
