@@ -251,3 +251,7 @@ export const setAdminStatus = (
 /** Link the Owner sends to the invited person (the token is shown once and never stored in plain text). */
 export const invitationLink = (origin: string, token: string) =>
   `${origin}/admin-invite?token=${encodeURIComponent(token)}`;
+
+/** An invitation token from a URL search param, or undefined if it is not a well-formed token. */
+export const inviteTokenFrom = (value: unknown): string | undefined =>
+  typeof value === "string" && /^[0-9a-f]{64}$/.test(value) ? value : undefined;
