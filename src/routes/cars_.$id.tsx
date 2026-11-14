@@ -108,7 +108,7 @@ function CarDetail() {
       return toast.error(error.message || "ไม่สามารถสร้างการจองได้ กรุณาลองใหม่อีกครั้ง");
     }
     await invalidateBookingData(queryClient);
-    toast.success("สร้างการจองแล้ว กรุณาตรวจสอบและยอมรับสัญญาเช่า แล้วชำระเงิน");
+    toast.success("สร้างการจองแล้ว ผู้ดูแลจะจัดทำสัญญาให้คุณตรวจสอบ (ยังไม่ต้องชำระเงิน)");
     navigate({ to: "/bookings/$id", params: { id: data.id } });
   };
 

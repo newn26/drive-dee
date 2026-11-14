@@ -171,10 +171,17 @@ describe("admin dashboard", () => {
     expect(screen.getByRole("button", { name: /ภาพรวมระบบ/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /จัดการรถยนต์ในระบบ/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /รายการจองของลูกค้า/ })).toBeInTheDocument();
-    // contracts are created automatically: no "create a contract" queue for admins
-    expect(await screen.findByRole("button", { name: /1\s*ชำระเงินแล้ว/ })).toBeInTheDocument();
-    expect(screen.queryByText(/การจองรอสร้างสัญญา/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/รอผู้ดูแลอนุมัติ/)).not.toBeInTheDocument();
+    // one pending booking is waiting for a contract (counts appear once the bookings load)
+    expect(
+      await screen.findByRole("button", { name: /1\s*การจองรอสร้างสัญญา/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("the work queue opens the contracts panel on that stage", async () => {
+    renderDashboard({ ...admin, adminMember: member() });
+    fireEvent.click(await screen.findByRole("button", { name: /1\s*การจองรอสร้างสัญญา/ }));
+    expect(await screen.findByText("BK261112NEW01")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /สร้างสัญญา$/ })).toBeEnabled();
   });
 
   it("legacy paid contracts are listed under 'paid'", async () => {

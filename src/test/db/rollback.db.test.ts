@@ -32,7 +32,7 @@ let cars: string[];
 let paidContract = "";
 
 beforeAll(async () => {
-  db = await createTestDb({ laterMigrations: false });
+  db = await createTestDb();
   const owner = await createOwner(db);
   admin = await createAdmin(db);
   suspended = await createAdmin(db);

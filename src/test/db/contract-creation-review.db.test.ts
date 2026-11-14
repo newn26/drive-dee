@@ -38,7 +38,7 @@ const book = (who: TestUser, nights = 2) =>
   );
 
 beforeAll(async () => {
-  db = await createTestDb({ laterMigrations: false });
+  db = await createTestDb();
   admin = await createAdmin(db);
   alice = await createUser(db, {
     name: "ทดสอบ ลูกค้าเอ",

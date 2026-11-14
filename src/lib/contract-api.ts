@@ -7,7 +7,7 @@
  */
 import { supabase } from "@/integrations/supabase/client";
 import type { Database, Tables } from "@/integrations/supabase/types";
-import type { ContractStatus } from "@/lib/contract-workflow";
+import { bangkokTimestamp, type ContractForm, type ContractStatus } from "@/lib/contract-workflow";
 
 const db = supabase;
 
@@ -38,8 +38,8 @@ export const ADMIN_PERMISSIONS: readonly AdminPermission[] = [
 ];
 
 export const adminPermissionLabel: Record<AdminPermission, string> = {
-  contracts_manage: "สร้าง/แก้ไขสัญญา (ระบบเดิม · ไม่ใช้แล้ว)",
-  contracts_approve: "อนุมัติสัญญา (ระบบเดิม · ไม่ใช้แล้ว)",
+  contracts_manage: "สร้าง/แก้ไข/ส่งสัญญา",
+  contracts_approve: "อนุมัติสัญญา / ขอแก้ไข",
   bookings_manage: "จัดการสถานะการจอง",
   fleet_manage: "จัดการรถและงานซ่อมบำรุง",
   reviews_moderate: "ดูแลรีวิว",
@@ -139,15 +139,63 @@ export async function fetchAdminAudit(limit = 100): Promise<AdminAuditRow[]> {
 
 // ------------------------------ contract workflow ------------------------------
 
+function contractArgs(f: ContractForm, startDate: string, endDate: string) {
+  return {
+    _pickup_at: bangkokTimestamp(startDate, f.pickupTime),
+    _return_at: bangkokTimestamp(endDate, f.returnTime),
+    _deposit: f.deposit,
+    _mileage_allowance: f.mileageAllowance.trim(),
+    _late_penalty: f.latePenalty.trim(),
+    _additional_conditions: f.additionalConditions.trim(),
+    _include_license: f.includeLicence,
+  };
+}
+
+export const createContract = (
+  bookingId: string,
+  f: ContractForm,
+  startDate: string,
+  endDate: string,
+) =>
+  call("admin_create_contract", {
+    _booking_id: bookingId,
+    ...contractArgs(f, startDate, endDate),
+  });
+
+/** Returns the version number now being edited (a new one when the old was already sent). */
+export const updateContract = (
+  contractId: string,
+  f: ContractForm,
+  startDate: string,
+  endDate: string,
+) =>
+  call("admin_update_contract", {
+    _contract_id: contractId,
+    ...contractArgs(f, startDate, endDate),
+  });
+
+export const sendContract = (contractId: string) =>
+  call("admin_send_contract", { _contract_id: contractId });
+
 export const acceptContract = (contractId: string, version: number) =>
   call("customer_accept_contract", { _contract_id: contractId, _version: version });
 
-/**
- * Creates the contract of a pending booking made before contracts were created automatically
- * (drizzle 0005). Returns the contract id; idempotent.
- */
-export const customerPrepareContract = (bookingId: string) =>
-  call("customer_prepare_contract", { _booking_id: bookingId });
+export const customerRequestRevision = (contractId: string, version: number, reason: string) =>
+  call("customer_request_revision", {
+    _contract_id: contractId,
+    _version: version,
+    _reason: reason.trim(),
+  });
+
+export const approveContract = (contractId: string, version: number) =>
+  call("admin_approve_contract", { _contract_id: contractId, _version: version });
+
+export const adminRequestRevision = (contractId: string, version: number, reason: string) =>
+  call("admin_request_revision", {
+    _contract_id: contractId,
+    _version: version,
+    _reason: reason.trim(),
+  });
 
 export const ownerManualConfirm = (bookingId: string, reason: string) =>
   call("owner_manual_confirm_booking", { _booking_id: bookingId, _reason: reason.trim() });
