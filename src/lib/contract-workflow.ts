@@ -1,3 +1,4 @@
+import { bilingual, tr } from "@/lib/i18n";
 /**
  * Contract approval workflow: statuses, labels and the rules the UI follows.
  *
@@ -20,23 +21,26 @@ export const isContractStatus = (s: unknown): s is ContractStatus =>
   typeof s === "string" && (CONTRACT_STATUSES as readonly string[]).includes(s);
 
 /** Labels for admins. */
-export const contractStatusLabel: Record<ContractStatus, string> = {
-  draft: "ฉบับร่าง",
-  pending_customer: "รอลูกค้าตรวจสอบ",
-  pending_admin_review: "รอผู้ดูแลอนุมัติ (ระบบเดิม)",
-  revision_requested: "ขอแก้ไขสัญญา",
-  approved: "ลูกค้ายืนยันแล้ว · รอชำระค่าจอง",
-  paid: "ชำระเงินแล้ว",
-  cancelled: "ยกเลิก",
-};
+export const contractStatusLabel: Record<ContractStatus, string> = bilingual({
+  draft: ["ฉบับร่าง", "Draft"],
+  pending_customer: ["รอลูกค้าตรวจสอบ", "Waiting for customer"],
+  pending_admin_review: ["รอผู้ดูแลอนุมัติ (ระบบเดิม)", "Waiting for staff approval (legacy)"],
+  revision_requested: ["ขอแก้ไขสัญญา", "Changes requested"],
+  approved: ["ลูกค้ายืนยันแล้ว · รอชำระค่าจอง", "Confirmed · booking fee due"],
+  paid: ["ชำระเงินแล้ว", "Paid"],
+  cancelled: ["ยกเลิก", "Cancelled"],
+});
 
 /**
  * Labels for the customer. A draft of a contract the customer has already been sent
  * means the admin is preparing a new version.
  */
 export function customerContractLabel(status: ContractStatus, everSent: boolean): string {
-  if (status === "draft") return everSent ? "ผู้ดูแลกำลังแก้ไขสัญญา" : "รอผู้ดูแลจัดทำสัญญา";
-  if (status === "pending_customer") return "รอคุณตรวจสอบสัญญา";
+  if (status === "draft")
+    return everSent
+      ? tr("ผู้ดูแลกำลังแก้ไขสัญญา", "Staff are updating the contract")
+      : tr("รอผู้ดูแลจัดทำสัญญา", "Waiting for staff to prepare the contract");
+  if (status === "pending_customer") return tr("รอคุณตรวจสอบสัญญา", "Please review your contract");
   return contractStatusLabel[status];
 }
 
@@ -126,16 +130,16 @@ export function customerStage(
   return "cancelled";
 }
 
-export const customerStageLabel: Record<CustomerStage, string> = {
-  awaiting_contract: "รอสัญญา",
-  review_contract: "รอตรวจสัญญา",
-  awaiting_approval: "รอผู้ดูแล (ระบบเดิม)",
-  revision_requested: "ขอแก้ไขสัญญา",
-  awaiting_payment: "รอชำระเงิน",
-  confirmed: "ยืนยันแล้ว",
-  completed: "เสร็จสิ้น",
-  cancelled: "ยกเลิก",
-};
+export const customerStageLabel: Record<CustomerStage, string> = bilingual({
+  awaiting_contract: ["รอสัญญา", "Awaiting contract"],
+  review_contract: ["รอตรวจสัญญา", "Review contract"],
+  awaiting_approval: ["รอผู้ดูแล (ระบบเดิม)", "Waiting for staff (legacy)"],
+  revision_requested: ["ขอแก้ไขสัญญา", "Changes requested"],
+  awaiting_payment: ["รอชำระเงิน", "Awaiting payment"],
+  confirmed: ["ยืนยันแล้ว", "Confirmed"],
+  completed: ["เสร็จสิ้น", "Completed"],
+  cancelled: ["ยกเลิก", "Cancelled"],
+});
 
 // ---------------------------------------------------------------------------
 // Bookings: status moves an admin may make by hand (must match validate_booking)
@@ -183,36 +187,39 @@ export const bookingMovesOn = (
 // Contract events
 // ---------------------------------------------------------------------------
 
-export const contractEventLabel: Record<string, string> = {
-  legacy_import: "นำเข้าสัญญาเดิม",
-  created: "สร้างฉบับร่าง",
-  edited: "แก้ไขสัญญา",
-  sent: "ส่งให้ลูกค้าตรวจสอบ",
-  accepted: "ลูกค้ายอมรับสัญญา",
-  revision_requested: "ขอแก้ไขสัญญา",
-  approved: "ผู้ดูแลอนุมัติสัญญา (ระบบเดิม)",
-  paid: "ชำระเงิน (DEMO)",
-  cancelled: "ยกเลิก",
-  expired: "หมดเวลา",
-  manual_confirm: "ยืนยันการจองด้วยตนเอง (Owner)",
-};
+export const contractEventLabel: Record<string, string> = bilingual({
+  legacy_import: ["นำเข้าสัญญาเดิม", "Imported legacy contract"],
+  created: ["สร้างฉบับร่าง", "Draft created"],
+  edited: ["แก้ไขสัญญา", "Contract edited"],
+  sent: ["ส่งให้ลูกค้าตรวจสอบ", "Sent to customer"],
+  accepted: ["ลูกค้ายอมรับสัญญา", "Customer confirmed"],
+  revision_requested: ["ขอแก้ไขสัญญา", "Changes requested"],
+  approved: ["ผู้ดูแลอนุมัติสัญญา (ระบบเดิม)", "Staff approved (legacy)"],
+  paid: ["ชำระเงิน (DEMO)", "Paid (DEMO)"],
+  cancelled: ["ยกเลิก", "Cancelled"],
+  expired: ["หมดเวลา", "Expired"],
+  manual_confirm: ["ยืนยันการจองด้วยตนเอง (Owner)", "Confirmed manually (Owner)"],
+});
 
-export const actorRoleLabel: Record<string, string> = {
-  owner: "เจ้าของระบบ",
-  admin: "ผู้ดูแลระบบ",
-  customer: "ลูกค้า",
-  system: "ระบบ",
-};
+export const actorRoleLabel: Record<string, string> = bilingual({
+  owner: ["เจ้าของระบบ", "Owner"],
+  admin: ["ผู้ดูแลระบบ", "Staff"],
+  customer: ["ลูกค้า", "Customer"],
+  system: ["ระบบ", "System"],
+});
 
 // ---------------------------------------------------------------------------
 // Payments: cancellation is not a refund
 // ---------------------------------------------------------------------------
 
-export const refundStatusLabel: Record<string, string> = {
-  none: "-",
-  not_refunded: "ยกเลิกแล้ว · ไม่คืนเงิน (ค่าจองไม่คืนเมื่อยกเลิก ตามเงื่อนไขในสัญญา)",
-  refunded: "ยกเลิกแล้ว · คืนเงินแล้ว (DEMO)",
-};
+export const refundStatusLabel: Record<string, string> = bilingual({
+  none: ["-", "-"],
+  not_refunded: [
+    "ยกเลิกแล้ว · ไม่คืนเงิน (ค่าจองไม่คืนเมื่อยกเลิก ตามเงื่อนไขในสัญญา)",
+    "Cancelled · not refunded (the booking fee is non-refundable under the contract)",
+  ],
+  refunded: ["ยกเลิกแล้ว · คืนเงินแล้ว (DEMO)", "Cancelled · refunded (DEMO)"],
+});
 
 // ---------------------------------------------------------------------------
 // Contract form helpers
@@ -287,10 +294,14 @@ export type RevisionRequest = { customerName: string; pickupTime: string; return
 
 /** Thai error message, or null when the request is valid. */
 export function revisionRequestError(r: RevisionRequest, sameDay: boolean): string | null {
-  if (r.customerName.trim().length < 2) return "กรุณากรอกชื่อลูกค้า";
+  if (r.customerName.trim().length < 2) return tr("กรุณากรอกชื่อลูกค้า", "Please enter the customer name");
   if (!withinHours(r.pickupTime) || !withinHours(r.returnTime))
-    return `เวลารับรถและคืนรถต้องอยู่ระหว่าง ${OPENING_TIME}-${CLOSING_TIME} น.`;
-  if (sameDay && r.returnTime <= r.pickupTime) return "เวลาคืนรถต้องหลังเวลารับรถ";
+    return tr(
+      `เวลารับรถและคืนรถต้องอยู่ระหว่าง ${OPENING_TIME}-${CLOSING_TIME} น.`,
+      `Pickup and return times must be between ${OPENING_TIME} and ${CLOSING_TIME}.`,
+    );
+  if (sameDay && r.returnTime <= r.pickupTime)
+    return tr("เวลาคืนรถต้องหลังเวลารับรถ", "The return time must be after the pickup time");
   return null;
 }
 
@@ -322,4 +333,6 @@ export function parseRevisionReason(text: string | null | undefined): RevisionRe
 
 /** A reason for a revision request or a manual confirmation (same minimums as the database). */
 export const reasonError = (reason: string, min: number) =>
-  reason.trim().length < min ? `กรุณาระบุเหตุผลอย่างน้อย ${min} ตัวอักษร` : null;
+  reason.trim().length < min
+    ? tr(`กรุณาระบุเหตุผลอย่างน้อย ${min} ตัวอักษร`, `Please give a reason of at least ${min} characters`)
+    : null;

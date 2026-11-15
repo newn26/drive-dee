@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { MIN_PASSWORD_LENGTH, recoveryLinkError, validateNewPassword } from "@/lib/password";
+import { tr } from "@/lib/i18n";
 
 /** How long to wait for Supabase to read the recovery session from the link. */
 export const RECOVERY_SESSION_TIMEOUT_MS = 5000;
@@ -67,7 +68,7 @@ export function ResetPasswordForm({
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      setLinkError("ลิงก์รีเซ็ตรหัสผ่านไม่ถูกต้องหรือหมดอายุ กรุณาขอลิงก์ใหม่");
+      setLinkError(tr("ลิงก์รีเซ็ตรหัสผ่านไม่ถูกต้องหรือหมดอายุ กรุณาขอลิงก์ใหม่", "The password reset link is invalid or has expired. Please request a new one."));
       setStage("invalid");
     }, RECOVERY_SESSION_TIMEOUT_MS);
 
@@ -90,18 +91,18 @@ export function ResetPasswordForm({
       if (error) {
         toast.error(
           /different from the old/i.test(error.message)
-            ? "รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม"
-            : error.message || "ไม่สามารถตั้งรหัสผ่านใหม่ได้",
+            ? tr("รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม", "The new password must be different from the old one")
+            : error.message || tr("ไม่สามารถตั้งรหัสผ่านใหม่ได้", "Could not set the new password"),
         );
         return;
       }
       setPassword("");
       setConfirm("");
       setStage("done");
-      toast.success("ตั้งรหัสผ่านใหม่เรียบร้อยแล้ว");
+      toast.success(tr("ตั้งรหัสผ่านใหม่เรียบร้อยแล้ว", "New password set"));
       onDone();
     } catch (err: unknown) {
-      toast.error((err as Error).message || "เกิดข้อผิดพลาดในการเชื่อมต่อ");
+      toast.error((err as Error).message || tr("เกิดข้อผิดพลาดในการเชื่อมต่อ", "A connection error occurred"));
     } finally {
       setSaving(false);
     }
@@ -113,13 +114,13 @@ export function ResetPasswordForm({
         <div className="mx-auto mb-2 grid h-12 w-12 place-items-center rounded-2xl bg-primary/10 text-primary">
           <KeyRound className="h-6 w-6" />
         </div>
-        <CardTitle className="text-2xl font-bold">ตั้งรหัสผ่านใหม่</CardTitle>
-        <CardDescription>กรอกรหัสผ่านใหม่สำหรับบัญชีของคุณ</CardDescription>
+        <CardTitle className="text-2xl font-bold">{tr("ตั้งรหัสผ่านใหม่", "Set a new password")}</CardTitle>
+        <CardDescription>{tr("กรอกรหัสผ่านใหม่สำหรับบัญชีของคุณ", "Enter a new password for your account")}</CardDescription>
       </CardHeader>
 
       {stage === "checking" && (
         <CardContent className="py-6 text-center text-sm text-muted-foreground" role="status">
-          กำลังตรวจสอบลิงก์รีเซ็ตรหัสผ่าน...
+          {tr("กำลังตรวจสอบลิงก์รีเซ็ตรหัสผ่าน...", "Checking the reset link...")}
         </CardContent>
       )}
 
@@ -136,7 +137,7 @@ export function ResetPasswordForm({
           </CardContent>
           <CardFooter>
             <Button className="w-full" onClick={onRequestNewLink}>
-              ขอลิงก์รีเซ็ตรหัสผ่านใหม่
+              {tr("ขอลิงก์รีเซ็ตรหัสผ่านใหม่", "Request a new reset link")}
             </Button>
           </CardFooter>
         </>
@@ -149,7 +150,7 @@ export function ResetPasswordForm({
             role="status"
           >
             <CheckCircle2 className="h-4 w-4 shrink-0" />
-            <span>ตั้งรหัสผ่านใหม่เรียบร้อยแล้ว</span>
+            <span>{tr("ตั้งรหัสผ่านใหม่เรียบร้อยแล้ว", "New password set")}</span>
           </div>
         </CardContent>
       )}
@@ -159,14 +160,14 @@ export function ResetPasswordForm({
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="reset-pw" className="text-xs">
-                รหัสผ่านใหม่
+                {tr("รหัสผ่านใหม่", "New password")}
               </Label>
               <div className="relative">
                 <Input
                   id="reset-pw"
                   type="password"
                   autoComplete="new-password"
-                  placeholder={`อย่างน้อย ${MIN_PASSWORD_LENGTH} ตัวอักษร`}
+                  placeholder={tr(`อย่างน้อย ${MIN_PASSWORD_LENGTH} ตัวอักษร`, `At least ${MIN_PASSWORD_LENGTH} characters`)}
                   minLength={MIN_PASSWORD_LENGTH}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -178,14 +179,14 @@ export function ResetPasswordForm({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="reset-pw-confirm" className="text-xs">
-                ยืนยันรหัสผ่านใหม่
+                {tr("ยืนยันรหัสผ่านใหม่", "Confirm new password")}
               </Label>
               <div className="relative">
                 <Input
                   id="reset-pw-confirm"
                   type="password"
                   autoComplete="new-password"
-                  placeholder="กรอกรหัสผ่านซ้ำอีกครั้ง"
+                  placeholder={tr("กรอกรหัสผ่านซ้ำอีกครั้ง", "Enter the password again")}
                   minLength={MIN_PASSWORD_LENGTH}
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
@@ -198,7 +199,7 @@ export function ResetPasswordForm({
           </CardContent>
           <CardFooter>
             <Button className="w-full text-base" type="submit" disabled={saving}>
-              {saving ? "กำลังบันทึก..." : "บันทึกรหัสผ่านใหม่"}
+              {saving ? tr("กำลังบันทึก...", "Saving...") : tr("บันทึกรหัสผ่านใหม่", "Save new password")}
             </Button>
           </CardFooter>
         </form>

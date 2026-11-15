@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { MIN_PASSWORD_LENGTH, validatePasswordChange } from "@/lib/password";
+import { tr } from "@/lib/i18n";
 
 /**
  * Change the password of the signed-in user. The current password is checked first by
@@ -46,17 +47,17 @@ export function ChangePasswordCard({ email, isDemo }: { email: string; isDemo: b
         password: current,
       });
       if (verifyError) {
-        toast.error("รหัสผ่านปัจจุบันไม่ถูกต้อง");
+        toast.error(tr("รหัสผ่านปัจจุบันไม่ถูกต้อง", "The current password is incorrect"));
         setCurrent("");
         return;
       }
       // 2. Save the new password
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
-      toast.success("เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว");
+      toast.success(tr("เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว", "Password changed"));
       reset();
     } catch (err: unknown) {
-      toast.error((err as Error).message || "ไม่สามารถเปลี่ยนรหัสผ่านได้");
+      toast.error((err as Error).message || tr("ไม่สามารถเปลี่ยนรหัสผ่านได้", "Could not change the password"));
     } finally {
       setBusy(false);
     }
@@ -95,10 +96,10 @@ export function ChangePasswordCard({ email, isDemo }: { email: string; isDemo: b
       <CardHeader className="pb-3">
         <div className="flex items-center gap-2">
           <KeyRound className="h-5 w-5 text-primary" />
-          <CardTitle className="text-lg">เปลี่ยนรหัสผ่าน</CardTitle>
+          <CardTitle className="text-lg">{tr("เปลี่ยนรหัสผ่าน", "Change password")}</CardTitle>
         </div>
         <CardDescription>
-          กรอกรหัสผ่านปัจจุบันเพื่อยืนยันว่าเป็นเจ้าของบัญชี แล้วตั้งรหัสผ่านใหม่
+          {tr("กรอกรหัสผ่านปัจจุบันเพื่อยืนยันว่าเป็นเจ้าของบัญชี แล้วตั้งรหัสผ่านใหม่", "Enter your current password to confirm it is you, then set a new password.")}
         </CardDescription>
       </CardHeader>
 
@@ -109,31 +110,31 @@ export function ChangePasswordCard({ email, isDemo }: { email: string; isDemo: b
               className="rounded-lg border bg-muted/40 p-2.5 text-xs text-muted-foreground"
               data-testid="demo-password-note"
             >
-              บัญชีทดลองไม่มีรหัสผ่านที่คุณรู้ จึงเปลี่ยนรหัสผ่านไม่ได้
+              {tr("บัญชีทดลองไม่มีรหัสผ่านที่คุณรู้ จึงเปลี่ยนรหัสผ่านไม่ได้", "Demo accounts have no password you know, so the password cannot be changed.")}
             </p>
           )}
           {field(
             "current-pw",
-            "รหัสผ่านปัจจุบัน",
+            tr("รหัสผ่านปัจจุบัน", "Current password"),
             current,
             setCurrent,
-            "รหัสผ่านที่ใช้อยู่ตอนนี้",
+            tr("รหัสผ่านที่ใช้อยู่ตอนนี้", "Your current password"),
             "current-password",
           )}
           {field(
             "new-pw",
-            "รหัสผ่านใหม่",
+            tr("รหัสผ่านใหม่", "New password"),
             password,
             setPassword,
-            `อย่างน้อย ${MIN_PASSWORD_LENGTH} ตัวอักษร`,
+            tr(`อย่างน้อย ${MIN_PASSWORD_LENGTH} ตัวอักษร`, `At least ${MIN_PASSWORD_LENGTH} characters`),
             "new-password",
           )}
           {field(
             "confirm-pw",
-            "ยืนยันรหัสผ่านใหม่",
+            tr("ยืนยันรหัสผ่านใหม่", "Confirm new password"),
             confirm,
             setConfirm,
-            "กรอกรหัสผ่านใหม่ซ้ำอีกครั้ง",
+            tr("กรอกรหัสผ่านใหม่ซ้ำอีกครั้ง", "Enter the new password again"),
             "new-password",
           )}
         </CardContent>
@@ -146,7 +147,7 @@ export function ChangePasswordCard({ email, isDemo }: { email: string; isDemo: b
             disabled={isDemo || busy || !current || !password}
             className="w-full"
           >
-            {busy ? "กำลังตรวจสอบและอัปเดตรหัสผ่าน..." : "เปลี่ยนรหัสผ่าน"}
+            {busy ? tr("กำลังตรวจสอบและอัปเดตรหัสผ่าน...", "Checking and updating the password...") : tr("เปลี่ยนรหัสผ่าน", "Change password")}
           </Button>
         </CardFooter>
       </form>

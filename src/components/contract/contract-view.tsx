@@ -3,10 +3,11 @@ import { CheckCircle2, Clock, History, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
-import { fmtDateTime, thb } from "@/lib/format";
+import { fmtDateTime, pickupLocationLabel, thb } from "@/lib/format";
 import { actorRoleLabel, contractEventLabel, customerContractLabel } from "@/lib/contract-workflow";
 import { rentalCharges } from "@/lib/booking-fee";
 import type { ContractEventRow, ContractRow, ContractVersionRow } from "@/lib/contract-api";
+import { tr } from "@/lib/i18n";
 
 const bkkDateTime = (iso: string | null) => (iso ? fmtDateTime(iso) : "-");
 
@@ -15,22 +16,22 @@ export function ContractSummary({ v }: { v: ContractVersionRow }) {
   if (v.is_legacy) {
     return (
       <p className="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
-        สัญญาฉบับเดิม (ก่อนระบบอนุมัติสัญญา) — แสดงตามข้อความต้นฉบับด้านล่าง
+        {tr("สัญญาฉบับเดิม (ก่อนระบบอนุมัติสัญญา) — แสดงตามข้อความต้นฉบับด้านล่าง", "Legacy contract (before the approval workflow), shown in its original text below")}
       </p>
     );
   }
   const rows: [string, string][] = [
-    ["ผู้เช่า", `${v.customer_name ?? "-"}${v.customer_phone ? ` · โทร ${v.customer_phone}` : ""}`],
+    [tr("ผู้เช่า", "Renter"), `${v.customer_name ?? "-"}${v.customer_phone ? ` · โทร ${v.customer_phone}` : ""}`],
     ...(v.customer_license_no
-      ? ([["เลขที่ใบอนุญาตขับขี่", v.customer_license_no]] as [string, string][])
+      ? ([[tr("เลขที่ใบอนุญาตขับขี่", "Driving licence no."), v.customer_license_no]] as [string, string][])
       : []),
-    ["รถยนต์", `${v.car_label ?? "-"} · ทะเบียน ${v.car_plate_no ?? "-"}`],
-    ["สถานที่รับรถ", v.pickup_location ?? "-"],
-    ["รับรถ", bkkDateTime(v.pickup_at)],
-    ["คืนรถ", `${bkkDateTime(v.return_at)}${v.rental_days ? ` (${v.rental_days} วัน)` : ""}`],
+    [tr("รถยนต์", "Car"), `${v.car_label ?? "-"} · ${tr("ทะเบียน", "Plate")} ${v.car_plate_no ?? "-"}`],
+    [tr("สถานที่รับรถ", "Pickup location"), pickupLocationLabel(v.pickup_location)],
+    [tr("รับรถ", "Pickup"), bkkDateTime(v.pickup_at)],
+    [tr("คืนรถ", "Return"), `${bkkDateTime(v.return_at)}${v.rental_days ? ` (${v.rental_days} วัน)` : ""}`],
     ...moneyRows(v),
-    ["ข้อกำหนดระยะทาง", v.mileage_allowance ?? "-"],
-    ["ค่าปรับส่งคืนรถล่าช้า", v.late_penalty ?? "-"],
+    [tr("ข้อกำหนดระยะทาง", "Mileage"), v.mileage_allowance ?? "-"],
+    [tr("ค่าปรับส่งคืนรถล่าช้า", "Late return penalty"), v.late_penalty ?? "-"],
   ];
   return (
     <dl className="grid gap-x-4 gap-y-2 rounded-lg border bg-card p-3 text-sm sm:grid-cols-[max-content_1fr]">
@@ -42,7 +43,7 @@ export function ContractSummary({ v }: { v: ContractVersionRow }) {
       ))}
       {v.additional_conditions.trim() && (
         <div className="contents">
-          <dt className="text-xs text-muted-foreground sm:text-sm">เงื่อนไขเพิ่มเติม</dt>
+          <dt className="text-xs text-muted-foreground sm:text-sm">{tr("เงื่อนไขเพิ่มเติม", "Additional conditions")}</dt>
           <dd className="whitespace-pre-wrap font-medium text-foreground">
             {v.additional_conditions}
           </dd>
@@ -54,26 +55,27 @@ export function ContractSummary({ v }: { v: ContractVersionRow }) {
 
 /**
  * Money rows. Versions written after the booking-fee migration (0007) say so in their terms
- * ("ค่าจอง"): 1,000 THB online, rent + deposit − fee at pickup. Older versions were paid in
+ * (tr("ค่าจอง", "Booking fee")): 1,000 THB online, rent + deposit − fee at pickup. Older versions were paid in
  * full online, so they keep the wording they were signed with.
  */
 function moneyRows(v: ContractVersionRow): [string, string][] {
   const rent = Number(v.rental_price ?? 0);
+  // Contract text is always Thai: contracts from before the booking fee do not mention it
   if (!v.terms.includes("ค่าจอง")) {
     return [
-      ["ค่าเช่ารวม (ชำระออนไลน์)", thb(rent)],
-      ["เงินประกันความเสียหาย", `${thb(v.deposit)} — ชำระ ณ วันรับรถ ไม่รวมในการชำระเงินออนไลน์`],
+      [tr("ค่าเช่ารวม (ชำระออนไลน์)", "Total rent (paid online)"), thb(rent)],
+      [tr("เงินประกันความเสียหาย", "Damage deposit"), `${thb(v.deposit)} — ${tr("ชำระ ณ วันรับรถ ไม่รวมในการชำระเงินออนไลน์", "paid on the pickup day, not included in the online payment")}`],
     ];
   }
   const c = rentalCharges(rent);
   const deposit = Number(v.deposit ?? c.insurance);
   return [
-    ["ค่าเช่ารวม", `${thb(rent)} — ชำระ ณ วันรับรถ`],
-    ["เงินประกันความเสียหาย", `${thb(deposit)} — ชำระ ณ วันรับรถ ได้คืนเมื่อคืนรถตามสภาพเดิม`],
-    ["ค่าจอง (ชำระออนไลน์)", `${thb(c.fee)} — หลังยืนยันสัญญา ไม่คืนเมื่อยกเลิก`],
+    [tr("ค่าเช่ารวม", "Total rent"), `${thb(rent)} — ${tr("ชำระ ณ วันรับรถ", "paid on the pickup day")}`],
+    [tr("เงินประกันความเสียหาย", "Damage deposit"), `${thb(deposit)} — ${tr("ชำระ ณ วันรับรถ ได้คืนเมื่อคืนรถตามสภาพเดิม", "paid on the pickup day, returned when the car comes back in its original condition")}`],
+    [tr("ค่าจอง (ชำระออนไลน์)", "Booking fee (paid online)"), `${thb(c.fee)} — ${tr("หลังยืนยันสัญญา ไม่คืนเมื่อยกเลิก", "after you confirm the contract, non-refundable")}`],
     [
-      "ยอดชำระ ณ วันรับรถ",
-      `${thb(Math.max(rent + deposit - c.fee, 0))} (ค่าเช่า + เงินประกัน − ค่าจอง)`,
+      tr("ยอดชำระ ณ วันรับรถ", "Due on the pickup day"),
+      `${thb(Math.max(rent + deposit - c.fee, 0))} ${tr("(ค่าเช่า + เงินประกัน − ค่าจอง)", "(rent + deposit − booking fee)")}`,
     ],
   ];
 }
@@ -81,10 +83,10 @@ function moneyRows(v: ContractVersionRow): [string, string][] {
 /** Sent / accepted / approved / superseded stamps of a version. */
 export function VersionStamps({ v }: { v: ContractVersionRow }) {
   const stamps: [string, string | null][] = [
-    ["ส่งให้ลูกค้า", v.sent_at],
-    ["ลูกค้ายอมรับ", v.accepted_at],
-    ["ผู้ดูแลอนุมัติ", v.approved_at],
-    ["ถูกแทนที่ด้วยฉบับใหม่", v.superseded_at],
+    [tr("ส่งให้ลูกค้า", "Sent to customer"), v.sent_at],
+    [tr("ลูกค้ายอมรับ", "Customer confirmed"), v.accepted_at],
+    [tr("ผู้ดูแลอนุมัติ", "Staff approved"), v.approved_at],
+    [tr("ถูกแทนที่ด้วยฉบับใหม่", "Replaced by a newer version"), v.superseded_at],
   ];
   return (
     <ul className="flex flex-wrap gap-2 text-xs">
@@ -106,7 +108,7 @@ export function VersionStamps({ v }: { v: ContractVersionRow }) {
 export function ContractTimeline({ events }: { events: ContractEventRow[] }) {
   if (events.length === 0) return null;
   return (
-    <ol className="space-y-2 border-l pl-4 text-xs" aria-label="ประวัติสัญญา">
+    <ol className="space-y-2 border-l pl-4 text-xs" aria-label={tr("ประวัติสัญญา", "Contract history")}>
       {events.map((e) => (
         <li key={e.id} className="relative">
           <span
@@ -117,7 +119,7 @@ export function ContractTimeline({ events }: { events: ContractEventRow[] }) {
             {contractEventLabel[e.action] ?? e.action}
           </span>
           {e.version !== null && (
-            <span className="text-muted-foreground"> · ฉบับที่ {e.version}</span>
+            <span className="text-muted-foreground"> {tr("· ฉบับที่", "· Version")} {e.version}</span>
           )}
           <span className="text-muted-foreground">
             {" "}
@@ -164,11 +166,11 @@ export function ContractView({
         <div className="space-y-1">
           {/* div, not p: Badge renders a <div>, which is invalid inside <p> (hydration error) */}
           <div className="text-sm text-muted-foreground">
-            เลขที่สัญญา{" "}
+            {tr("เลขที่สัญญา", "Contract no.")}{" "}
             <span className="font-mono font-semibold text-foreground">{contract.contract_no}</span>
             {current && (
               <Badge variant="outline" className="ml-2 align-middle">
-                ฉบับที่ {current.version}
+                {tr("ฉบับที่", "Version")} {current.version}
               </Badge>
             )}
           </div>
@@ -179,7 +181,7 @@ export function ContractView({
               <StatusBadge status={contract.status} kind="contract" />
             )}
             <span className="text-xs text-muted-foreground">
-              อัปเดตล่าสุด {fmtDateTime(contract.updated_at)}
+              {tr("อัปเดตล่าสุด", "Last updated")} {fmtDateTime(contract.updated_at)}
             </span>
           </div>
         </div>
@@ -190,7 +192,7 @@ export function ContractView({
             onClick={() => window.print()}
             className="print:hidden"
           >
-            <Printer className="mr-1.5 h-4 w-4" /> พิมพ์สัญญา
+            <Printer className="mr-1.5 h-4 w-4" /> {tr("พิมพ์สัญญา", "Print contract")}
           </Button>
         )}
       </div>
@@ -199,8 +201,8 @@ export function ContractView({
         <div className="rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm text-orange-900">
           <p className="font-semibold">
             {contract.revision_requested_by === "customer"
-              ? "ลูกค้าขอแก้ไขสัญญา"
-              : "ผู้ดูแลขอแก้ไขสัญญา"}
+              ? tr("ลูกค้าขอแก้ไขสัญญา", "Customer requested changes")
+              : tr("ผู้ดูแลขอแก้ไขสัญญา", "Staff requested changes")}
           </p>
           <p className="whitespace-pre-wrap">{contract.revision_reason}</p>
         </div>
@@ -216,7 +218,7 @@ export function ContractView({
         </>
       ) : (
         <p className="flex items-center gap-2 rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
-          <Clock className="h-4 w-4" /> ยังไม่มีสัญญาฉบับที่ส่งให้ลูกค้า
+          <Clock className="h-4 w-4" /> {tr("ยังไม่มีสัญญาฉบับที่ส่งให้ลูกค้า", "No contract version has been sent yet")}
         </p>
       )}
 
@@ -229,7 +231,7 @@ export function ContractView({
             onClick={() => setShowHistory((s) => !s)}
           >
             <History className="mr-1 h-3.5 w-3.5" />
-            {showHistory ? "ซ่อนประวัติสัญญา" : `ดูประวัติสัญญา (${older.length} ฉบับก่อนหน้า)`}
+            {showHistory ? tr("ซ่อนประวัติสัญญา", "Hide contract history") : tr(`ดูประวัติสัญญา (${older.length} ฉบับก่อนหน้า)`, `Show contract history (${older.length} earlier versions)`)}
           </Button>
           {showHistory && (
             <div className="mt-3 space-y-4">
@@ -237,7 +239,7 @@ export function ContractView({
               {older.map((v) => (
                 <details key={v.id} className="rounded-lg border p-3">
                   <summary className="cursor-pointer text-sm font-medium">
-                    ฉบับที่ {v.version} {v.superseded_at ? "(ถูกแทนที่แล้ว)" : ""}
+                    {tr("ฉบับที่", "Version")} {v.version} {v.superseded_at ? tr("(ถูกแทนที่แล้ว)", "(replaced)") : ""}
                   </summary>
                   <div className="mt-3 space-y-3">
                     <ContractSummary v={v} />

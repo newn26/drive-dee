@@ -1,4 +1,5 @@
 import { expireStaleBookings } from "@/lib/contract-api";
+import { tr } from "@/lib/i18n";
 
 /** Payment window after Admin approval. Must match the 15 minutes in admin_approve_contract. */
 export const PAYMENT_WINDOW_MINUTES = 15;
@@ -36,7 +37,7 @@ export function formatCountdown(seconds: number): string {
   if (seconds >= 3600) {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
-    return `${h} ชม. ${String(m).padStart(2, "0")} นาที`;
+    return tr(`${h} ชม. ${String(m).padStart(2, "0")} นาที`, `${h} h ${String(m).padStart(2, "0")} min`);
   }
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;

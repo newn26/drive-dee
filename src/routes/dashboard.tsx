@@ -26,8 +26,9 @@ import { StatusBadge } from "@/components/status-badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
-import { categoryLabel, fmtDate, thb } from "@/lib/format";
+import { categoryLabel, fmtDate, pickupLocationLabel, thb } from "@/lib/format";
 import { bookingContract, customerBookingsQuery, workflowContract } from "@/lib/queries";
+import { tr } from "@/lib/i18n";
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({
@@ -76,7 +77,7 @@ function CustomerDashboardPage() {
     return (
       <div className="mx-auto max-w-5xl px-4 py-20 text-center">
         <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-        <p className="mt-4 text-muted-foreground">กำลังโหลดข้อมูลแดชบอร์ดของคุณ...</p>
+        <p className="mt-4 text-muted-foreground">{tr("กำลังโหลดข้อมูลแดชบอร์ดของคุณ...", "Loading your dashboard...")}</p>
       </div>
     );
   }
@@ -86,17 +87,17 @@ function CustomerDashboardPage() {
     return (
       <div className="mx-auto max-w-md px-4 py-20 text-center">
         <AlertCircle className="mx-auto h-12 w-12 text-warning" />
-        <h2 className="mt-4 text-2xl font-semibold">กรุณาเข้าสู่ระบบ</h2>
-        <p className="mt-2 text-sm text-muted-foreground">เข้าสู่ระบบเพื่อตรวจสอบสถานะการเช่าและข้อมูลการจองของคุณ</p>
+        <h2 className="mt-4 text-2xl font-semibold">{tr("กรุณาเข้าสู่ระบบ", "Please sign in")}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{tr("เข้าสู่ระบบเพื่อตรวจสอบสถานะการเช่าและข้อมูลการจองของคุณ", "Sign in to check your rentals and bookings.")}</p>
         <Button className="mt-6 w-full" onClick={() => navigate({ to: "/auth" })}>
-          เข้าสู่ระบบ / สมัครสมาชิก
+          {tr("เข้าสู่ระบบ / สมัครสมาชิก", "Sign in / Sign up")}
         </Button>
       </div>
     );
   }
 
   if (bookingsError) {
-    return <LoadError title="โหลดข้อมูลแดชบอร์ดไม่สำเร็จ" onRetry={() => void refetchBookings()} />;
+    return <LoadError title={tr("โหลดข้อมูลแดชบอร์ดไม่สำเร็จ", "Could not load your dashboard")} onRetry={() => void refetchBookings()} />;
   }
 
   const activeRentals = bookings.filter((b) => b.status === "confirmed" || b.status === "active");
@@ -118,16 +119,16 @@ function CustomerDashboardPage() {
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
-            สวัสดี, {profile?.full_name || user.user_metadata?.["full_name"] || "ลูกค้า Drive Dee"}
+            {tr("สวัสดี,", "Hello,")} {profile?.full_name || user.user_metadata?.["full_name"] || tr("ลูกค้า Drive Dee", "Drive Dee customer")}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            ยินดีต้อนรับสู่แดชบอร์ดส่วนบุคคล ติดตามทริปการเดินทางและจัดการเอกสารเช่ารถ
+            {tr("ยินดีต้อนรับสู่แดชบอร์ดส่วนบุคคล ติดตามทริปการเดินทางและจัดการเอกสารเช่ารถ", "Welcome to your dashboard. Track your trips and manage your rental documents.")}
           </p>
         </div>
         <div className="flex gap-2">
           <Button asChild>
             <Link to="/cars">
-              <Search className="mr-1.5 h-4 w-4" /> ค้นหารถเช่า
+              <Search className="mr-1.5 h-4 w-4" /> {tr("ค้นหารถเช่า", "Search cars")}
             </Link>
           </Button>
         </div>
@@ -137,65 +138,71 @@ function CustomerDashboardPage() {
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="shadow-card border">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">การเช่าที่กำลังดำเนินอยู่</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{tr("การเช่าที่กำลังดำเนินอยู่", "Current rentals")}</CardTitle>
             <CarIcon className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-foreground">{activeRentals.length}</div>
             <p className="text-xs text-muted-foreground mt-1">
               {needsAction.length > 0
-                ? `และมี ${needsAction.length} รายการรอคุณดำเนินการ (ตรวจสัญญา/ชำระเงิน)`
+                ? tr(
+                    `และมี ${needsAction.length} รายการรอคุณดำเนินการ (ตรวจสัญญา/ชำระเงิน)`,
+                    `and ${needsAction.length} waiting for you (review contract / pay)`,
+                  )
                 : pendingRentals.length > 0
-                  ? `และมี ${pendingRentals.length} รายการอยู่ระหว่างทำสัญญา`
-                  : "ทริปพร้อมออกเดินทาง"}
+                  ? tr(
+                      `และมี ${pendingRentals.length} รายการอยู่ระหว่างทำสัญญา`,
+                      `and ${pendingRentals.length} with a contract in progress`,
+                    )
+                  : tr("ทริปพร้อมออกเดินทาง", "Trip ready to go")}
             </p>
           </CardContent>
         </Card>
 
         <Card className="shadow-card border">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">การเดินทางทั้งหมด</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{tr("การเดินทางทั้งหมด", "All trips")}</CardTitle>
             <Calendar className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-foreground">{bookings.length}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              เสร็จสิ้นแล้ว {completedRentals.length} ทริป
+              {tr("เสร็จสิ้นแล้ว", "Completed")} {completedRentals.length} {tr("ทริป", "trips")}
             </p>
           </CardContent>
         </Card>
 
         <Card className="shadow-card border">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">ยอดการใช้งานสะสม</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{tr("ยอดการใช้งานสะสม", "Total spent")}</CardTitle>
             <CreditCard className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-primary">{thb(totalSpent)}</div>
-            <p className="text-xs text-muted-foreground mt-1">คำนวณจากทุกการจองที่ยืนยันแล้ว</p>
+            <p className="text-xs text-muted-foreground mt-1">{tr("คำนวณจากทุกการจองที่ยืนยันแล้ว", "Based on all confirmed bookings")}</p>
           </CardContent>
         </Card>
 
         <Card className="shadow-card border">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">สถานะเอกสารผู้ขับขี่</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{tr("สถานะเอกสารผู้ขับขี่", "Driver documents")}</CardTitle>
             <FileText className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
               {isLicenseReady ? (
                 <Badge variant="outline" className="border-success/30 bg-success/10 text-success gap-1">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> พร้อมใช้งาน
+                  <CheckCircle2 className="h-3.5 w-3.5" /> {tr("พร้อมใช้งาน", "Ready")}
                 </Badge>
               ) : (
                 <Badge variant="outline" className="border-warning/30 bg-warning/10 text-warning gap-1">
-                  <AlertCircle className="h-3.5 w-3.5" /> รอระบุใบขับขี่
+                  <AlertCircle className="h-3.5 w-3.5" /> {tr("รอระบุใบขับขี่", "Licence missing")}
                 </Badge>
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-2">
               <Link to="/profile" className="text-primary hover:underline">
-                {isLicenseReady ? "ดูข้อมูลใบขับขี่ →" : "กรอกเลขใบขับขี่ตอนนี้ →"}
+                {isLicenseReady ? tr("ดูข้อมูลใบขับขี่ →", "View licence details →") : tr("กรอกเลขใบขับขี่ตอนนี้ →", "Add your licence number now →")}
               </Link>
             </p>
           </CardContent>
@@ -210,7 +217,7 @@ function CustomerDashboardPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Clock className="h-5 w-5 text-primary" />
-                  <CardTitle className="text-lg">ทริปปัจจุบันของคุณ</CardTitle>
+                  <CardTitle className="text-lg">{tr("ทริปปัจจุบันของคุณ", "Your current trip")}</CardTitle>
                 </div>
                 {primaryActiveBooking && (
                   <StatusBadge status={primaryActiveBooking.status} kind="booking" />
@@ -232,19 +239,19 @@ function CustomerDashboardPage() {
                         {primaryActiveBooking.cars?.brand} {primaryActiveBooking.cars?.model} ({primaryActiveBooking.cars?.year})
                       </h3>
                       <p className="text-xs text-muted-foreground">
-                        ทะเบียน {primaryActiveBooking.cars?.plate_no} · {categoryLabel[primaryActiveBooking.cars?.category || ""] || primaryActiveBooking.cars?.category}
+                        {tr("ทะเบียน", "Plate")} {primaryActiveBooking.cars?.plate_no} · {categoryLabel[primaryActiveBooking.cars?.category || ""] || primaryActiveBooking.cars?.category}
                       </p>
 
                       <div className="space-y-1 pt-2 text-xs text-muted-foreground">
                         <div className="flex items-center gap-1.5">
                           <Calendar className="h-3.5 w-3.5 text-primary" />
                           <span>
-                            {fmtDate(primaryActiveBooking.start_date)} — {fmtDate(primaryActiveBooking.end_date)} ({primaryActiveBooking.days} วัน)
+                            {fmtDate(primaryActiveBooking.start_date)} — {fmtDate(primaryActiveBooking.end_date)} ({primaryActiveBooking.days} {tr("วัน", "days")})
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <MapPin className="h-3.5 w-3.5 text-primary" />
-                          <span>{primaryActiveBooking.pickup_location}</span>
+                          <span>{pickupLocationLabel(primaryActiveBooking.pickup_location)}</span>
                         </div>
                       </div>
                     </div>
@@ -252,7 +259,7 @@ function CustomerDashboardPage() {
 
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
                     <div className="text-sm">
-                      <span className="text-xs text-muted-foreground">ยอดรวมการเช่า:</span>
+                      <span className="text-xs text-muted-foreground">{tr("ยอดรวมการเช่า:", "Total rent:")}</span>
                       <p className="font-bold text-primary text-base">{thb(primaryActiveBooking.total_amount)}</p>
                     </div>
 
@@ -262,7 +269,7 @@ function CustomerDashboardPage() {
                           {primaryActiveBooking.status === "pending" ? (
                             stageOf(primaryActiveBooking) === "awaiting_payment" ? (
                               <>
-                                <CreditCard className="mr-1.5 h-3.5 w-3.5" /> ชำระเงิน
+                                <CreditCard className="mr-1.5 h-3.5 w-3.5" /> {tr("ชำระเงิน", "Pay now")}
                               </>
                             ) : (
                               <>
@@ -272,7 +279,7 @@ function CustomerDashboardPage() {
                             )
                           ) : (
                             <>
-                              <FileCheck2 className="mr-1.5 h-3.5 w-3.5" /> ดูสัญญาดิจิทัล
+                              <FileCheck2 className="mr-1.5 h-3.5 w-3.5" /> {tr("ดูสัญญาดิจิทัล", "View digital contract")}
                             </>
                           )}
                         </Link>
@@ -283,12 +290,12 @@ function CustomerDashboardPage() {
               ) : (
                 <div className="text-center py-10">
                   <CarIcon className="mx-auto h-12 w-12 text-muted-foreground/40" />
-                  <h4 className="mt-3 font-semibold">ไม่มีการเช่าที่กำลังดำเนินอยู่</h4>
+                  <h4 className="mt-3 font-semibold">{tr("ไม่มีการเช่าที่กำลังดำเนินอยู่", "No current rentals")}</h4>
                   <p className="text-xs text-muted-foreground mt-1">
-                    พร้อมออกเดินทางไปกับ Drive Dee แล้วหรือยัง? ค้นหารถที่เหมาะกับคุณได้ทันที
+                    {tr("พร้อมออกเดินทางไปกับ Drive Dee แล้วหรือยัง? ค้นหารถที่เหมาะกับคุณได้ทันที", "Ready to travel with Drive Dee? Find the right car for you now.")}
                   </p>
                   <Button className="mt-4" size="sm" asChild>
-                    <Link to="/cars">ค้นหารถว่าง</Link>
+                    <Link to="/cars">{tr("ค้นหารถว่าง", "Find available cars")}</Link>
                   </Button>
                 </div>
               )}
@@ -300,10 +307,10 @@ function CustomerDashboardPage() {
             <div className="space-y-1">
               <div className="flex items-center gap-2 font-semibold text-foreground">
                 <PhoneCall className="h-4 w-4 text-primary" />
-                <span>บริการช่วยเหลือฉุกเฉิน 24 ชั่วโมง</span>
+                <span>{tr("บริการช่วยเหลือฉุกเฉิน 24 ชั่วโมง", "24-hour emergency assistance")}</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                หากพบปัญหาเกี่ยวกับตัวรถหรือเกิดอุบัติเหตุ ติดต่อทีมช่วยเหลือ Drive Dee ได้ตลอดเวลา
+                {tr("หากพบปัญหาเกี่ยวกับตัวรถหรือเกิดอุบัติเหตุ ติดต่อทีมช่วยเหลือ Drive Dee ได้ตลอดเวลา", "If you have a problem with the car or an accident, contact the Drive Dee support team any time.")}
               </p>
             </div>
             <a
@@ -320,7 +327,7 @@ function CustomerDashboardPage() {
           {/* Quick Shortcuts */}
           <Card className="shadow-card border">
             <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold">เมนูด่วนสำหรับลูกค้า</CardTitle>
+              <CardTitle className="text-base font-semibold">{tr("เมนูด่วนสำหรับลูกค้า", "Quick links")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <Link
@@ -329,7 +336,7 @@ function CustomerDashboardPage() {
               >
                 <div className="flex items-center gap-2.5">
                   <Calendar className="h-4 w-4 text-primary" />
-                  <span>ดูประวัติการจองทั้งหมด</span>
+                  <span>{tr("ดูประวัติการจองทั้งหมด", "View all bookings")}</span>
                 </div>
                 <ArrowRight className="h-4 w-4 text-muted-foreground" />
               </Link>
@@ -340,7 +347,7 @@ function CustomerDashboardPage() {
               >
                 <div className="flex items-center gap-2.5">
                   <User className="h-4 w-4 text-primary" />
-                  <span>อัปเดตข้อมูลใบขับขี่ & ส่วนตัว</span>
+                  <span>{tr("อัปเดตข้อมูลใบขับขี่ & ส่วนตัว", "Update licence & personal details")}</span>
                 </div>
                 <ArrowRight className="h-4 w-4 text-muted-foreground" />
               </Link>
@@ -351,7 +358,7 @@ function CustomerDashboardPage() {
               >
                 <div className="flex items-center gap-2.5">
                   <Search className="h-4 w-4 text-primary" />
-                  <span>ค้นหารถเช่าโปรโมชั่น</span>
+                  <span>{tr("ค้นหารถเช่าโปรโมชั่น", "Find rental deals")}</span>
                 </div>
                 <ArrowRight className="h-4 w-4 text-muted-foreground" />
               </Link>
@@ -361,9 +368,9 @@ function CustomerDashboardPage() {
           {/* Recent Activity List */}
           <Card className="shadow-card border">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <CardTitle className="text-base font-semibold">ประวัติการจองล่าสุด</CardTitle>
+              <CardTitle className="text-base font-semibold">{tr("ประวัติการจองล่าสุด", "Recent bookings")}</CardTitle>
               <Link to="/bookings" className="text-xs text-primary hover:underline">
-                ดูทั้งหมด ({bookings.length})
+                {tr("ดูทั้งหมด (", "View all (")}{bookings.length})
               </Link>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -389,7 +396,7 @@ function CustomerDashboardPage() {
               ))}
 
               {bookings.length === 0 && (
-                <p className="text-center py-4 text-xs text-muted-foreground">ยังไม่มีประวัติการจอง</p>
+                <p className="text-center py-4 text-xs text-muted-foreground">{tr("ยังไม่มีประวัติการจอง", "No bookings yet")}</p>
               )}
             </CardContent>
           </Card>

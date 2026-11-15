@@ -1,10 +1,14 @@
+import { tr } from "@/lib/i18n";
 export const MIN_PASSWORD_LENGTH = 6;
 
 /** Thai error message, or null when the new password is acceptable. */
 export function validateNewPassword(password: string, confirm: string): string | null {
   if (password.length < MIN_PASSWORD_LENGTH)
-    return `รหัสผ่านต้องมีความยาวอย่างน้อย ${MIN_PASSWORD_LENGTH} ตัวอักษร`;
-  if (password !== confirm) return "รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน";
+    return tr(
+      `รหัสผ่านต้องมีความยาวอย่างน้อย ${MIN_PASSWORD_LENGTH} ตัวอักษร`,
+      `The password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+    );
+  if (password !== confirm) return tr("รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน", "The passwords do not match");
   return null;
 }
 
@@ -14,10 +18,10 @@ export function validatePasswordChange(
   password: string,
   confirm: string,
 ): string | null {
-  if (!current) return "กรุณากรอกรหัสผ่านปัจจุบัน";
+  if (!current) return tr("กรุณากรอกรหัสผ่านปัจจุบัน", "Please enter your current password");
   const problem = validateNewPassword(password, confirm);
   if (problem) return problem;
-  if (password === current) return "รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านปัจจุบัน";
+  if (password === current) return tr("รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านปัจจุบัน", "The new password must be different from the current one");
   return null;
 }
 
@@ -31,8 +35,11 @@ export function recoveryLinkError(hash: string, search: string): string | null {
     const code = params.get("error_code") ?? params.get("error");
     if (!code && !params.get("error_description")) continue;
     if (code === "otp_expired")
-      return "ลิงก์รีเซ็ตรหัสผ่านหมดอายุหรือถูกใช้งานไปแล้ว กรุณาขอลิงก์ใหม่";
-    return "ลิงก์รีเซ็ตรหัสผ่านไม่ถูกต้อง กรุณาขอลิงก์ใหม่";
+      return tr(
+        "ลิงก์รีเซ็ตรหัสผ่านหมดอายุหรือถูกใช้งานไปแล้ว กรุณาขอลิงก์ใหม่",
+        "This password reset link has expired or was already used. Please request a new one.",
+      );
+    return tr("ลิงก์รีเซ็ตรหัสผ่านไม่ถูกต้อง กรุณาขอลิงก์ใหม่", "Invalid password reset link. Please request a new one.");
   }
   return null;
 }
