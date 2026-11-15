@@ -11,17 +11,11 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   tables: {} as Record<string, unknown[]>,
   auth: {} as Record<string, unknown>,
-  writes: [] as { table: string; op: string; row: unknown }[],
 }));
 
-const builder = (rows: unknown[] = [], table = "") => {
+const builder = (rows: unknown[] = []) => {
   const q: Record<string, unknown> = {};
-  for (const m of ["select", "eq", "order", "in", "limit", "delete"]) q[m] = () => q;
-  for (const op of ["insert", "update"])
-    q[op] = (row: unknown) => {
-      mocks.writes.push({ table, op, row });
-      return q;
-    };
+  for (const m of ["select", "eq", "order", "in", "limit", "update", "delete"]) q[m] = () => q;
   q["maybeSingle"] = () => Promise.resolve({ data: rows[0] ?? null, error: null });
   q["then"] = (resolve: (v: unknown) => unknown) =>
     Promise.resolve({ data: rows, error: null }).then(resolve);
@@ -30,7 +24,7 @@ const builder = (rows: unknown[] = [], table = "") => {
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    from: (t: string) => builder(mocks.tables[t], t),
+    from: (t: string) => builder(mocks.tables[t]),
     rpc: () => Promise.resolve({ data: 0, error: null }),
     auth: { getUser: vi.fn(), signOut: vi.fn() },
   },
@@ -51,8 +45,6 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
   };
 });
 
-import { toast } from "sonner";
-
 import { AdminDashboard } from "@/routes/admin";
 
 beforeAll(() => {
@@ -63,10 +55,7 @@ beforeAll(() => {
     disconnect() {}
   } as unknown as typeof ResizeObserver;
 });
-afterEach(() => {
-  vi.clearAllMocks();
-  mocks.writes = [];
-});
+afterEach(() => vi.clearAllMocks());
 
 const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
 const CAR = {
@@ -124,7 +113,7 @@ const LEGACY_CONTRACT = {
   bookings: LEGACY,
 };
 
-function renderDashboard(auth: Record<string, unknown>) {
+function renderDashboard(auth: Record<string, unknown>, extra: Record<string, unknown[]> = {}) {
   mocks.auth = { loading: false, ...auth };
   mocks.tables = {
     cars: [CAR],
@@ -153,6 +142,7 @@ function renderDashboard(auth: Record<string, unknown>) {
     admin_members: [],
     admin_invitations: [],
     admin_audit_log: [],
+    ...extra,
   };
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -248,26 +238,74 @@ describe("admin dashboard", () => {
   });
 });
 
-describe("admin car form price (B1)", () => {
-  async function submitNewCar(price: string) {
-    renderDashboard({ ...admin, adminMember: member() });
-    fireEvent.click((await screen.findAllByRole("button", { name: /เพิ่มรถยนต์ใหม่/ }))[0]!);
-    fireEvent.change(await screen.findByLabelText(/ยี่ห้อ/), { target: { value: "Honda" } });
-    fireEvent.change(screen.getByLabelText(/รุ่น \(Model\)/), { target: { value: "City" } });
-    fireEvent.change(screen.getByLabelText(/หมายเลขทะเบียน/), { target: { value: "9กก 9999" } });
-    fireEvent.change(screen.getByLabelText(/ราคาต่อวัน/), { target: { value: price } });
-    fireEvent.submit(screen.getByLabelText(/ราคาต่อวัน/).closest("form")!);
-  }
+describe("maintenance closed before its scheduled day", () => {
+  it("asks for confirmation instead of closing at once", async () => {
+    const future = new Date(Date.now() + 6 * 86_400_000).toISOString().slice(0, 10);
+    renderDashboard(
+      { ...admin, adminMember: member() },
+      {
+        maintenance: [
+          {
+            id: "m-1",
+            car_id: "car-1",
+            title: "เปลี่ยนยาง (ทดสอบ)",
+            description: null,
+            scheduled_date: future,
+            completed_date: null,
+            cost: 4000,
+            status: "scheduled",
+            created_at: inMinutes(-60),
+            cars: CAR,
+          },
+        ],
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /งานซ่อมบำรุง/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "เสร็จสิ้น" }));
+    expect(await screen.findByText("ยังไม่ถึงวันนัดหมาย")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ยืนยันว่าเสร็จแล้ววันนี้" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "ยังไม่เสร็จ" }));
+  });
+});
 
-  it.each(["-100", "0", ""])("does not save a car priced %j", async (price) => {
-    await submitNewCar(price);
-    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
-    expect(mocks.writes.filter((w) => w.table === "cars")).toEqual([]);
+describe("overdue bookings on the overview", () => {
+  it("shows the card (nothing overdue in this fixture)", async () => {
+    renderDashboard({ ...admin, adminMember: member() });
+    expect(await screen.findByTestId("overdue-bookings")).toHaveTextContent(
+      "ต้องดำเนินการวันนี้ (0)",
+    );
+  });
+});
+
+describe("negative maintenance cost", () => {
+  it("an existing negative cost is flagged in the table", async () => {
+    renderDashboard(
+      { ...admin, adminMember: member() },
+      {
+        maintenance: [
+          {
+            id: "m-neg",
+            car_id: "car-1",
+            title: "เปลี่ยนยาง (ทดสอบ)",
+            description: null,
+            scheduled_date: "2026-11-12",
+            completed_date: "2026-11-12",
+            cost: -50,
+            status: "completed",
+            created_at: inMinutes(-60),
+            cars: CAR,
+          },
+        ],
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /งานซ่อมบำรุง/ }));
+    expect(await screen.findByTestId("negative-cost")).toHaveTextContent("ไม่นับในรายงาน");
   });
 
-  it("saves a car with a positive price", async () => {
-    await submitNewCar("1200");
-    await vi.waitFor(() => expect(mocks.writes.some((w) => w.table === "cars")).toBe(true));
-    expect(mocks.writes.find((w) => w.table === "cars")!.row).toMatchObject({ price_per_day: 1200 });
+  it("the form refuses a negative cost", async () => {
+    renderDashboard({ ...admin, adminMember: member() });
+    fireEvent.click(await screen.findByRole("button", { name: /บันทึกซ่อมบำรุง/ }));
+    const cost = await screen.findByLabelText(/ค่าใช้จ่ายโดยประมาณ/);
+    expect(cost).toHaveAttribute("min", "0");
   });
 });

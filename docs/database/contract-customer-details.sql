@@ -1,6 +1,10 @@
 -- =====================================================================
 -- Drive Dee – full customer details and creator on contracts; licence required (DEMO prototype)
--- Proposed migration 0005, to be applied by Lovable AFTER 0004_contract_approval_workflow.sql.
+-- Proposed migration, to be applied by Lovable AFTER 0007_booking_fee_flow.sql (the live stack:
+-- 0004 -> 0005 -> 0006 rollback -> 0007). It builds on 0007's versions of render_contract_terms
+-- and write_contract_version (deposit = rent, booking-fee lines), keeping that behaviour.
+-- Independent of the other pending files in docs/database (input-validation, revision-limits,
+-- pickup-*): none of them touches these functions.
 --
 -- What it does:
 --   * contract_versions gets 4 nullable snapshot columns: customer_email, customer_address,
@@ -25,7 +29,7 @@ alter table public.contract_versions
   add column if not exists created_by_name text;
 
 -- ---------------------------------------------------------------------
--- 2. Contract text (new overload; the 0004 16-argument version is left in place, unused)
+-- 2. Contract text (new overload of 0007's text; the 16-argument version stays in place, unused)
 -- ---------------------------------------------------------------------
 create or replace function public.render_contract_terms(
   _contract_no text, _version int, _customer_name text, _customer_phone text, _customer_license_no text,
@@ -46,7 +50,10 @@ returns text language sql stable set search_path = public as $$
     'รับรถ: ' || to_char(_pickup_at at time zone 'Asia/Bangkok', 'DD/MM/YYYY HH24:MI') || ' น.',
     'คืนรถ: ' || to_char(_return_at at time zone 'Asia/Bangkok', 'DD/MM/YYYY HH24:MI') || ' น. (' || _rental_days || ' วัน)',
     'ค่าเช่ารวม: ' || to_char(_rental_price, 'FM999,999,990.00') || ' บาท',
-    'เงินประกันความเสียหาย: ' || to_char(_deposit, 'FM999,999,990.00') || ' บาท (ชำระ ณ วันรับรถ ไม่รวมในการชำระเงินออนไลน์)',
+    'เงินประกันความเสียหาย: ' || to_char(_deposit, 'FM999,999,990.00') || ' บาท (เท่ากับค่าเช่า ได้รับคืนเมื่อนำรถมาคืนตามสภาพเดิม)',
+    'ค่าจอง (ชำระออนไลน์หลังยืนยันสัญญา): ' || to_char(public.booking_fee(), 'FM999,999,990.00') || ' บาท (ไม่คืนเมื่อยกเลิกการจอง)',
+    'ยอดชำระ ณ วันรับรถ (ค่าเช่า + เงินประกัน - ค่าจอง): '
+      || to_char(greatest(_rental_price + _deposit - public.booking_fee(), 0), 'FM999,999,990.00') || ' บาท',
     'ข้อกำหนดระยะทาง: ' || _mileage_allowance,
     'ค่าปรับส่งคืนรถล่าช้า: ' || _late_penalty,
     'ผู้จัดทำสัญญา: ' || nullif(_created_by_name, ''),
@@ -63,7 +70,8 @@ $$;
 -- ---------------------------------------------------------------------
 -- 3. Writing a version: licence always required, new snapshot fields, creator name
 -- ---------------------------------------------------------------------
--- Same signature as 0004. _include_license is ignored: the licence is always included.
+-- Same signature as 0004/0007. As in 0007 the insurance deposit always equals the rent.
+-- _include_license is ignored: the licence is always included.
 -- The creator (created_by / created_by_name) is set when a version is created and is not
 -- changed by an in-place edit of an unsent draft.
 create or replace function public.write_contract_version(
@@ -72,8 +80,9 @@ create or replace function public.write_contract_version(
   _mileage_allowance text, _late_penalty text, _additional_conditions text, _include_license boolean)
 returns void language plpgsql security definer set search_path = public as $$
 declare pr public.profiles; car public.cars; lic text; t text; label text;
-  em text; addr text; idc text; creator text;
+  em text; addr text; idc text; creator text; creator_id uuid;
 begin
+  _deposit := _b.total_amount;
   if _pickup_at is null or _return_at is null then raise exception 'กรุณาระบุวันและเวลารับ-คืนรถ'; end if;
   if (_pickup_at at time zone 'Asia/Bangkok')::date <> _b.start_date then
     raise exception 'วันรับรถต้องตรงกับวันที่จอง (%)', to_char(_b.start_date, 'DD/MM/YYYY');
@@ -82,7 +91,6 @@ begin
     raise exception 'วันคืนรถต้องตรงกับวันที่จอง (%)', to_char(_b.end_date, 'DD/MM/YYYY');
   end if;
   if _return_at <= _pickup_at then raise exception 'เวลาคืนรถต้องหลังเวลารับรถ'; end if;
-  if _deposit is null or _deposit < 0 then raise exception 'เงินประกันต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป'; end if;
   if btrim(coalesce(_mileage_allowance, '')) = '' then raise exception 'กรุณาระบุข้อกำหนดระยะทาง'; end if;
   if btrim(coalesce(_late_penalty, '')) = '' then raise exception 'กรุณาระบุค่าปรับส่งคืนล่าช้า'; end if;
 
@@ -94,15 +102,20 @@ begin
   addr := nullif(btrim(coalesce(pr.address, '')), '');
   idc := nullif(btrim(coalesce(pr.id_card_no, '')), '');
 
+  -- Creator of this version: the caller for a new version; for an in-place draft edit the
+  -- version's own creator (a draft written before this migration has no name yet: look it up).
   if _is_new then
+    creator_id := auth.uid();
+  else
+    select v.created_by_name, v.created_by into creator, creator_id from public.contract_versions v
+      where v.contract_id = _contract.id and v.version = _version;
+  end if;
+  if creator is null then
     select coalesce(
-             (select nullif(btrim(p.full_name), '') from public.profiles p where p.id = auth.uid()),
-             (select nullif(btrim(m.email), '') from public.admin_members m where m.user_id = auth.uid()),
+             (select nullif(btrim(p.full_name), '') from public.profiles p where p.id = creator_id),
+             (select nullif(btrim(m.email), '') from public.admin_members m where m.user_id = creator_id),
              'ผู้ดูแลระบบ')
       into creator;
-  else
-    select v.created_by_name into creator from public.contract_versions v
-      where v.contract_id = _contract.id and v.version = _version;
   end if;
 
   select * into car from public.cars where id = _b.car_id;
@@ -130,7 +143,7 @@ begin
       pickup_location = _b.pickup_location, pickup_at = _pickup_at, return_at = _return_at,
       rental_days = _b.days, rental_price = _b.total_amount, deposit = _deposit,
       mileage_allowance = btrim(_mileage_allowance), late_penalty = btrim(_late_penalty),
-      additional_conditions = coalesce(_additional_conditions, ''), terms = t
+      additional_conditions = coalesce(_additional_conditions, ''), terms = t, created_by_name = creator
     where contract_id = _contract.id and version = _version and sent_at is null;
     if not found then raise exception 'ฉบับร่างนี้ถูกส่งให้ลูกค้าแล้ว กรุณาสร้างฉบับใหม่'; end if;
   end if;

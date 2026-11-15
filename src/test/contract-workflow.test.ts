@@ -16,13 +16,21 @@ import {
   canTransition,
   customerContractLabel,
   customerStage,
+  parseRevisionReason,
   reasonError,
+  revisionReasonText,
+  revisionRequestError,
   validateContractForm,
   DEFAULT_CONTRACT_FORM,
 } from "@/lib/contract-workflow";
 
 const SQL = readFileSync(
   path.resolve(__dirname, "../../drizzle/migrations/0004_contract_approval_workflow.sql"),
+  "utf8",
+);
+/** Latest guard_contract_update(): the booking fee flow replaces 0004's (Lovable request pending). */
+const FLOW_SQL = readFileSync(
+  path.resolve(__dirname, "../../docs/database/booking-fee-flow.sql"),
   "utf8",
 );
 const NOW = new Date("2026-11-12T10:00:00Z").getTime();
@@ -36,7 +44,7 @@ const contract = (status: string, current = 1, sent: number | null = 1) => ({
 
 describe("S01 the UI state machine matches the database", () => {
   it("allows exactly the transitions guard_contract_update() allows", () => {
-    const block = /guard_contract_update[\s\S]*?array\[([\s\S]*?)\]\)\)/.exec(SQL)?.[1] ?? "";
+    const block = /guard_contract_update[\s\S]*?array\[([\s\S]*?)\]\)\)/.exec(FLOW_SQL)?.[1] ?? "";
     const fromSql = [...block.matchAll(/'([a-z_]+)>([a-z_]+)'/g)]
       .map((m) => `${m[1]}>${m[2]}`)
       .sort();
@@ -75,7 +83,7 @@ describe("customer stage and gating", () => {
     expect(customerStage({ status: "cancelled" }, contract("approved"))).toBe("cancelled");
   });
 
-  it("P13 payment is offered only for an approved contract with time left", () => {
+  it("P13 payment is offered only once the customer confirmed the contract, with time left", () => {
     for (const s of [
       "draft",
       "pending_customer",
@@ -150,7 +158,40 @@ describe("contract form helpers", () => {
         "2026-11-22",
       ),
     ).toMatch(/ค่าปรับ/);
+    expect(
+      validateContractForm(
+        { ...DEFAULT_CONTRACT_FORM, returnTime: "19:00" },
+        "2026-11-20",
+        "2026-11-22",
+      ),
+    ).toMatch(/08:00-18:00/);
     expect(reasonError("สั้น", 5)).toMatch(/อย่างน้อย 5/);
     expect(reasonError("เหตุผลยาวพอ", 5)).toBeNull();
+  });
+});
+
+describe("customer revision request", () => {
+  const ok = { customerName: "ทดสอบ ลูกค้า", pickupTime: "08:00", returnTime: "18:00" };
+  it("accepts 08:00-18:00 and rejects outside it", () => {
+    expect(revisionRequestError(ok, false)).toBeNull();
+    expect(revisionRequestError({ ...ok, pickupTime: "07:59" }, false)).toMatch(/08:00-18:00/);
+    expect(revisionRequestError({ ...ok, returnTime: "18:01" }, false)).toMatch(/08:00-18:00/);
+    expect(revisionRequestError({ ...ok, pickupTime: "" }, false)).toMatch(/08:00-18:00/);
+  });
+  it("needs a name, and on a one-day rental a return after pickup", () => {
+    expect(revisionRequestError({ ...ok, customerName: " " }, false)).toMatch(/ชื่อลูกค้า/);
+    expect(revisionRequestError({ ...ok, pickupTime: "12:00", returnTime: "12:00" }, true)).toMatch(
+      /หลังเวลารับรถ/,
+    );
+  });
+  it("the admin reads a request back; free text is not a request", () => {
+    expect(parseRevisionReason(revisionReasonText(ok))).toEqual(ok);
+    expect(parseRevisionReason("ขอเปลี่ยนรถเป็นสีแดง")).toBeNull();
+    expect(parseRevisionReason(null)).toBeNull();
+  });
+  it("builds the reason text the admin reads", () => {
+    expect(revisionReasonText({ ...ok, customerName: " ทดสอบ ลูกค้า " })).toBe(
+      "ชื่อลูกค้า: ทดสอบ ลูกค้า\nเวลารับรถ: 08:00 น.\nเวลาคืนรถ: 18:00 น.",
+    );
   });
 });

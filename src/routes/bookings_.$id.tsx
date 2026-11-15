@@ -35,7 +35,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -72,10 +71,20 @@ import {
   canPay,
   customerStage,
   customerStageLabel,
-  reasonError,
+  bangkokTime,
+  CLOSING_TIME,
+  OPENING_TIME,
+  customerRevisionCount,
+  MAX_CUSTOMER_REVISIONS,
+  REVISION_UNCHANGED_MESSAGE,
+  revisionReasonText,
+  revisionRequestError,
+  revisionUnchanged,
+  type RevisionRequest,
   refundStatusLabel,
 } from "@/lib/contract-workflow";
 import { LoadError } from "@/components/load-error";
+import { BOOKING_FEE, rentalCharges } from "@/lib/booking-fee";
 
 export const Route = createFileRoute("/bookings_/$id")({
   head: () => ({
@@ -94,7 +103,8 @@ export const Route = createFileRoute("/bookings_/$id")({
 type BookingWithCar = Tables<"bookings"> & {
   cars: Tables<"cars"> | null;
 };
-type PaymentRow = Tables<"payments">;
+/** kind/deposit come from docs/database/booking-fee-flow.sql (not in the generated types yet). */
+type PaymentRow = Tables<"payments"> & { kind?: string; deposit?: number | string };
 
 const contractQueryKey = (id: string) => ["contract", id] as const;
 
@@ -109,7 +119,14 @@ function BookingDetailsPage() {
   const [acceptingContract, setAcceptingContract] = useState(false);
   const [contractAgreed, setContractAgreed] = useState(false);
   const [revisionOpen, setRevisionOpen] = useState(false);
-  const [revisionReason, setRevisionReason] = useState("");
+  const [revision, setRevision] = useState<RevisionRequest>({
+    customerName: "",
+    pickupTime: "10:00",
+    returnTime: "18:00",
+  });
+  // What the sent version says; a request must change at least one of these
+  const [revisionOriginal, setRevisionOriginal] = useState<RevisionRequest | null>(null);
+  const revisionIsUnchanged = !!revisionOriginal && revisionUnchanged(revisionOriginal, revision);
   const [sendingRevision, setSendingRevision] = useState(false);
 
   // Credit Card Form State
@@ -145,19 +162,22 @@ function BookingDetailsPage() {
       return data as BookingWithCar | null;
     },
     enabled: !!id,
+    // While the customer waits at the counter for the hand-over, check every 10 s so the
+    // pickup QR appears as soon as the admin marks the booking "active"
+    refetchInterval: (q) => (q.state.data?.status === "confirmed" ? 10_000 : false),
   });
 
-  // 2. Payment (only once the booking is no longer pending)
-  const { data: payment, isLoading: paymentLoading } = useQuery({
+  // 2. Payments (only once the booking is no longer pending): booking fee, then the pickup amount
+  const { data: payments = [], isLoading: paymentLoading } = useQuery({
     queryKey: ["payment", id],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("payments")
         .select("*")
         .eq("booking_id", id)
-        .maybeSingle();
-      if (error) return null;
-      return data as PaymentRow | null;
+        .order("paid_at");
+      if (error) return [];
+      return data as PaymentRow[];
     },
     enabled: !!id && !!booking && booking.status !== "pending",
   });
@@ -208,12 +228,12 @@ function BookingDetailsPage() {
 
   // Payment Submission (DEMO). The database refuses it unless the contract is approved.
   const handlePayment = async (method: "qr" | "card") => {
-    if (!booking) return;
-    if (!canPay(booking, contract, Date.now())) {
+    if (!booking || !payKind) return;
+    if (payKind === "booking_fee" && !canPay(booking, contract, Date.now())) {
       toast.error(
         holdExpired
           ? "หมดเวลาชำระเงิน กรุณาจองใหม่อีกครั้ง"
-          : "ยังชำระเงินไม่ได้ ต้องรอผู้ดูแลอนุมัติสัญญาก่อน",
+          : "ยังชำระเงินไม่ได้ กรุณายืนยันสัญญาก่อน",
       );
       return;
     }
@@ -257,11 +277,18 @@ function BookingDetailsPage() {
         ? { _booking_id: booking.id, _method: method, _card_last4: last4 }
         : { _booking_id: booking.id, _method: method };
 
-      const { error } = await supabase.rpc("pay_booking", rpcParams);
+      const { error } =
+        payKind === "booking_fee"
+          ? await supabase.rpc("pay_booking", rpcParams)
+          : await supabase.rpc("pay_pickup" as never, rpcParams as never);
       if (error) throw error;
 
       setCardName("");
-      toast.success("ชำระเงินสำเร็จ (DEMO)! การจองได้รับการยืนยันแล้ว");
+      toast.success(
+        payKind === "booking_fee"
+          ? "ชำระค่าจองสำเร็จ (DEMO)! การจองได้รับการยืนยันแล้ว"
+          : "ชำระยอดวันรับรถสำเร็จ (DEMO)! นำหลักฐานนี้ไปรับรถได้เลย",
+      );
       await refreshAll();
     } catch (err: unknown) {
       const error = err as Error;
@@ -287,7 +314,9 @@ function BookingDetailsPage() {
     setAcceptingContract(true);
     try {
       await acceptContract(contract.id, contract.sent_version);
-      toast.success(`ยอมรับสัญญาฉบับที่ ${contract.sent_version} แล้ว รอผู้ดูแลอนุมัติ`);
+      toast.success(
+        `ยืนยันสัญญาฉบับที่ ${contract.sent_version} แล้ว กรุณาชำระค่าจอง ${thb(BOOKING_FEE)} ภายใน 15 นาที`,
+      );
       setContractAgreed(false);
       await refreshAll();
     } catch (err: unknown) {
@@ -298,19 +327,38 @@ function BookingDetailsPage() {
     }
   };
 
+  // Prefill the request with what the sent version says now
+  const openRevision = () => {
+    const v = versions.find((x) => x.version === contract?.sent_version);
+    const current = {
+      customerName: v?.customer_name ?? "",
+      pickupTime: bangkokTime(v?.pickup_at, "10:00"),
+      returnTime: bangkokTime(v?.return_at, "18:00"),
+    };
+    setRevision(current);
+    setRevisionOriginal(current);
+    setRevisionOpen(true);
+  };
+
   const handleRequestRevision = async () => {
-    if (!contract || contract.sent_version === null) return;
-    const problem = reasonError(revisionReason, 5);
+    if (!contract || contract.sent_version === null || !booking || !user) return;
+    const problem = revisionIsUnchanged
+      ? REVISION_UNCHANGED_MESSAGE
+      : revisionRequestError(revision, booking.start_date === booking.end_date);
     if (problem) {
       toast.error(problem);
       return;
     }
     setSendingRevision(true);
     try {
-      await customerRequestRevision(contract.id, contract.sent_version, revisionReason);
+      // A new name is only a request: the admin applies it (admin_apply_requested_name)
+      await customerRequestRevision(
+        contract.id,
+        contract.sent_version,
+        revisionReasonText(revision),
+      );
       toast.success("ส่งคำขอแก้ไขสัญญาแล้ว ผู้ดูแลจะจัดทำฉบับใหม่ให้");
       setRevisionOpen(false);
-      setRevisionReason("");
       await refreshAll();
     } catch (err: unknown) {
       toast.error((err as Error).message || "ส่งคำขอแก้ไขไม่สำเร็จ");
@@ -376,8 +424,24 @@ function BookingDetailsPage() {
   const isPaid = stage === "confirmed" || stage === "completed";
   // Admins can open any booking, but only the customer who made it can accept, revise or pay
   const isOwner = booking.user_id === user.id;
-  const paymentOpen = isOwner && canPay(booking, contract, now);
+  const feePayment = payments.find((p) => (p.kind ?? "booking_fee") === "booking_fee") ?? null;
+  const pickupPayment = payments.find((p) => p.kind === "pickup") ?? null;
+  // Which payment the customer can make now: the 1,000 fee, then the rest (before or at pickup)
+  const payKind: "booking_fee" | "pickup" | null = !isOwner
+    ? null
+    : booking.status === "pending" && stage === "awaiting_payment"
+      ? "booking_fee"
+      : booking.status === "active" && // the admin confirmed the customer picked up the car
+          Number(feePayment?.amount) === BOOKING_FEE && // not bookings that paid full rent before the fee
+          !pickupPayment
+        ? "pickup"
+        : null;
   const canRespond = isOwner && canCustomerRespond(booking, contract, now);
+  const revisionsLeft = Math.max(MAX_CUSTOMER_REVISIONS - customerRevisionCount(events), 0);
+  const charges = rentalCharges(Number(booking.total_amount));
+  const payAmount = payKind === "pickup" ? charges.dueAtPickup : BOOKING_FEE;
+  const paymentOpen =
+    payKind === "pickup" || (payKind === "booking_fee" && canPay(booking, contract, now));
   const holdText =
     booking.status !== "pending"
       ? null
@@ -420,7 +484,7 @@ function BookingDetailsPage() {
             {isPaid
               ? "ยืนยันการจองและสัญญาเช่า"
               : stage === "awaiting_payment"
-                ? "ชำระเงินค่าเช่ารถ"
+                ? "ชำระค่าจอง"
                 : "สัญญาเช่ารถ"}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -509,26 +573,32 @@ function BookingDetailsPage() {
                   <span>{thb(car?.price_per_day)} / วัน</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
-                  <span>จำนวนวัน ({booking.days} วัน)</span>
-                  <span>{thb(car ? car.price_per_day * booking.days : booking.total_amount)}</span>
+                  <span>ค่าเช่า ({booking.days} วัน)</span>
+                  <span>{thb(charges.rent)}</span>
                 </div>
                 <div className="flex justify-between text-muted-foreground">
-                  <span>ประกันภัยชั้น 1 พื้นฐาน</span>
-                  <span className="font-medium text-success">รวมแล้ว</span>
-                </div>
-                <div className="flex justify-between text-muted-foreground">
-                  <span>ภาษีมูลค่าเพิ่ม (VAT 7%)</span>
-                  <span className="font-medium text-success">รวมแล้ว</span>
+                  <span>เงินประกันความเสียหาย (เท่ากับค่าเช่า)</span>
+                  <span>{thb(charges.insurance)}</span>
                 </div>
                 <Separator />
                 <div className="flex items-baseline justify-between pt-1">
-                  <span className="text-base font-semibold text-foreground">ยอดชำระออนไลน์</span>
+                  <span className="text-base font-semibold text-foreground">
+                    1. ชำระออนไลน์ (ค่าจอง)
+                  </span>
                   <span className="font-display text-2xl font-bold text-primary">
-                    {thb(booking.total_amount)}
+                    {thb(charges.fee)}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="font-semibold text-foreground">2. ชำระ ณ วันรับรถ</span>
+                  <span className="font-semibold text-foreground" data-testid="due-at-pickup">
+                    {thb(charges.dueAtPickup)}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  เงินประกันความเสียหายชำระ ณ วันรับรถ ตามที่ระบุในสัญญา
+                  ยอดวันรับรถ = ค่าเช่า + เงินประกัน − ค่าจองที่จ่ายไปแล้ว ·
+                  ค่าจองไม่คืนเมื่อยกเลิกการจอง · เงินประกัน {thb(charges.insurance)}{" "}
+                  ได้รับคืนเมื่อนำรถมาคืน
                 </p>
               </div>
             </CardContent>
@@ -540,10 +610,14 @@ function BookingDetailsPage() {
               <span>ขั้นตอนการเช่า</span>
             </div>
             <ol className="list-decimal space-y-0.5 pl-5 text-xs leading-relaxed">
-              <li>ผู้ดูแลจัดทำสัญญาเช่าและส่งให้คุณ</li>
-              <li>คุณตรวจสอบและยอมรับสัญญา (หรือขอแก้ไข)</li>
-              <li>ผู้ดูแลอนุมัติสัญญาฉบับที่คุณยอมรับ</li>
-              <li>ชำระเงินภายใน 15 นาทีหลังอนุมัติ (DEMO)</li>
+              <li>ผู้ดูแลยืนยันการจองและส่งฉบับร่างสัญญาให้คุณ</li>
+              <li>คุณตรวจสอบสัญญา ขอแก้ไขได้ แล้วกดยืนยัน</li>
+              <li>ชำระค่าจอง {thb(BOOKING_FEE)} ด้วย QR หรือบัตร ภายใน 15 นาทีหลังยืนยัน (DEMO)</li>
+              <li>
+                วันรับรถ เมื่อผู้ดูแลยืนยันว่าคุณมารับรถ QR สำหรับชำระค่าเช่า + เงินประกัน
+                (หักค่าจองแล้ว) จะขึ้นที่หน้านี้
+              </li>
+              <li>คืนรถ รับเงินประกันคืน</li>
             </ol>
           </div>
         </div>
@@ -584,8 +658,9 @@ function BookingDetailsPage() {
                   กรุณาตรวจสอบสัญญาฉบับที่ {contract?.sent_version}
                 </CardTitle>
                 <CardDescription>
-                  อ่านรายละเอียดสัญญาด้านล่าง แล้วยอมรับ หรือขอให้ผู้ดูแลแก้ไข
-                  คุณไม่สามารถแก้ไขข้อความสัญญาเองได้ ยังไม่ต้องชำระเงินในขั้นตอนนี้
+                  อ่านฉบับร่างสัญญาด้านล่าง ถ้าต้องการเปลี่ยนอะไร กด "ขอแก้ไขสัญญา"
+                  ผู้ดูแลจะส่งฉบับใหม่ให้ ถ้าถูกต้องแล้วกดยืนยัน จากนั้นชำระค่าจอง{" "}
+                  {thb(BOOKING_FEE)} ภายใน 15 นาที
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -609,17 +684,22 @@ function BookingDetailsPage() {
                   >
                     {acceptingContract
                       ? "กำลังบันทึก..."
-                      : `ยอมรับสัญญาฉบับที่ ${contract?.sent_version}`}
+                      : `ยืนยันสัญญาฉบับที่ ${contract?.sent_version}`}
                   </Button>
                   <Button
                     variant="outline"
                     className="flex-1"
-                    disabled={!canRespond}
-                    onClick={() => setRevisionOpen(true)}
+                    disabled={!canRespond || revisionsLeft === 0}
+                    onClick={openRevision}
                   >
                     <MessageSquareWarning className="mr-1.5 h-4 w-4" /> ขอแก้ไขสัญญา
                   </Button>
                 </div>
+                <p className="text-xs text-muted-foreground" data-testid="revisions-left">
+                  {revisionsLeft > 0
+                    ? `ขอแก้ไขได้อีก ${revisionsLeft} ครั้ง (สูงสุด ${MAX_CUSTOMER_REVISIONS} ครั้งต่อการจอง)`
+                    : `ขอแก้ไขครบ ${MAX_CUSTOMER_REVISIONS} ครั้งแล้ว กรุณายืนยันสัญญา หรือยกเลิกการจองหากไม่ต้องการเช่าต่อ`}
+                </p>
               </CardContent>
             </Card>
           )}
@@ -640,31 +720,56 @@ function BookingDetailsPage() {
             />
           )}
 
-          {/* Payment: only for an approved contract */}
-          {booking.status === "pending" && isOwner && stage === "awaiting_payment" && (
+          {isOwner &&
+            booking.status === "confirmed" &&
+            Number(feePayment?.amount) === BOOKING_FEE &&
+            !pickupPayment && (
+              <StageCard
+                icon={<Hourglass className="h-6 w-6 text-primary" />}
+                title="ชำระค่าจองแล้ว · ชำระยอดที่เหลือเมื่อมารับรถ"
+                text={`วันรับรถ ${fmtDate(booking.start_date)} เมื่อผู้ดูแลยืนยันว่าคุณมารับรถแล้ว QR สำหรับชำระ ${thb(charges.dueAtPickup)} (ค่าเช่า + เงินประกัน − ค่าจอง) จะขึ้นที่หน้านี้โดยอัตโนมัติ`}
+                testId="pickup-waiting"
+              />
+            )}
+
+          {/* Payment: the booking fee once the contract is confirmed, then the pickup amount
+              once the admin has marked the car handed over (active) */}
+          {payKind && (
             <Card className="border shadow-card" data-testid="payment-card">
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <CardTitle className="text-xl">เลือกช่องทางชำระเงิน</CardTitle>
+                  <CardTitle className="text-xl">
+                    {payKind === "pickup" ? "ชำระยอดวันรับรถ" : "เลือกช่องทางชำระเงิน"}
+                  </CardTitle>
                   <Badge variant="outline" className="border-amber-400 bg-amber-100 text-amber-900">
                     DEMO · ไม่มีการตัดเงินจริง
                   </Badge>
                 </div>
-                <CardDescription>
-                  สัญญาได้รับอนุมัติแล้ว · ยอดที่ต้องชำระ:{" "}
-                  <strong className="text-foreground">{thb(booking.total_amount)}</strong>
-                  {" · "}
-                  {holdExpired ? (
-                    <span className="font-semibold text-destructive">หมดเวลาชำระเงินแล้ว</span>
-                  ) : (
-                    <span>
-                      กรุณาชำระภายใน{" "}
-                      <span className="font-mono font-bold text-warning">
-                        {formatCountdown(timeLeft)}
+                {payKind === "pickup" ? (
+                  <CardDescription data-testid="pickup-breakdown">
+                    ผู้ดูแลยืนยันว่าคุณมารับรถแล้ว · กรุณาชำระยอดวันรับรถ: ค่าเช่า{" "}
+                    {thb(charges.rent)} + เงินประกัน {thb(charges.insurance)} − ค่าจอง{" "}
+                    {thb(charges.fee)} ={" "}
+                    <strong className="text-foreground">{thb(charges.dueAtPickup)}</strong>
+                    {" · "}เงินประกันได้รับคืนเมื่อนำรถมาคืนตามสภาพเดิม
+                  </CardDescription>
+                ) : (
+                  <CardDescription>
+                    ยืนยันสัญญาแล้ว · ค่าจอง (ไม่ว่าจะเช่ากี่วัน):{" "}
+                    <strong className="text-foreground">{thb(BOOKING_FEE)}</strong>
+                    {" · "}
+                    {holdExpired ? (
+                      <span className="font-semibold text-destructive">หมดเวลาชำระเงินแล้ว</span>
+                    ) : (
+                      <span>
+                        กรุณาชำระภายใน{" "}
+                        <span className="font-mono font-bold text-warning">
+                          {formatCountdown(timeLeft)}
+                        </span>
                       </span>
-                    </span>
-                  )}
-                </CardDescription>
+                    )}
+                  </CardDescription>
+                )}
               </CardHeader>
               <CardContent>
                 {paymentError && (
@@ -699,19 +804,21 @@ function BookingDetailsPage() {
 
                   <TabsContent value="qr" className="space-y-6 focus-visible:outline-none">
                     <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed bg-muted/30 p-6 text-center">
-                      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        <Clock className="h-3.5 w-3.5 text-warning" />
-                        <span>
-                          หมดอายุใน:{" "}
-                          <span className="font-mono font-bold text-warning">
-                            {formatCountdown(timeLeft)}
+                      {payKind === "booking_fee" && (
+                        <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          <Clock className="h-3.5 w-3.5 text-warning" />
+                          <span>
+                            หมดอายุใน:{" "}
+                            <span className="font-mono font-bold text-warning">
+                              {formatCountdown(timeLeft)}
+                            </span>
                           </span>
-                        </span>
-                      </div>
+                        </div>
+                      )}
                       {/* Demo QR: not a PromptPay payload, so a real banking app cannot pay it */}
                       <div className="relative rounded-2xl border bg-white p-4 shadow-sm">
                         <QRCodeSVG
-                          value={demoQrValue(booking.booking_code, Number(booking.total_amount))}
+                          value={demoQrValue(booking.booking_code, payAmount)}
                           size={190}
                           level="M"
                           includeMargin={false}
@@ -723,13 +830,13 @@ function BookingDetailsPage() {
                       </div>
                       <div className="mt-4 space-y-1">
                         <p className="text-sm font-semibold text-foreground">
-                          บจก. สยาม วีลส์ เรนทัล (Siam Wheels)
+                          ไดร์ฟดี รถเช่า (Drive Dee)
                         </p>
                         <p className="font-mono text-xs text-muted-foreground">
                           เลขอ้างอิง: {booking.booking_code}
                         </p>
                         <p className="mt-1 font-display text-xl font-bold text-primary">
-                          {thb(booking.total_amount)}
+                          {thb(payAmount)}
                         </p>
                       </div>
                       <div className="mt-4 max-w-xs space-y-1 rounded-lg border bg-card p-3 text-left text-xs text-muted-foreground">
@@ -858,7 +965,9 @@ function BookingDetailsPage() {
                     >
                       {submittingPayment
                         ? "กำลังประมวลผลบัตรเครดิต..."
-                        : `จำลองชำระเงิน ${thb(booking.total_amount)} (DEMO)`}
+                        : payKind === "pickup"
+                          ? `จำลองชำระยอดวันรับรถ ${thb(payAmount)} (DEMO)`
+                          : `จำลองชำระค่าจอง ${thb(BOOKING_FEE)} (DEMO)`}
                     </Button>
                   </TabsContent>
                 </Tabs>
@@ -882,8 +991,27 @@ function BookingDetailsPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="text-sm">
-                <PaymentDetails loading={paymentLoading} payment={payment ?? null} />
+              <CardContent className="space-y-3 text-sm">
+                <p className="text-xs font-medium text-muted-foreground">ค่าจอง</p>
+                <PaymentDetails loading={paymentLoading} payment={feePayment} />
+                {pickupPayment ? (
+                  <>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      ยอดวันรับรถ (ค่าเช่า + เงินประกัน − ค่าจอง)
+                    </p>
+                    <PaymentDetails loading={false} payment={pickupPayment} />
+                    <p className="text-xs text-muted-foreground" data-testid="paid-in-full">
+                      ชำระครบแล้ว · เงินประกัน {thb(charges.insurance)} ได้รับคืนเมื่อนำรถมาคืน
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    ยอดวันรับรถที่ยังต้องชำระ:{" "}
+                    <strong className="text-foreground">{thb(charges.dueAtPickup)}</strong> (ค่าเช่า{" "}
+                    {thb(charges.rent)} + เงินประกัน {thb(charges.insurance)} − ค่าจอง{" "}
+                    {thb(charges.fee)}) · เงินประกันได้รับคืนเมื่อคืนรถ
+                  </p>
+                )}
               </CardContent>
             </Card>
           )}
@@ -899,9 +1027,11 @@ function BookingDetailsPage() {
                   รายการจองนี้ถูกยกเลิกหรือหมดเวลาแล้ว ไม่สามารถทำสัญญาหรือชำระเงินได้
                 </CardDescription>
               </CardHeader>
-              {payment && (
-                <CardContent className="text-sm">
-                  <PaymentDetails loading={false} payment={payment} />
+              {payments.length > 0 && (
+                <CardContent className="space-y-3 text-sm">
+                  {payments.map((p) => (
+                    <PaymentDetails key={p.id} loading={false} payment={p} />
+                  ))}
                 </CardContent>
               )}
               <CardFooter>
@@ -938,25 +1068,75 @@ function BookingDetailsPage() {
           <DialogHeader>
             <DialogTitle>ขอแก้ไขสัญญาฉบับที่ {contract?.sent_version}</DialogTitle>
             <DialogDescription>
-              บอกผู้ดูแลว่าต้องการให้แก้ไขส่วนใด
-              ผู้ดูแลจะจัดทำฉบับใหม่ให้คุณตรวจสอบและยอมรับอีกครั้ง
+              แก้ชื่อหรือเวลาที่ต้องการ ผู้ดูแลจะตรวจสอบและจัดทำฉบับใหม่ให้คุณยืนยันอีกครั้ง
+              (ชื่อในโปรไฟล์จะเปลี่ยนเมื่อผู้ดูแลยืนยันการแก้ไข)
             </DialogDescription>
           </DialogHeader>
-          <Label htmlFor="revision-reason" className="text-xs">
-            เหตุผล / สิ่งที่ต้องการแก้ไข
-          </Label>
-          <Textarea
-            id="revision-reason"
-            value={revisionReason}
-            onChange={(e) => setRevisionReason(e.target.value)}
-            maxLength={1000}
-            placeholder="เช่น ขอเปลี่ยนเวลารับรถเป็น 09:00 น."
-          />
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="revision-name" className="text-xs">
+                ชื่อลูกค้า
+              </Label>
+              <Input
+                id="revision-name"
+                className="mt-1"
+                value={revision.customerName}
+                maxLength={100}
+                autoComplete="name"
+                onChange={(e) => setRevision((r) => ({ ...r, customerName: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="revision-pickup" className="text-xs">
+                  เวลารับรถ ({booking && fmtDate(booking.start_date)})
+                </Label>
+                <Input
+                  id="revision-pickup"
+                  type="time"
+                  className="mt-1"
+                  min={OPENING_TIME}
+                  max={CLOSING_TIME}
+                  value={revision.pickupTime}
+                  onChange={(e) => setRevision((r) => ({ ...r, pickupTime: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="revision-return" className="text-xs">
+                  เวลาคืนรถ ({booking && fmtDate(booking.end_date)})
+                </Label>
+                <Input
+                  id="revision-return"
+                  type="time"
+                  className="mt-1"
+                  min={OPENING_TIME}
+                  max={CLOSING_TIME}
+                  value={revision.returnTime}
+                  onChange={(e) => setRevision((r) => ({ ...r, returnTime: e.target.value }))}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              รับและคืนรถได้ระหว่าง {OPENING_TIME}-{CLOSING_TIME} น.
+            </p>
+            {revisionIsUnchanged && (
+              <p
+                className="text-xs text-amber-700 dark:text-amber-400"
+                data-testid="revision-unchanged"
+              >
+                ยังไม่ได้แก้ไขข้อมูลใด เปลี่ยนชื่อหรือเวลาที่ต้องการก่อนส่งคำขอ
+                (การขอแก้ไขแต่ละครั้งนับเป็น 1 สิทธิ์)
+              </p>
+            )}
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRevisionOpen(false)}>
               ยกเลิก
             </Button>
-            <Button onClick={handleRequestRevision} disabled={sendingRevision}>
+            <Button
+              onClick={handleRequestRevision}
+              disabled={sendingRevision || revisionIsUnchanged}
+            >
               {sendingRevision ? "กำลังส่ง..." : "ส่งคำขอแก้ไข"}
             </Button>
           </DialogFooter>
@@ -966,9 +1146,19 @@ function BookingDetailsPage() {
   );
 }
 
-function StageCard({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
+function StageCard({
+  icon,
+  title,
+  text,
+  testId = "stage-card",
+}: {
+  icon: React.ReactNode;
+  title: string;
+  text: string;
+  testId?: string;
+}) {
   return (
-    <Card className="border shadow-card" data-testid="stage-card">
+    <Card className="border shadow-card" data-testid={testId}>
       <CardHeader>
         <div className="flex items-start gap-3">
           {icon}

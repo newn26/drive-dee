@@ -1,0 +1,373 @@
+<title>คู่มือการทำงาน Drive Dee</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@500;600;700&family=Noto+Sans+Thai:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column with a sticky section index on wide screens; flows as numbered rails, money as a receipt. */
+:root {
+  --bg: #f6f7f5;
+  --surface: #ffffff;
+  --fg: #1b2420;
+  --muted: #5b6862;
+  --line: #dde3df;
+  --accent: #0d6b5c;
+  --accent-soft: #e2f1ed;
+  --money: #9a5b00;
+  --money-soft: #fbf0dc;
+  --warn: #a4400f;
+  --warn-soft: #fbe9df;
+  --ok: #2c7a3a;
+  --plate-bg: #ffffff;
+  --plate-fg: #1b2420;
+  --display: "Bai Jamjuree", "Noto Sans Thai", system-ui, sans-serif;
+  --body: "Noto Sans Thai", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121816; --surface: #1a2220; --fg: #e4ebe7; --muted: #9aa8a1; --line: #2c3834;
+    --accent: #5cc4ae; --accent-soft: #173a33; --money: #f0b45a; --money-soft: #3a2c14;
+    --warn: #f19a6c; --warn-soft: #3d2216; --ok: #7ccc89; --plate-bg: #e4ebe7; --plate-fg: #121816;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121816; --surface: #1a2220; --fg: #e4ebe7; --muted: #9aa8a1; --line: #2c3834;
+  --accent: #5cc4ae; --accent-soft: #173a33; --money: #f0b45a; --money-soft: #3a2c14;
+  --warn: #f19a6c; --warn-soft: #3d2216; --ok: #7ccc89; --plate-bg: #e4ebe7; --plate-fg: #121816;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--body);
+  font-size: 16px; line-height: 1.75;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 64px;
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 48px; }
+nav.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); align-self: start; padding-top: 40px; font-size: 14px; }
+nav.toc p { font-family: var(--display); font-weight: 600; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px; font-size: 13px; }
+nav.toc a { display: block; color: var(--muted); text-decoration: none; padding: 4px 0 4px 12px; border-left: 2px solid var(--line); }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); border-left-color: var(--accent); outline: none; }
+main { min-width: 0; }
+header.hero { padding: 40px 0 8px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; color: var(--accent); text-transform: uppercase; }
+h1 { font-family: var(--display); font-size: clamp(32px, 5vw, 46px); line-height: 1.2; margin: 8px 0 12px; text-wrap: balance; }
+h2 { font-family: var(--display); font-size: 27px; line-height: 1.3; margin: 0 0 6px; text-wrap: balance; }
+h3 { font-family: var(--display); font-size: 19px; margin: 24px 0 8px; }
+p { margin: 0 0 12px; max-width: 68ch; }
+.lead { font-size: 18px; color: var(--muted); }
+section { padding-top: 56px; scroll-margin-top: 16px; }
+.sub { color: var(--muted); margin-bottom: 20px; }
+code, .mono { font-family: var(--mono); font-size: .88em; }
+code { background: var(--accent-soft); color: var(--fg); padding: 1px 6px; border-radius: 4px; }
+
+.note { border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 10px; padding: 14px 18px; margin: 20px 0; }
+.note strong { color: var(--warn); }
+.tip { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 14px 18px; margin: 16px 0; }
+
+/* Steps rail */
+ol.rail { list-style: none; margin: 8px 0 0; padding: 0; counter-reset: s; }
+ol.rail > li { counter-increment: s; position: relative; padding: 0 0 22px 52px; }
+ol.rail > li::before {
+  content: counter(s); position: absolute; left: 0; top: 0; width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--accent); color: var(--surface);
+  font-family: var(--display); font-weight: 700; font-size: 15px;
+}
+ol.rail > li::after { content: ""; position: absolute; left: 16px; top: 38px; bottom: 4px; width: 2px; background: var(--line); }
+ol.rail > li:last-child::after { display: none; }
+ol.rail h4 { font-family: var(--display); font-size: 17px; margin: 3px 0 4px; }
+ol.rail p { color: var(--muted); margin-bottom: 6px; }
+.who { display: inline-block; font-size: 12px; font-family: var(--mono); padding: 1px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); margin-left: 6px; vertical-align: 2px; }
+.who.sys { border-color: var(--accent); color: var(--accent); }
+.who.cus { border-color: var(--money); color: var(--money); }
+
+/* Tables */
+.tbl { overflow-x: auto; margin: 12px 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--display); font-weight: 600; font-size: 14px; color: var(--muted); background: var(--bg); }
+tr:last-child td { border-bottom: 0; }
+td:first-child { white-space: nowrap; }
+
+/* Receipt */
+.receipt-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; margin-top: 12px; }
+.receipt { background: var(--surface); border: 1px dashed var(--money); border-radius: 6px; padding: 18px 20px; font-variant-numeric: tabular-nums; }
+.receipt h4 { font-family: var(--display); margin: 0 0 10px; font-size: 16px; display: flex; justify-content: space-between; gap: 8px; }
+.receipt h4 span { font-family: var(--mono); font-size: 12px; color: var(--money); font-weight: 500; }
+.line { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.line.total { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 10px; font-weight: 600; }
+.line.big b { font-family: var(--display); font-size: 22px; color: var(--money); }
+.line.minus span:last-child { color: var(--ok); }
+.receipt small { color: var(--muted); display: block; margin-top: 8px; line-height: 1.6; }
+
+/* Status machine */
+.states { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 16px 0; }
+.state { font-family: var(--mono); font-size: 14px; padding: 6px 12px; border-radius: 8px; border: 1.5px solid var(--accent); background: var(--accent-soft); }
+.state small { display: block; font-family: var(--body); font-size: 12px; color: var(--muted); }
+.state.end { border-color: var(--muted); background: var(--surface); }
+.state.bad { border-color: var(--warn); background: var(--warn-soft); }
+.arrow { color: var(--muted); font-size: 20px; }
+
+/* Cards grid for admin */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.card h4 { font-family: var(--display); margin: 0 0 4px; font-size: 16px; }
+.card p { font-size: 14.5px; color: var(--muted); margin: 0; line-height: 1.65; }
+.card .perm { display: inline-block; margin-top: 8px; font-family: var(--mono); font-size: 11.5px; color: var(--accent); }
+
+.plate { display: inline-block; font-family: var(--display); font-weight: 700; background: var(--plate-bg); color: var(--plate-fg); border: 2px solid var(--plate-fg); border-radius: 4px; padding: 2px 10px; font-size: 14px; letter-spacing: .02em; }
+ul.plain { padding-left: 20px; margin: 6px 0 12px; }
+ul.plain li { margin-bottom: 4px; }
+.cols2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+
+@media (max-width: 860px) {
+  .wrap { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  nav.toc { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+html { scroll-behavior: smooth; }
+</style>
+
+<div class="wrap">
+<nav class="toc" aria-label="สารบัญ">
+  <p>สารบัญ</p>
+  <a href="#overview">ภาพรวมระบบ</a>
+  <a href="#roles">ใครใช้อะไรได้</a>
+  <a href="#customer">เส้นทางลูกค้า</a>
+  <a href="#money">เงินไหลอย่างไร</a>
+  <a href="#status">สถานะการจอง</a>
+  <a href="#contract">สัญญาเช่า</a>
+  <a href="#admin">หลังบ้านผู้ดูแล</a>
+  <a href="#owner">เจ้าของระบบ</a>
+  <a href="#pages">หน้าเว็บทั้งหมด</a>
+  <a href="#behind">เบื้องหลังระบบ</a>
+  <a href="#limits">ข้อจำกัดตอนนี้</a>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="eyebrow">Siam Wheels Rental Hub · drive-dee</div>
+  <h1>Drive Dee ทำงานอย่างไร ตั้งแต่ค้นหารถจนคืนรถ</h1>
+  <p class="lead">ระบบเช่ารถต้นแบบสำหรับสาธิตลูกค้า ลูกค้าจองและจ่ายค่าจองออนไลน์ ผู้ดูแลจัดการรถ การจอง สัญญา งานซ่อม และรายงานจากหลังบ้าน ทุกการจ่ายเงินเป็นการจำลอง (DEMO) ไม่มีเงินจริงเกิดขึ้น</p>
+</header>
+
+<div class="note">
+  <strong>ระบบมีสองแบบอยู่ตอนนี้</strong>
+  <p style="margin:6px 0 0">หน้านี้อธิบายขั้นตอน<b>แบบใหม่</b> (จ่ายค่าจอง 1,000 บาททันที ไม่ต้องรออนุมัติ) ที่แก้ไว้ใน branch <code>Max-Branch</code> ส่วนเว็บจริง <span class="mono">drive-dee.lovable.app</span> ยังเป็น<b>แบบเดิม</b> (รอผู้ดูแลทำสัญญาและอนุมัติก่อนจ่ายเต็มจำนวน) จนกว่าจะส่งคำสั่งแก้ฐานข้อมูลให้ Lovable แล้ว merge เข้า <code>main</code> ดูแบบเดิมได้ในหัวข้อ <a href="#customer">เส้นทางลูกค้า</a></p>
+</div>
+
+<section id="overview">
+  <h2>ภาพรวมระบบ</h2>
+  <p class="sub">ระบบมีสามส่วนที่คุยกัน</p>
+  <div class="cols2">
+    <div class="tip"><h4 style="margin:0 0 4px;font-family:var(--display)">หน้าเว็บ (สิ่งที่คนเห็น)</h4><p style="margin:0;color:var(--muted)">React + TanStack Start ภาษาไทยทั้งหมด เงินเป็นบาท เวลาเป็นเวลาไทย หน้าเว็บแค่<b>แสดงผลและส่งคำขอ</b> ไม่ได้เป็นตัวตัดสินกฎ</p></div>
+    <div class="tip"><h4 style="margin:0 0 4px;font-family:var(--display)">ฐานข้อมูล Supabase (ตัวตัดสิน)</h4><p style="margin:0;color:var(--muted)">กฎสำคัญอยู่ที่นี่ทั้งหมด: คิดราคา กันจองซ้อน จับเวลา 15 นาที บันทึกการจ่าย ออกสัญญา และสิทธิ์ใครเห็นอะไร (RLS) ถ้าหน้าเว็บส่งอะไรผิดมา ฐานข้อมูลจะปฏิเสธ</p></div>
+    <div class="tip"><h4 style="margin:0 0 4px;font-family:var(--display)">Lovable Cloud (ที่โฮสต์)</h4><p style="margin:0;color:var(--muted)">สร้างเว็บจาก branch <code>main</code> และเป็นเจ้าของฐานข้อมูล การแก้โครงสร้างฐานข้อมูลต้องสั่งผ่าน Lovable เท่านั้น</p></div>
+  </div>
+</section>
+
+<section id="roles">
+  <h2>ใครใช้อะไรได้</h2>
+  <p class="sub">สิทธิ์ถูกบังคับที่ฐานข้อมูล การซ่อนปุ่มบนหน้าเว็บเป็นแค่ความสะดวก</p>
+  <div class="tbl"><table>
+    <thead><tr><th>บทบาท</th><th>ได้มาอย่างไร</th><th>ทำอะไรได้</th></tr></thead>
+    <tbody>
+      <tr><td>ผู้เยี่ยมชม</td><td>ยังไม่เข้าสู่ระบบ</td><td>ดูหน้าแรก ค้นหารถ ดูรายละเอียดรถและรีวิว กดจองจะถูกพาไปเข้าสู่ระบบ</td></tr>
+      <tr><td>ลูกค้า</td><td>สมัครสมาชิกเอง ทุกบัญชีใหม่ได้บทบาทนี้</td><td>จอง จ่ายค่าจอง ยอมรับสัญญา ยกเลิก รีวิว แก้โปรไฟล์ เห็นเฉพาะข้อมูลของตัวเอง</td></tr>
+      <tr><td>ลูกค้าทดลอง (Demo)</td><td>ปุ่ม "Demo Customer" หน้าเข้าสู่ระบบ</td><td>เหมือนลูกค้า ใช้ข้อมูลสมมติ อีเมล <code>@demo.siamwheels.invalid</code> ฐานข้อมูลห้ามเป็นผู้ดูแลเด็ดขาด</td></tr>
+      <tr><td>ผู้ดูแล (Admin)</td><td>เจ้าของระบบเชิญผ่านลิงก์ <code>/admin-invite</code></td><td>เข้าหลังบ้าน <code>/admin</code> ทำได้ตามสิทธิ์ย่อยที่ได้รับ (ดู <a href="#admin">หลังบ้าน</a>)</td></tr>
+      <tr><td>เจ้าของระบบ (Owner)</td><td>ตั้งครั้งเดียวด้วย SQL ตามเอกสาร <code>docs/database/admin-account-procedure.md</code></td><td>ทุกอย่างของผู้ดูแล + เชิญ/ระงับ/เพิกถอนผู้ดูแล + ยืนยันการจองด้วยมือ (ต้องใส่เหตุผล)</td></tr>
+      <tr><td>Demo Admin</td><td>ยังไม่มีในฐานข้อมูล</td><td>หน้า <code>/demo-admin</code> มีอยู่แต่ใช้ไม่ได้จนกว่าจะเพิ่มบทบาทนี้</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="customer">
+  <h2>เส้นทางลูกค้า (แบบใหม่)</h2>
+  <p class="sub">ตัวอย่าง: เช่า <span class="plate">Toyota Yaris Ativ</span> 990 บาท/วัน 3 วัน รับรถที่สาขาสุขุมวิท</p>
+  <ol class="rail">
+    <li><h4>ค้นหารถ <span class="who">/cars</span></h4>
+      <p>เลือกช่วงวันที่ ประเภท (อีโคคาร์ ซีดาน SUV รถตู้ รถไฟฟ้า) และเรียงตามราคา ระบบแสดงเฉพาะรถที่ว่างในวันนั้น โดยถามฐานข้อมูล (<code>booked_car_ids</code>) ว่าคันไหนถูกจองแล้ว</p></li>
+    <li><h4>ดูรายละเอียดรถ <span class="who">/cars/:id</span></h4>
+      <p>เห็นสเปก รีวิว และกล่องจองด้านขวา เลือกวันรับ-คืนและจุดรับรถ 5 แห่ง (สุขุมวิท สุวรรณภูมิ ดอนเมือง เชียงใหม่ ภูเก็ต) กล่องสรุปยอดแสดงทันที: ค่าเช่า 2,970 · ประกัน 2,970 · ค่าจอง 1,000 · จ่ายวันรับรถ 4,940</p></li>
+    <li><h4>กด "จองรถคันนี้" <span class="who cus">ลูกค้า</span> <span class="who sys">ฐานข้อมูล</span></h4>
+      <p>ฐานข้อมูลตรวจซ้ำทุกอย่าง: วันไม่ย้อนหลัง รถพร้อมให้เช่า ไม่ซ้อนกับการจองอื่น แล้วคำนวณจำนวนวันและค่าเช่าเอง (ลูกค้าส่งราคามาเองไม่ได้) สร้างรหัสจองแบบ <span class="mono">BK261111B8D32</span> และเริ่มนับ<b>เวลา 15 นาที</b> รถคันนี้ถูกกันไว้ให้ระหว่างนั้น</p></li>
+    <li><h4>จ่ายค่าจอง 1,000 บาท <span class="who">/bookings/:id</span></h4>
+      <p>หน้าการจองเปิดการ์ดชำระเงินทันที มีนาฬิกานับถอยหลัง (โหลดหน้าใหม่ก็ไม่รีเซ็ต) เลือกได้สองทาง: QR (เป็น QR สาธิต สแกนจ่ายจริงไม่ได้ กดปุ่มยืนยันแทน) หรือบัตร (ใช้บัตรทดสอบเท่านั้น) ถ้าเกิน 15 นาที การจองถูกยกเลิกและรถว่างทันที</p></li>
+    <li><h4>ระบบยืนยันการจองและออกสัญญา <span class="who sys">ฐานข้อมูล</span></h4>
+      <p>ในครั้งเดียว (<code>pay_booking</code>): บันทึกการจ่าย 1,000 บาท อ้างอิง <span class="mono">DEMO-xxxx</span> เปลี่ยนการจองเป็น "ยืนยันแล้ว" และสร้างสัญญาฉบับที่ 1 จากข้อมูลการจองและโปรไฟล์ ถ้าขั้นไหนพัง ทั้งหมดย้อนกลับ ไม่มีการจ่ายครึ่งๆกลางๆ</p></li>
+    <li><h4>อ่านและยอมรับสัญญา <span class="who cus">ลูกค้า</span></h4>
+      <p>หน้าเดิมแสดงสัญญา ลูกค้าติ๊กยินยอมแล้วกด "ยอมรับสัญญาฉบับที่ 1" ระบบบันทึกเวลาที่ยอมรับ พิมพ์สัญญาได้</p></li>
+    <li><h4>วันรับรถ <span class="who">หน้าร้าน</span></h4>
+      <p>จ่ายค่าเช่า + เงินประกัน − ค่าจอง = 4,940 บาท ที่สาขา ระบบ<b>แสดง</b>ยอดนี้ไว้ แต่ไม่ได้บันทึกการรับเงิน ผู้ดูแลเปลี่ยนสถานะเป็น "กำลังเช่า"</p></li>
+    <li><h4>คืนรถ <span class="who">หน้าร้าน</span></h4>
+      <p>ได้เงินประกัน 2,970 บาทคืน (ถ้ารถไม่เสียหาย) ผู้ดูแลปิดการจองเป็น "เสร็จสิ้น"</p></li>
+    <li><h4>รีวิว <span class="who">/bookings</span></h4>
+      <p>ลูกค้าให้ 1-5 ดาวพร้อมความเห็นได้ 1 ครั้งต่อการจองที่จ่ายแล้ว ชื่อที่แสดงเป็นชื่อย่อ ไม่ใช่ชื่อเต็ม</p></li>
+  </ol>
+
+  <h3>ทางแยกที่เกิดได้</h3>
+  <ul class="plain">
+    <li><b>บัตรถูกปฏิเสธ</b> (เลขท้าย 0002): ไม่มีอะไรถูกส่งไปฐานข้อมูล การจองยังรอจ่าย ลองใหม่ได้ภายในเวลาที่เหลือ</li>
+    <li><b>หมดเวลา 15 นาที</b>: รถว่างทันทีสำหรับคนอื่น สถานะเปลี่ยนเป็น "ยกเลิก" ตอนมีคนเปิดดูครั้งถัดไป</li>
+    <li><b>ลูกค้ายกเลิกเอง</b>: ยกเลิกได้ตอนรอจ่ายหรือยืนยันแล้ว ถ้าจ่ายค่าจองไปแล้ว <b>ไม่คืนเงิน</b> หน้าเว็บแสดง "ยกเลิกแล้ว · ยังไม่คืนเงิน"</li>
+    <li><b>มีคนจองตัดหน้า</b>: ฐานข้อมูลปฏิเสธการจองที่ซ้อน หน้าเว็บโหลดวันว่างใหม่และแจ้งเตือน</li>
+  </ul>
+
+  <h3>เทียบกับแบบเดิม (ที่เว็บจริงใช้อยู่)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>ขั้น</th><th>แบบเดิม</th><th>แบบใหม่</th></tr></thead>
+    <tbody>
+      <tr><td>หลังกดจอง</td><td>รอผู้ดูแลจัดทำสัญญา (กันรถไว้ 24 ชม.)</td><td>ไปหน้าจ่ายเงินทันที (15 นาที)</td></tr>
+      <tr><td>สัญญา</td><td>ผู้ดูแลเขียน → ส่ง → ลูกค้ายอมรับหรือขอแก้ → ผู้ดูแลอนุมัติ</td><td>ระบบออกให้อัตโนมัติหลังจ่าย ลูกค้ากดยอมรับ</td></tr>
+      <tr><td>จ่ายออนไลน์</td><td>ค่าเช่าเต็มจำนวน หลังอนุมัติ ภายใน 15 นาที</td><td>ค่าจอง 1,000 บาทคงที่</td></tr>
+      <tr><td>จ่ายที่สาขา</td><td>เงินประกันตามที่ผู้ดูแลกำหนด (ค่าเริ่มต้น 5,000)</td><td>ค่าเช่า + ประกัน (= ค่าเช่า) − 1,000</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="money">
+  <h2>เงินไหลอย่างไร</h2>
+  <p class="sub">กฎ: ค่าเช่า = ราคาต่อวัน × จำนวนวัน · ประกัน = ค่าเช่า · ค่าจอง 1,000 บาทเสมอ ไม่ว่ากี่วัน</p>
+  <div class="receipt-row">
+    <div class="receipt">
+      <h4>ตอนจอง (ออนไลน์) <span>DEMO</span></h4>
+      <div class="line big"><span>ค่าจอง</span><b>฿1,000</b></div>
+      <small>บันทึกในระบบเป็นการจ่ายเงิน รายงานรายได้นับยอดนี้ ไม่คืนเมื่อยกเลิก</small>
+    </div>
+    <div class="receipt">
+      <h4>วันรับรถ (ที่สาขา) <span>แสดงอย่างเดียว</span></h4>
+      <div class="line"><span>ค่าเช่า 990 × 3 วัน</span><span>฿2,970</span></div>
+      <div class="line"><span>เงินประกันความเสียหาย</span><span>฿2,970</span></div>
+      <div class="line minus"><span>หักค่าจองที่จ่ายแล้ว</span><span>−฿1,000</span></div>
+      <div class="line total big"><span>จ่ายวันรับรถ</span><b>฿4,940</b></div>
+    </div>
+    <div class="receipt">
+      <h4>วันคืนรถ <span>แสดงอย่างเดียว</span></h4>
+      <div class="line big"><span>ได้ประกันคืน</span><b>฿2,970</b></div>
+      <small>สุทธิแล้วลูกค้าจ่ายทั้งหมด 1,000 + 4,940 − 2,970 = 2,970 บาท เท่ากับค่าเช่าพอดี</small>
+    </div>
+  </div>
+  <div class="tip"><b>บัตรทดสอบ</b> · <span class="mono">4242 4242 4242 4242</span> จ่ายผ่าน · เลขที่ลงท้าย <span class="mono">0002</span> ถูกปฏิเสธ · วันหมดอายุอะไรก็ได้ในอนาคต เช่น <span class="mono">12/30</span> · CVV 3 หลักอะไรก็ได้ ระบบเก็บแค่เลข 4 ตัวท้าย</div>
+</section>
+
+<section id="status">
+  <h2>สถานะการจอง</h2>
+  <p class="sub">ทุกการจองอยู่ในสถานะใดสถานะหนึ่ง ฐานข้อมูลอนุญาตให้เปลี่ยนเฉพาะตามลูกศรนี้</p>
+  <div class="states" role="img" aria-label="pending ไป confirmed ไป active ไป completed และยกเลิกได้จาก pending confirmed active">
+    <div class="state">pending<small>รอชำระค่าจอง</small></div><span class="arrow">→</span>
+    <div class="state">confirmed<small>ยืนยันแล้ว</small></div><span class="arrow">→</span>
+    <div class="state">active<small>กำลังเช่า</small></div><span class="arrow">→</span>
+    <div class="state end">completed<small>เสร็จสิ้น</small></div>
+  </div>
+  <div class="states"><div class="state bad">cancelled<small>ยกเลิก</small></div><span style="color:var(--muted)">มาจาก pending, confirmed หรือ active</span></div>
+  <div class="tbl"><table>
+    <thead><tr><th>การเปลี่ยน</th><th>ใครทำ</th><th>เงื่อนไข</th></tr></thead>
+    <tbody>
+      <tr><td>pending → confirmed</td><td>ระบบ เมื่อจ่ายสำเร็จ</td><td>ต้องมีการจ่ายเงินที่สำเร็จ หรือเจ้าของระบบยืนยันด้วยมือพร้อมเหตุผล ผู้ดูแลกดเองไม่ได้</td></tr>
+      <tr><td>pending → cancelled</td><td>ลูกค้า ผู้ดูแล หรือหมดเวลา</td><td>หมดเวลาเกิดเองเมื่อพ้น 15 นาที</td></tr>
+      <tr><td>confirmed → cancelled</td><td>ลูกค้าหรือผู้ดูแล</td><td>การจ่ายเงินยังอยู่ ติดป้าย "ยังไม่คืนเงิน" สัญญาถูกยกเลิกตาม</td></tr>
+      <tr><td>confirmed → active / completed</td><td>ผู้ดูแลที่มีสิทธิ์จัดการการจอง</td><td>ตอนลูกค้ารับรถ / คืนรถ</td></tr>
+      <tr><td>active → completed / cancelled</td><td>ผู้ดูแลที่มีสิทธิ์จัดการการจอง</td><td></td></tr>
+    </tbody>
+  </table></div>
+  <p>ข้อสำคัญ: การจองที่<b>รอจ่ายและยังไม่หมดเวลา</b> ยืนยันแล้ว และกำลังเช่า จะกันรถในช่วงวันนั้นไว้ ส่วนที่หมดเวลาแล้วไม่กันรถ แม้สถานะยังไม่ถูกเปลี่ยนเป็นยกเลิก</p>
+</section>
+
+<section id="contract">
+  <h2>สัญญาเช่า</h2>
+  <p class="sub">สัญญาเป็นข้อความที่ระบบสร้างจากข้อมูลจริง ใครก็แก้ข้อความเองไม่ได้</p>
+  <ul class="plain">
+    <li><b>มีอะไรในสัญญา</b>: เลขที่สัญญา (เช่น <span class="mono">CT261114AB12C</span>) ชื่อและเบอร์ผู้เช่า รถและทะเบียน จุดรับรถ วัน-เวลารับ (10:00) และคืน (18:00) จำนวนวัน ค่าเช่ารวม เงินประกัน ข้อกำหนดระยะทาง (ไม่จำกัด) ค่าปรับคืนช้า (500 บาท/ชม.) ข้อปฏิบัติ 5 ข้อ และเงื่อนไขเรื่องค่าจองกับยอดวันรับรถ</li>
+    <li><b>ฉบับ (version)</b>: สัญญามีหลายฉบับได้ ฉบับที่ส่งให้ลูกค้าแล้วจะถูกล็อก แก้ไม่ได้ ถ้าต้องแก้ต้องออกฉบับใหม่ ฉบับเก่าเก็บไว้ดูย้อนหลัง</li>
+    <li><b>ประวัติ</b>: ทุกเหตุการณ์ (สร้าง ส่ง ยอมรับ จ่าย ยกเลิก หมดเวลา) ถูกบันทึกแบบลบหรือแก้ไม่ได้ พร้อมว่าใครทำ</li>
+    <li><b>สัญญาเก่าก่อนมีระบบนี้</b>: แสดงข้อความต้นฉบับพร้อมป้าย "สัญญาฉบับเดิม"</li>
+  </ul>
+</section>
+
+<section id="admin">
+  <h2>หลังบ้านผู้ดูแล <span class="mono" style="font-size:16px;color:var(--muted)">/admin</span></h2>
+  <p class="sub">เมนูด้านซ้าย 8 ส่วน แต่ละส่วนต้องมีสิทธิ์ย่อยที่เจ้าของระบบให้ (แสดงตัวสีเขียวใต้การ์ด)</p>
+  <div class="grid">
+    <div class="card"><h4>ภาพรวมระบบ</h4><p>รายได้ (นับจากการจ่ายเงินจริง ไม่ใช่จากการจอง) อัตราการใช้รถ การจองที่กำลังดำเนินอยู่ จำนวนลูกค้า ค่าซ่อมบำรุง</p></div>
+    <div class="card"><h4>จัดการรถยนต์</h4><p>เพิ่ม แก้ ลบรถ ตั้งราคาต่อวัน รูป และสถานะ: ว่าง / ถูกเช่า / ซ่อมบำรุง / งดให้บริการ</p><span class="perm">fleet_manage</span></div>
+    <div class="card"><h4>รายการจอง</h4><p>ดูทุกการจอง เปลี่ยนสถานะตามลูกศรในหัวข้อสถานะ (ยืนยันเองไม่ได้ ต้องจ่ายก่อน)</p><span class="perm">bookings_manage</span></div>
+    <div class="card"><h4>สัญญาเช่าดิจิทัล</h4><p>ดูสัญญาทั้งหมดและประวัติ แบบเดิม: สร้าง แก้ ส่ง และอนุมัติ แบบใหม่: สัญญาออกเองหลังจ่าย ส่วนนี้ใช้ดูและดูแลการจองค้างจากแบบเดิม</p><span class="perm">contracts_manage · contracts_approve</span></div>
+    <div class="card"><h4>งานซ่อมบำรุง</h4><p>บันทึกงานซ่อมต่อคัน: หัวข้อ รายละเอียด วันที่ ค่าใช้จ่าย สถานะ</p><span class="perm">fleet_manage</span></div>
+    <div class="card"><h4>รีวิวจากลูกค้า</h4><p>อ่านและลบรีวิวที่ไม่เหมาะสม</p><span class="perm">reviews_moderate</span></div>
+    <div class="card"><h4>รายงานและสถิติ</h4><p>เลือกช่วง 30 วัน / 90 วัน / ปีนี้ / ทั้งหมด กราฟรายได้รายเดือน ส่งออก CSV การจอง-รายได้ และงานซ่อม (เปิดใน Excel ภาษาไทยไม่เพี้ยน)</p></div>
+    <div class="card"><h4>ผู้ดูแลระบบ</h4><p>เฉพาะเจ้าของระบบ ดูหัวข้อถัดไป</p><span class="perm">owner เท่านั้น</span></div>
+  </div>
+</section>
+
+<section id="owner">
+  <h2>เจ้าของระบบ (Owner)</h2>
+  <ol class="rail">
+    <li><h4>เชิญผู้ดูแล</h4><p>ใส่อีเมลและเลือกสิทธิ์ย่อย ได้ลิงก์เชิญ ผู้ถูกเชิญเปิด <code>/admin-invite</code> เข้าสู่ระบบหรือสมัครด้วยอีเมลนั้น แล้วกดรับคำเชิญ</p></li>
+    <li><h4>ปรับสิทธิ์ ระงับ หรือเพิกถอน</h4><p>ผู้ดูแลที่ถูกระงับหรือเพิกถอนหมดสิทธิ์ทุกที่ทันที เพราะทุกกฎในฐานข้อมูลเช็กสถานะนี้</p></li>
+    <li><h4>ยืนยันการจองด้วยมือ</h4><p>กรณีพิเศษเท่านั้น ต้องเขียนเหตุผลอย่างน้อย 10 ตัวอักษร ระบบบันทึกไว้สองที่</p></li>
+  </ol>
+  <p>ทุกการกระทำของเจ้าของระบบถูกบันทึกในบันทึกตรวจสอบ (audit log) ที่ลบหรือแก้ไม่ได้</p>
+</section>
+
+<section id="pages">
+  <h2>หน้าเว็บทั้งหมด</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>ที่อยู่</th><th>หน้า</th><th>ใครเข้าได้</th></tr></thead>
+    <tbody>
+      <tr><td><code>/</code></td><td>หน้าแรก ค้นหาตามวันที่</td><td>ทุกคน</td></tr>
+      <tr><td><code>/cars</code></td><td>ค้นหารถ กรองประเภทและราคา</td><td>ทุกคน</td></tr>
+      <tr><td><code>/cars/:id</code></td><td>รายละเอียดรถ รีวิว กล่องจอง</td><td>ทุกคน (จองต้องเข้าสู่ระบบ)</td></tr>
+      <tr><td><code>/auth</code></td><td>เข้าสู่ระบบ สมัคร รีเซ็ตรหัสผ่าน Demo Customer</td><td>ทุกคน</td></tr>
+      <tr><td><code>/dashboard</code></td><td>หน้าหลักลูกค้า: ทริปปัจจุบัน สถิติ เมนูด่วน การจองล่าสุด</td><td>เข้าสู่ระบบแล้ว</td></tr>
+      <tr><td><code>/bookings</code></td><td>ประวัติการจอง กรองตามสถานะ ยกเลิก เขียนรีวิว</td><td>เข้าสู่ระบบแล้ว</td></tr>
+      <tr><td><code>/bookings/:id</code></td><td>จ่ายค่าจอง สัญญา ใบยืนยัน พิมพ์</td><td>เจ้าของการจอง (ผู้ดูแลดูได้แต่กดจ่ายไม่ได้)</td></tr>
+      <tr><td><code>/profile</code></td><td>ชื่อ เบอร์ ที่อยู่ เลขใบขับขี่ เลขบัตรประชาชน เปลี่ยนรหัสผ่าน</td><td>เข้าสู่ระบบแล้ว</td></tr>
+      <tr><td><code>/admin</code></td><td>หลังบ้าน 8 ส่วน</td><td>ผู้ดูแล</td></tr>
+      <tr><td><code>/admin-invite</code></td><td>รับคำเชิญเป็นผู้ดูแล</td><td>ผู้ถูกเชิญ</td></tr>
+      <tr><td><code>/demo-admin</code></td><td>หลังบ้านแบบจำกัด</td><td>ยังใช้ไม่ได้</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="behind">
+  <h2>เบื้องหลังระบบ</h2>
+  <p class="sub">ฟังก์ชันในฐานข้อมูลที่ทำงานจริง หน้าเว็บเรียกใช้หรือมันทำงานเองเมื่อข้อมูลเปลี่ยน</p>
+  <div class="tbl"><table>
+    <thead><tr><th>ชื่อ</th><th>ทำงานเมื่อ</th><th>ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td><code>validate_booking</code></td><td>สร้างหรือแก้การจองทุกครั้ง</td><td>ตรวจวัน รถ การซ้อน คำนวณวันและราคา ตั้งเวลา 15 นาที ห้ามลูกค้าแก้ราคาหรือวัน คุมลูกศรสถานะ</td></tr>
+      <tr><td><code>booked_car_ids</code></td><td>หน้าค้นหารถและหน้ารถ</td><td>บอกว่ารถคันไหนไม่ว่างในช่วงวันที่เลือก</td></tr>
+      <tr><td><code>pay_booking</code></td><td>กดจ่ายเงิน</td><td>บันทึกค่าจอง ยืนยันการจอง ออกสัญญา ในครั้งเดียว</td></tr>
+      <tr><td><code>customer_accept_paid_contract</code></td><td>ลูกค้ากดยอมรับสัญญา (ใหม่)</td><td>บันทึกเวลายอมรับ</td></tr>
+      <tr><td><code>expire_stale_bookings</code></td><td>หน้าเว็บเรียกเมื่อเจอการจองหมดเวลา</td><td>เปลี่ยนการจองที่หมดเวลาเป็นยกเลิก</td></tr>
+      <tr><td><code>cancel_contract_with_booking</code></td><td>การจองถูกยกเลิก</td><td>ยกเลิกสัญญาตาม ติดป้าย "ไม่คืนเงิน" ที่การจ่าย</td></tr>
+      <tr><td><code>handle_new_user</code></td><td>มีคนสมัครใหม่</td><td>สร้างโปรไฟล์ ให้บทบาทลูกค้าเท่านั้น</td></tr>
+      <tr><td><code>prevent_demo_admin</code></td><td>มีการให้บทบาท</td><td>ห้ามบัญชี Demo เป็นผู้ดูแล</td></tr>
+      <tr><td>RLS</td><td>ทุกการอ่าน/เขียน</td><td>ลูกค้าเห็นเฉพาะของตัวเอง ผู้ดูแลเห็นตามสิทธิ์</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Branch และการปล่อยงาน</h3>
+  <ul class="plain">
+    <li><code>main</code> คือสิ่งที่ Lovable สร้างเป็นเว็บจริง ต้องใช้งานได้เสมอ</li>
+    <li><code>Max-Branch</code> คือ branch ของคุณ มีงานแบบใหม่ ยังไม่ได้ commit</li>
+    <li>ลำดับปล่อยแบบใหม่: ส่งคำสั่งใน <code>docs/database/booking-fee-lovable-prompt.md</code> ให้ Lovable → ทดสอบบน preview → merge <code>Max-Branch</code> เข้า <code>main</code> ถ้าสลับลำดับ ลูกค้าจะเห็นปุ่มจ่ายแต่ฐานข้อมูลปฏิเสธ</li>
+  </ul>
+</section>
+
+<section id="limits">
+  <h2>ข้อจำกัดตอนนี้</h2>
+  <ul class="plain">
+    <li>การจ่ายเงินทั้งหมดเป็นการจำลอง ไม่มีระบบคืนเงิน ไม่มีใบเสร็จทางอีเมล</li>
+    <li>เงินที่จ่ายวันรับรถและเงินประกันที่คืน ไม่ได้บันทึกในระบบ รายงานรายได้จึงนับแค่ค่าจอง</li>
+    <li>ไม่มีงานตั้งเวลา: การจองหมดเวลาเปลี่ยนเป็น "ยกเลิก" ตอนมีคนเปิดดู (แต่รถว่างทันทีอยู่แล้ว)</li>
+    <li>Demo Admin ยังใช้ไม่ได้ · Demo Customer ใช้ในเครื่องไม่ได้ถ้าไม่มี service-role key</li>
+    <li>รูปรถเป็นลิงก์หรือรูปตัวอย่างตามประเภท อัปโหลดไม่ได้ · เข้าสู่ระบบได้แค่อีเมลและรหัสผ่าน · มีแค่ภาษาไทย</li>
+    <li>ห้ามกรอกข้อมูลจริง (ชื่อ เลขบัตร ใบขับขี่ บัตรเครดิต) ทุกหน้ามีป้ายเตือนต้นแบบ</li>
+  </ul>
+</section>
+</main>
+</div>

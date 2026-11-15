@@ -48,11 +48,24 @@ import {
 } from "recharts";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -74,7 +87,15 @@ import { StatusBadge } from "@/components/status-badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
-import { bookingStatusLabel, categoryLabel, fmtDate, fmtDateTime, maintStatusLabel, thb, todayBkk } from "@/lib/format";
+import {
+  bookingStatusLabel,
+  categoryLabel,
+  fmtDate,
+  fmtDateTime,
+  maintStatusLabel,
+  thb,
+  todayBkk,
+} from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 import { invalidateBookingData } from "@/lib/queries";
 import { cancelExpiredBookings } from "@/lib/payment-window";
@@ -92,6 +113,7 @@ import {
   downloadTextFile,
   maintenanceReportCsv,
   monthlyRevenueSeries,
+  maintenanceCostError,
   type ReportRange,
 } from "@/lib/reports";
 import { KeyRound } from "lucide-react";
@@ -103,9 +125,11 @@ import {
   type PanelContract,
 } from "@/components/admin/contracts-panel";
 import { AdminManagementPanel } from "@/components/admin/admin-management-panel";
-import { adminBookingMoves, reasonError } from "@/lib/contract-workflow";
+import { bookingMovesOn, defaultBookingMove, reasonError } from "@/lib/contract-workflow";
 import { ownerManualConfirm } from "@/lib/contract-api";
-import { validateCarPrice } from "@/lib/form-validation";
+import { fleetCounts } from "@/lib/fleet";
+import { CAR_LIMITS, carFormError } from "@/lib/car-validation";
+import { OverdueBookingsCard } from "@/components/admin/overdue-bookings-card";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -124,7 +148,16 @@ export const Route = createFileRoute("/admin")({
  */
 export type DashboardMode = "admin" | "demo";
 
-type AdminTab = "overview" | "cars" | "bookings" | "customers" | "contracts" | "maintenance" | "reviews" | "reports" | "admins";
+type AdminTab =
+  | "overview"
+  | "cars"
+  | "bookings"
+  | "customers"
+  | "contracts"
+  | "maintenance"
+  | "reviews"
+  | "reports"
+  | "admins";
 
 type BookingWithCar = Tables<"bookings"> & {
   cars: Tables<"cars"> | null;
@@ -173,7 +206,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
   const [activeTab, setActiveTab] = useState<AdminTab>("overview");
   // Which contracts tab to open (set by the overview work queue)
-  const [contractView, setContractView] = useState<ContractPanelView>("pending_admin_review");
+  const [contractView, setContractView] = useState<ContractPanelView>("create");
 
   // Filters & Search
   const [carSearch, setCarSearch] = useState("");
@@ -220,10 +253,13 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
   // Booking Status Update Dialog
   const [updatingBooking, setUpdatingBooking] = useState<BookingWithCar | null>(null);
-  const [newBookingStatus, setNewBookingStatus] = useState<Tables<"bookings">["status"]>("confirmed");
+  // "" = nothing chosen yet (cancelling is never preselected)
+  const [newBookingStatus, setNewBookingStatus] = useState<Tables<"bookings">["status"] | "">("");
 
   // Owner-only manual confirmation (reason required, audited in the database)
   const [manualConfirmFor, setManualConfirmFor] = useState<BookingWithCar | null>(null);
+  // A maintenance job being closed before its scheduled day (asks for confirmation first)
+  const [earlyComplete, setEarlyComplete] = useState<MaintenanceWithCar | null>(null);
   const [manualReason, setManualReason] = useState("");
   const [confirmingManually, setConfirmingManually] = useState(false);
 
@@ -304,7 +340,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
   const paymentsQ = useQuery({
     queryKey: ["admin-payments"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("payments").select("*").order("paid_at", { ascending: false });
+      const { data, error } = await supabase
+        .from("payments")
+        .select("*")
+        .order("paid_at", { ascending: false });
       if (error) throw error;
       return data as Tables<"payments">[];
     },
@@ -324,7 +363,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
   });
   const roles = rolesQ.data ?? [];
 
-  const { data: reviewsForCount = [] } = useQuery({ ...adminReviewsQuery(), enabled: perms.moderateReviews });
+  const { data: reviewsForCount = [] } = useQuery({
+    ...adminReviewsQuery(),
+    enabled: perms.moderateReviews,
+  });
 
   // A failed load must not look like "no data", so failures are listed in a banner with a retry
   const failedQueries = [
@@ -394,9 +436,14 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       toast.error("กรุณากรอกยี่ห้อ รุ่น และทะเบียนรถให้ครบถ้วน");
       return;
     }
-    const priceError = validateCarPrice(carForm.price_per_day);
-    if (priceError) {
-      toast.error(priceError);
+    const numbersProblem = carFormError({
+      price_per_day: Number(carForm.price_per_day),
+      seats: Number(carForm.seats),
+      mileage: Number(carForm.mileage),
+      year: Number(carForm.year),
+    });
+    if (numbersProblem) {
+      toast.error(numbersProblem);
       return;
     }
 
@@ -463,15 +510,23 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     try {
       const hasBooking = bookings.some((b) => b.car_id === carToDelete.id);
       if (hasBooking) {
-        toast.error("ไม่สามารถลบรถคันนี้ได้เนื่องจากมีประวัติการจองผูกอยู่ในระบบ กรุณาเปลี่ยนสถานะเป็น 'งดให้บริการ' แทน");
+        toast.error(
+          "ไม่สามารถลบรถคันนี้ได้เนื่องจากมีประวัติการจองผูกอยู่ในระบบ กรุณาเปลี่ยนสถานะเป็น 'งดให้บริการ' แทน",
+        );
         setCarToDelete(null);
         return;
       }
 
       const { error } = await supabase.from("cars").delete().eq("id", carToDelete.id);
       if (error) {
-        if (error.code === "23503" || error.message.includes("foreign key") || error.message.includes("violates foreign key constraint")) {
-          toast.error("ไม่สามารถลบรถคันนี้ได้เนื่องจากมีประวัติการจองผูกอยู่ในระบบ กรุณาเปลี่ยนสถานะเป็น 'งดให้บริการ' แทน");
+        if (
+          error.code === "23503" ||
+          error.message.includes("foreign key") ||
+          error.message.includes("violates foreign key constraint")
+        ) {
+          toast.error(
+            "ไม่สามารถลบรถคันนี้ได้เนื่องจากมีประวัติการจองผูกอยู่ในระบบ กรุณาเปลี่ยนสถานะเป็น 'งดให้บริการ' แทน",
+          );
         } else {
           toast.error(error.message || "ไม่สามารถลบรถยนต์ได้");
         }
@@ -491,10 +546,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
   const handleUpdateCarStatus = async (carId: string, status: Tables<"cars">["status"]) => {
     try {
-      const { error } = await supabase
-        .from("cars")
-        .update({ status })
-        .eq("id", carId);
+      const { error } = await supabase.from("cars").update({ status }).eq("id", carId);
 
       if (error) throw error;
       toast.success("ปรับปรุงสถานะรถยนต์เรียบร้อยแล้ว");
@@ -507,8 +559,17 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
   const handleUpdateBookingStatus = async () => {
     if (!updatingBooking) return;
-    if (!perms.updateBookingStatus || !adminBookingMoves(updatingBooking.status).includes(newBookingStatus)) {
-      toast.error("เปลี่ยนสถานะนี้ไม่ได้ การยืนยันการจองต้องผ่านการอนุมัติสัญญาและการชำระเงิน");
+    if (!newBookingStatus) {
+      toast.error("กรุณาเลือกสถานะใหม่");
+      return;
+    }
+    if (
+      !perms.updateBookingStatus ||
+      !bookingMovesOn(updatingBooking, todayBkk()).includes(newBookingStatus)
+    ) {
+      toast.error(
+        "เปลี่ยนสถานะนี้ไม่ได้ การยืนยันการจองต้องผ่านการยืนยันสัญญาและการชำระค่าจองของลูกค้า และส่งมอบ/รับรถคืนได้ตั้งแต่วันรับรถเท่านั้น",
+      );
       return;
     }
     try {
@@ -535,6 +596,17 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     e.preventDefault();
     if (!maintForm.car_id || !maintForm.title) {
       toast.error("กรุณาเลือกรถและระบุชื่องานซ่อมบำรุง");
+      return;
+    }
+    const costProblem = maintenanceCostError(Number(maintForm.cost));
+    if (costProblem) {
+      toast.error(costProblem);
+      return;
+    }
+    if (maintForm.status === "completed" && maintForm.scheduled_date > todayBkk()) {
+      toast.error(
+        "ยังไม่ถึงวันนัดหมาย จึงบันทึกว่าเสร็จสิ้นไม่ได้ ถ้าทำเสร็จแล้วจริง ให้แก้วันนัดหมายเป็นวันที่ทำ",
+      );
       return;
     }
 
@@ -572,7 +644,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     }
   };
 
-  const handleMaintenanceStatus = async (m: MaintenanceWithCar, status: Tables<"maintenance">["status"]) => {
+  const handleMaintenanceStatus = async (
+    m: MaintenanceWithCar,
+    status: Tables<"maintenance">["status"],
+  ) => {
     try {
       const { error } = await supabase
         .from("maintenance")
@@ -581,7 +656,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       if (error) throw error;
 
       await syncCarStatus(m.car_id);
-      toast.success(status === "completed" ? "ปิดงานซ่อมบำรุงเรียบร้อยแล้ว" : "เริ่มงานซ่อมบำรุงแล้ว");
+      toast.success(
+        status === "completed" ? "ปิดงานซ่อมบำรุงเรียบร้อยแล้ว" : "เริ่มงานซ่อมบำรุงแล้ว",
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["admin-maintenance"] }),
         queryClient.invalidateQueries({ queryKey: ["admin-cars"] }),
@@ -637,13 +714,15 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       const profile = profileMap[b.user_id];
       const matchSearch =
         b.booking_code.toLowerCase().includes(bookingSearch.toLowerCase()) ||
-        (car && `${car.brand} ${car.model} ${car.plate_no}`.toLowerCase().includes(bookingSearch.toLowerCase())) ||
+        (car &&
+          `${car.brand} ${car.model} ${car.plate_no}`
+            .toLowerCase()
+            .includes(bookingSearch.toLowerCase())) ||
         (profile && profile.full_name.toLowerCase().includes(bookingSearch.toLowerCase()));
       const matchStatus = bookingStatusFilter === "all" || b.status === bookingStatusFilter;
       return matchSearch && matchStatus;
     });
   }, [bookings, bookingSearch, bookingStatusFilter, profileMap]);
-
 
   const filteredMaintenance = useMemo(() => {
     return maintenanceRecords.filter((m) => {
@@ -653,6 +732,14 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
   // Operational & Revenue Metrics
   const statusByBooking = useMemo(() => bookingStatusMap(bookings), [bookings]);
+  // What each booking has paid online (DEMO), for the bookings tables
+  const paidOnline = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of payments)
+      if (p.status === "paid")
+        m.set(p.booking_id, (m.get(p.booking_id) ?? 0) + Number(p.amount ?? 0));
+    return m;
+  }, [payments]);
 
   const customerRows = useMemo(
     () => buildCustomerRows({ profiles, bookings, payments, roles }),
@@ -660,12 +747,19 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
   );
 
   const metrics = useMemo(() => {
-    const totalCarsCount = cars.length;
-    const availableCarsCount = cars.filter((c) => c.status === "available").length;
-    const rentedCarsCount = cars.filter((c) => c.status === "rented").length;
-    const maintenanceCarsCount = cars.filter((c) => c.status === "maintenance").length;
+    // Counts a car as rented when it is with a customer today, even if the hand-over was not recorded
+    const fleet = fleetCounts(cars, bookings, todayBkk());
+    const totalCarsCount = fleet.total;
+    const availableCarsCount = fleet.available;
+    const rentedCarsCount = fleet.rented;
+    const maintenanceCarsCount = fleet.maintenance;
 
-    const allTime = computeReport({ bookings, payments, maintenance: maintenanceRecords, range: "all" });
+    const allTime = computeReport({
+      bookings,
+      payments,
+      maintenance: maintenanceRecords,
+      range: "all",
+    });
 
     return {
       totalCustomers: countCustomers(roles),
@@ -673,23 +767,33 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       availableCarsCount,
       rentedCarsCount,
       maintenanceCarsCount,
-      activeBookingsCount: bookings.filter((b) => b.status === "confirmed" || b.status === "active").length,
+      activeBookingsCount: bookings.filter((b) => b.status === "confirmed" || b.status === "active")
+        .length,
       completedBookingsCount: bookings.filter((b) => b.status === "completed").length,
       totalRevenue: allTime.revenue,
       totalMaintenanceCost: allTime.maintCost,
       netProfit: allTime.profit,
-      utilizationRate: totalCarsCount > 0 ? Math.round((rentedCarsCount / totalCarsCount) * 100) : 0,
+      utilizationRate: fleet.utilizationRate,
     };
   }, [cars, bookings, payments, maintenanceRecords, roles]);
 
   // Date-filtered metrics for Reports tab
   const reportMetrics = useMemo(
-    () => computeReport({ bookings, payments, maintenance: maintenanceRecords, range: reportDateRange }),
+    () =>
+      computeReport({
+        bookings,
+        payments,
+        maintenance: maintenanceRecords,
+        range: reportDateRange,
+      }),
     [bookings, payments, maintenanceRecords, reportDateRange],
   );
 
   // Chart Data: revenue for the last 12 months (by payment date, Bangkok time)
-  const chartData = useMemo(() => monthlyRevenueSeries(payments, statusByBooking), [payments, statusByBooking]);
+  const chartData = useMemo(
+    () => monthlyRevenueSeries(payments, statusByBooking, new Date(), 12, bookings),
+    [payments, statusByBooking, bookings],
+  );
 
   const exportBookingsCsv = () => {
     const names: Record<string, string> = {};
@@ -802,7 +906,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           <div className="flex items-start gap-2">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              โหลดข้อมูลบางส่วนไม่สำเร็จ: {failedQueries.map((x) => x.label).join(", ")} — ตัวเลขที่แสดงอาจไม่ครบถ้วน
+              โหลดข้อมูลบางส่วนไม่สำเร็จ: {failedQueries.map((x) => x.label).join(", ")} —
+              ตัวเลขที่แสดงอาจไม่ครบถ้วน
             </span>
           </div>
           <Button size="sm" variant="outline" onClick={retryFailedQueries}>
@@ -815,7 +920,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
         <div>
           <div className="flex items-center gap-2">
             {isDemo ? (
-              <Badge variant="outline" className="border-amber-400 bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+              <Badge
+                variant="outline"
+                className="border-amber-400 bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
+              >
                 <ShieldAlert className="mr-1 h-3.5 w-3.5" /> Demo Admin Portal
               </Badge>
             ) : (
@@ -825,7 +933,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             )}
             <span className="text-xs text-muted-foreground">Siam Wheels Operations</span>
           </div>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight">ศูนย์ควบคุมและบริหารจัดการรถเช่า</h1>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight">
+            ศูนย์ควบคุมและบริหารจัดการรถเช่า
+          </h1>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -844,49 +954,71 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
         <aside className="min-w-0 lg:col-span-3">
           <Card className="shadow-card border lg:sticky lg:top-24">
             <CardHeader className="pb-3 border-b bg-muted/20">
-              <CardTitle className="text-sm font-semibold text-muted-foreground">เมนูการจัดการระบบ</CardTitle>
+              <CardTitle className="text-sm font-semibold text-muted-foreground">
+                เมนูการจัดการระบบ
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-2 space-y-1">
               {[
                 { id: "overview", label: "ภาพรวมระบบ", icon: LayoutDashboard, count: null },
                 { id: "cars", label: "จัดการรถยนต์ในระบบ", icon: CarIcon, count: cars.length },
-                { id: "bookings", label: "รายการจองของลูกค้า", icon: Calendar, count: bookings.length },
+                {
+                  id: "bookings",
+                  label: "รายการจองของลูกค้า",
+                  icon: Calendar,
+                  count: bookings.length,
+                },
                 { id: "customers", label: "ข้อมูลลูกค้า", icon: Users, count: customerRows.length },
-                { id: "contracts", label: "สัญญาเช่าดิจิทัล", icon: FileCheck2, count: contracts.length },
-                { id: "maintenance", label: "งานซ่อมบำรุง", icon: Wrench, count: maintenanceRecords.length },
-                { id: "reviews", label: "รีวิวจากลูกค้า", icon: MessageSquareWarning, count: reviewsForCount.length },
+                {
+                  id: "contracts",
+                  label: "สัญญาเช่าดิจิทัล",
+                  icon: FileCheck2,
+                  count: contracts.length,
+                },
+                {
+                  id: "maintenance",
+                  label: "งานซ่อมบำรุง",
+                  icon: Wrench,
+                  count: maintenanceRecords.length,
+                },
+                {
+                  id: "reviews",
+                  label: "รีวิวจากลูกค้า",
+                  icon: MessageSquareWarning,
+                  count: reviewsForCount.length,
+                },
                 { id: "reports", label: "รายงานและสถิติ", icon: BarChart3, count: null },
                 { id: "admins", label: "ผู้ดูแลระบบ (Owner)", icon: KeyRound, count: null },
               ]
                 .filter((item) => item.id !== "reviews" || perms.moderateReviews)
                 .filter((item) => item.id !== "admins" || perms.manageAdmins)
                 .map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id as AdminTab)}
-                  className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition ${
-                    activeTab === item.id
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <item.icon className="h-4 w-4" />
-                    <span>{item.label}</span>
-                  </div>
-                  {item.count !== null && (
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${
-                        activeTab === item.id
-                          ? "bg-primary-foreground/20 text-primary-foreground"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      {item.count}
-                    </span>
-                  )}
-                </button>
-              ))}
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id as AdminTab)}
+                    className={`w-full flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition ${
+                      activeTab === item.id
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.label}</span>
+                    </div>
+                    {item.count !== null && (
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${
+                          activeTab === item.id
+                            ? "bg-primary-foreground/20 text-primary-foreground"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {item.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
             </CardContent>
           </Card>
         </aside>
@@ -898,6 +1030,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             <div className="space-y-6">
               {perms.viewContracts && (
                 <ContractWorkQueue
+                  loading={contractsQ.isLoading || bookingsQ.isLoading}
                   contracts={contracts}
                   bookings={bookings as unknown as PanelBooking[]}
                   onOpen={(v) => {
@@ -906,55 +1039,91 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                   }}
                 />
               )}
+              <OverdueBookingsCard
+                bookings={bookings}
+                today={todayBkk()}
+                customerName={(b) => profileMap[b.user_id]?.full_name || "ลูกค้าสมาชิก"}
+                canUpdate={perms.updateBookingStatus}
+                onUpdate={(b) => {
+                  setUpdatingBooking(b);
+                  setNewBookingStatus(
+                    defaultBookingMove(bookingMovesOn(b, todayBkk())) as
+                      Tables<"bookings">["status"] | "",
+                  );
+                }}
+              />
               {/* 6 Key Operational Metrics */}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <Card className="shadow-card border">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-xs font-medium text-muted-foreground">รายได้รวมสุทธิ (THB)</CardTitle>
+                    <CardTitle className="text-xs font-medium text-muted-foreground">
+                      รายได้รวมสุทธิ (THB)
+                    </CardTitle>
                     <DollarSign className="h-4 w-4 text-primary" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold text-primary">{thb(metrics.totalRevenue)}</div>
+                    <div className="text-2xl font-bold text-primary">
+                      {thb(metrics.totalRevenue)}
+                    </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      กำไรจากการดำเนินงาน: <span className="font-semibold text-success">{thb(metrics.netProfit)}</span>
+                      กำไรจากการดำเนินงาน:{" "}
+                      <span className="font-semibold text-success">{thb(metrics.netProfit)}</span>
                     </p>
-                    <p className="text-[11px] text-muted-foreground">นับจากยอดชำระเงินจริง (DEMO) ไม่รวมรายการรอชำระ</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      เงินที่ชำระออนไลน์ (DEMO) + ค่าเช่าส่วนที่เหลือที่เก็บ ณ วันรับรถ
+                      (นับเมื่อสถานะเป็นกำลังเช่า/เสร็จสิ้น) + ค่าจองที่ไม่คืนจากการจองที่ยกเลิก
+                      ไม่รวมเงินประกัน
+                    </p>
                   </CardContent>
                 </Card>
 
                 <Card className="shadow-card border">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-xs font-medium text-muted-foreground">กองยานพาหนะทั้งหมด</CardTitle>
+                    <CardTitle className="text-xs font-medium text-muted-foreground">
+                      กองยานพาหนะทั้งหมด
+                    </CardTitle>
                     <CarIcon className="h-4 w-4 text-primary" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold text-foreground">{metrics.totalCarsCount} คัน</div>
+                    <div className="text-2xl font-bold text-foreground">
+                      {metrics.totalCarsCount} คัน
+                    </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      ว่าง {metrics.availableCarsCount} · ถูกเช่า {metrics.rentedCarsCount} · ซ่อม {metrics.maintenanceCarsCount}
+                      ว่าง {metrics.availableCarsCount} · ถูกเช่า {metrics.rentedCarsCount} · ซ่อม{" "}
+                      {metrics.maintenanceCarsCount}
                     </p>
                   </CardContent>
                 </Card>
 
                 <Card className="shadow-card border">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-xs font-medium text-muted-foreground">อัตราการใช้งานรถยนต์</CardTitle>
+                    <CardTitle className="text-xs font-medium text-muted-foreground">
+                      อัตราการใช้งานรถยนต์
+                    </CardTitle>
                     <TrendingUp className="h-4 w-4 text-primary" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold text-foreground">{metrics.utilizationRate}%</div>
+                    <div className="text-2xl font-bold text-foreground">
+                      {metrics.utilizationRate}%
+                    </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      กำลังถูกเช่าจริง {metrics.rentedCarsCount} จาก {metrics.totalCarsCount} คัน
+                      อยู่กับลูกค้า {metrics.rentedCarsCount} จาก {metrics.totalCarsCount} คัน
+                      (รวมที่ถึงวันรับรถแล้ว)
                     </p>
                   </CardContent>
                 </Card>
 
                 <Card className="shadow-card border">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-xs font-medium text-muted-foreground">การจองที่รออนุมัติ / กำลังเช่า</CardTitle>
+                    <CardTitle className="text-xs font-medium text-muted-foreground">
+                      การจองที่รอดำเนินการ / กำลังเช่า
+                    </CardTitle>
                     <Calendar className="h-4 w-4 text-primary" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold text-foreground">{metrics.activeBookingsCount} รายการ</div>
+                    <div className="text-2xl font-bold text-foreground">
+                      {metrics.activeBookingsCount} รายการ
+                    </div>
                     <p className="text-xs text-muted-foreground mt-1">
                       เสร็จสิ้นทั้งหมด {metrics.completedBookingsCount} ทริป
                     </p>
@@ -963,23 +1132,35 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
                 <Card className="shadow-card border">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-xs font-medium text-muted-foreground">ลูกค้าที่ลงทะเบียน</CardTitle>
+                    <CardTitle className="text-xs font-medium text-muted-foreground">
+                      ลูกค้าที่ลงทะเบียน
+                    </CardTitle>
                     <Users className="h-4 w-4 text-primary" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold text-foreground">{metrics.totalCustomers} ท่าน</div>
-                    <p className="text-xs text-muted-foreground mt-1">พร้อมประวัติและเอกสารยืนยันตัวตน</p>
+                    <div className="text-2xl font-bold text-foreground">
+                      {metrics.totalCustomers} ท่าน
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      พร้อมประวัติและเอกสารยืนยันตัวตน
+                    </p>
                   </CardContent>
                 </Card>
 
                 <Card className="shadow-card border">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-xs font-medium text-muted-foreground">ค่าใช้จ่ายซ่อมบำรุงสะสม</CardTitle>
+                    <CardTitle className="text-xs font-medium text-muted-foreground">
+                      ค่าใช้จ่ายซ่อมบำรุงสะสม
+                    </CardTitle>
                     <Wrench className="h-4 w-4 text-warning" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold text-warning-foreground">{thb(metrics.totalMaintenanceCost)}</div>
-                    <p className="text-xs text-muted-foreground mt-1">บันทึกแล้ว {maintenanceRecords.length} รายการ</p>
+                    <div className="text-2xl font-bold text-warning-foreground">
+                      {thb(metrics.totalMaintenanceCost)}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      บันทึกแล้ว {maintenanceRecords.length} รายการ
+                    </p>
                   </CardContent>
                 </Card>
               </div>
@@ -987,20 +1168,33 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               {/* Monthly Revenue Chart */}
               <Card className="shadow-card border">
                 <CardHeader>
-                  <CardTitle className="text-base font-semibold">แนวโน้มรายได้และจำนวนการจองรายเดือน</CardTitle>
-                  <CardDescription>รายได้จากการชำระเงิน 12 เดือนล่าสุด (ตามวันที่ชำระ เวลาประเทศไทย)</CardDescription>
+                  <CardTitle className="text-base font-semibold">
+                    แนวโน้มรายได้และจำนวนการจองรายเดือน
+                  </CardTitle>
+                  <CardDescription>
+                    รายได้ 12 เดือนล่าสุด: ค่าจองตามวันที่ชำระ + ค่าเช่าที่เก็บ ณ วันรับรถ
+                    ตามวันรับรถ (เวลาประเทศไทย)
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                       <XAxis dataKey="name" fontSize={12} />
-                      <YAxis fontSize={12} tickFormatter={(val) => `฿${(val / 1000).toFixed(0)}k`} />
+                      <YAxis
+                        fontSize={12}
+                        tickFormatter={(val) => `฿${(val / 1000).toFixed(0)}k`}
+                      />
                       <Tooltip
                         formatter={(val: unknown) => [thb(Number(val) || 0), "รายได้"]}
                         labelStyle={{ fontWeight: "bold" }}
                       />
-                      <Bar dataKey="revenue" fill="currentColor" className="fill-primary" radius={[4, 4, 0, 0]} />
+                      <Bar
+                        dataKey="revenue"
+                        fill="currentColor"
+                        className="fill-primary"
+                        radius={[4, 4, 0, 0]}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -1013,7 +1207,12 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                     <CardTitle className="text-base font-semibold">รายการจองล่าสุด</CardTitle>
                     <CardDescription>รายการจองที่เข้ามาในระบบล่าสุด 5 รายการ</CardDescription>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => setActiveTab("bookings")} className="gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setActiveTab("bookings")}
+                    className="gap-1"
+                  >
                     ดูทั้งหมด <ChevronRight className="h-4 w-4" />
                   </Button>
                 </CardHeader>
@@ -1026,13 +1225,15 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                         <TableHead>รถยนต์</TableHead>
                         <TableHead>วันที่เช่า</TableHead>
                         <TableHead>สถานะ</TableHead>
-                        <TableHead className="text-right">ยอดรวม</TableHead>
+                        <TableHead className="text-right">ค่าเช่า</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {bookings.slice(0, 5).map((b) => (
                         <TableRow key={b.id}>
-                          <TableCell className="font-mono text-xs font-semibold">{b.booking_code}</TableCell>
+                          <TableCell className="font-mono text-xs font-semibold">
+                            {b.booking_code}
+                          </TableCell>
                           <TableCell className="text-xs">
                             {profileMap[b.user_id]?.full_name || "ลูกค้าสมาชิก"}
                           </TableCell>
@@ -1047,6 +1248,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                           </TableCell>
                           <TableCell className="text-right font-semibold text-primary">
                             {thb(b.total_amount)}
+                            {paidOnline.has(b.id) && (
+                              <span className="block text-[11px] font-normal text-muted-foreground">
+                                ชำระออนไลน์ {thb(paidOnline.get(b.id))}
+                              </span>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -1070,7 +1276,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <CardTitle className="text-xl">จัดการรถยนต์ในระบบ ({filteredCars.length} คัน)</CardTitle>
+                    <CardTitle className="text-xl">
+                      จัดการรถยนต์ในระบบ ({filteredCars.length} คัน)
+                    </CardTitle>
                     <CardDescription>เพิ่ม ลบ แก้ไข ข้อมูลสเปกและราคาเช่ารายวัน</CardDescription>
                   </div>
                   <Button onClick={() => openCarModal()} className="gap-1.5">
@@ -1150,20 +1358,26 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                           </span>
                           <span className="block text-xs text-muted-foreground">ปี {car.year}</span>
                         </TableCell>
-                        <TableCell className="font-mono text-xs font-semibold">{car.plate_no}</TableCell>
+                        <TableCell className="font-mono text-xs font-semibold">
+                          {car.plate_no}
+                        </TableCell>
                         <TableCell>
                           <Badge variant="secondary" className="text-xs">
                             {categoryLabel[car.category] || car.category}
                           </Badge>
                         </TableCell>
-                        <TableCell className="font-semibold text-primary">{thb(car.price_per_day)}</TableCell>
+                        <TableCell className="font-semibold text-primary">
+                          {thb(car.price_per_day)}
+                        </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">
                           {car.mileage.toLocaleString("th-TH")} กม.
                         </TableCell>
                         <TableCell>
                           <Select
                             value={car.status}
-                            onValueChange={(val) => handleUpdateCarStatus(car.id, val as Tables<"cars">["status"])}
+                            onValueChange={(val) =>
+                              handleUpdateCarStatus(car.id, val as Tables<"cars">["status"])
+                            }
                           >
                             <SelectTrigger className="h-7 text-xs w-36">
                               <SelectValue />
@@ -1179,7 +1393,12 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">
-                            <Button variant="ghost" size="sm" onClick={() => openCarModal(car)} title="แก้ไข">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openCarModal(car)}
+                              title="แก้ไข"
+                            >
                               <Edit className="h-4 w-4" />
                             </Button>
                             {perms.deleteCars && (
@@ -1216,8 +1435,12 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <CardTitle className="text-xl">รายการจองของลูกค้า ({filteredBookings.length} รายการ)</CardTitle>
-                    <CardDescription>ตรวจสอบ ยืนยันสถานะการเช่า และควบคุมการส่งมอบรถ</CardDescription>
+                    <CardTitle className="text-xl">
+                      รายการจองของลูกค้า ({filteredBookings.length} รายการ)
+                    </CardTitle>
+                    <CardDescription>
+                      ตรวจสอบ ยืนยันสถานะการเช่า และควบคุมการส่งมอบรถ
+                    </CardDescription>
                   </div>
                 </div>
 
@@ -1257,7 +1480,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       <TableHead>รถยนต์</TableHead>
                       <TableHead>สาขา / วันที่</TableHead>
                       <TableHead>สถานะ</TableHead>
-                      <TableHead>ยอดรวม</TableHead>
+                      <TableHead>ค่าเช่า / ชำระออนไลน์</TableHead>
                       <TableHead className="text-right">การจัดการ</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1294,18 +1517,32 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                           <TableCell>
                             <StatusBadge status={b.status} kind="booking" />
                           </TableCell>
-                          <TableCell className="font-semibold text-primary">{thb(b.total_amount)}</TableCell>
+                          <TableCell
+                            className="font-semibold text-primary"
+                            data-testid="booking-amounts"
+                          >
+                            {thb(b.total_amount)}
+                            <span className="block text-[11px] font-normal text-muted-foreground">
+                              {paidOnline.has(b.id)
+                                ? `ชำระออนไลน์ ${thb(paidOnline.get(b.id))}`
+                                : "ยังไม่ชำระ"}
+                            </span>
+                          </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1.5">
                               <Button
                                 variant="outline"
                                 size="sm"
                                 className="h-7 text-xs"
-                                disabled={!perms.updateBookingStatus || adminBookingMoves(b.status).length === 0}
+                                disabled={
+                                  !perms.updateBookingStatus ||
+                                  bookingMovesOn(b, todayBkk()).length === 0
+                                }
                                 onClick={() => {
                                   setUpdatingBooking(b);
                                   setNewBookingStatus(
-                                    (adminBookingMoves(b.status)[0] ?? b.status) as Tables<"bookings">["status"],
+                                    defaultBookingMove(bookingMovesOn(b, todayBkk())) as
+                                      Tables<"bookings">["status"] | "",
                                   );
                                 }}
                               >
@@ -1366,7 +1603,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
                     <CardTitle className="text-xl">งานซ่อมบำรุงและดูแลรักษารถยนต์</CardTitle>
-                    <CardDescription>บันทึกประวัติการเข้าศูนย์ เช็คระยะ และค่าใช้จ่ายการซ่อมบำรุง</CardDescription>
+                    <CardDescription>
+                      บันทึกประวัติการเข้าศูนย์ เช็คระยะ และค่าใช้จ่ายการซ่อมบำรุง
+                    </CardDescription>
                   </div>
                   <Button onClick={() => setMaintModalOpen(true)} className="gap-1.5">
                     <Plus className="h-4 w-4" /> บันทึกงานซ่อมบำรุง
@@ -1407,33 +1646,65 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                           <span className="font-semibold text-xs block">
                             {m.cars?.brand} {m.cars?.model}
                           </span>
-                          <span className="font-mono text-xs text-muted-foreground">{m.cars?.plate_no}</span>
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {m.cars?.plate_no}
+                          </span>
                         </TableCell>
                         <TableCell>
-                          <span className="text-xs font-medium block text-foreground">{m.title}</span>
-                          <span className="text-[11px] text-muted-foreground">{m.description || "-"}</span>
+                          <span className="text-xs font-medium block text-foreground">
+                            {m.title}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {m.description || "-"}
+                          </span>
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{fmtDate(m.scheduled_date)}</TableCell>
-                        <TableCell className="font-semibold text-primary text-xs">{thb(m.cost)}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {fmtDate(m.scheduled_date)}
+                        </TableCell>
+                        <TableCell className="font-semibold text-primary text-xs">
+                          {thb(m.cost)}
+                          {Number(m.cost) < 0 && (
+                            <span
+                              className="block text-[11px] font-normal text-destructive"
+                              data-testid="negative-cost"
+                            >
+                              ค่าใช้จ่ายติดลบไม่ถูกต้อง (ไม่นับในรายงาน)
+                            </span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <StatusBadge status={m.status} kind="maint" />
                           {m.completed_date && (
                             <span className="block text-[11px] text-muted-foreground mt-1">
                               เสร็จ {fmtDate(m.completed_date)}
+                              {m.completed_date < m.scheduled_date && (
+                                <span className="text-amber-700"> (ก่อนวันนัด)</span>
+                              )}
                             </span>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1.5">
                             {m.status === "scheduled" && (
-                              <Button size="sm" variant="outline" className="text-xs h-7"
-                                onClick={() => handleMaintenanceStatus(m, "in_progress")}>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs h-7"
+                                onClick={() => handleMaintenanceStatus(m, "in_progress")}
+                              >
                                 เริ่มซ่อม
                               </Button>
                             )}
                             {m.status !== "completed" && (
-                              <Button size="sm" className="text-xs h-7"
-                                onClick={() => handleMaintenanceStatus(m, "completed")}>
+                              <Button
+                                size="sm"
+                                className="text-xs h-7"
+                                onClick={() =>
+                                  m.scheduled_date > todayBkk()
+                                    ? setEarlyComplete(m)
+                                    : handleMaintenanceStatus(m, "completed")
+                                }
+                              >
                                 เสร็จสิ้น
                               </Button>
                             )}
@@ -1461,7 +1732,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           {activeTab === "reviews" && <AdminReviewsPanel isAdmin={perms.moderateReviews} />}
 
           {/* TAB: ADMIN MANAGEMENT (Owner only; the database enforces it) */}
-          {activeTab === "admins" && perms.manageAdmins && user && <AdminManagementPanel ownerId={user.id} />}
+          {activeTab === "admins" && perms.manageAdmins && user && (
+            <AdminManagementPanel ownerId={user.id} />
+          )}
 
           {/* TAB 6: REPORTS & ANALYTICS */}
           {activeTab === "reports" && (
@@ -1469,11 +1742,18 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               {/* Date Filter Toolbar */}
               <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card p-4 shadow-sm">
                 <div>
-                  <h3 className="font-semibold text-sm">ช่วงเวลาสำหรับรายงาน (Date Range Filter)</h3>
-                  <p className="text-xs text-muted-foreground">กรองสถิติรายได้และข้อมูลการใช้งานตามช่วงเวลา</p>
+                  <h3 className="font-semibold text-sm">
+                    ช่วงเวลาสำหรับรายงาน (Date Range Filter)
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    กรองสถิติรายได้และข้อมูลการใช้งานตามช่วงเวลา
+                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Select value={reportDateRange} onValueChange={(val) => setReportDateRange(val as ReportRange)}>
+                  <Select
+                    value={reportDateRange}
+                    onValueChange={(val) => setReportDateRange(val as ReportRange)}
+                  >
                     <SelectTrigger className="w-48 text-xs">
                       <SelectValue />
                     </SelectTrigger>
@@ -1484,10 +1764,20 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       <SelectItem value="year">ปีปัจจุบัน (This Year)</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={exportBookingsCsv}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-xs"
+                    onClick={exportBookingsCsv}
+                  >
                     <Download className="h-3.5 w-3.5" /> ส่งออกการจองและรายได้ (CSV)
                   </Button>
-                  <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={exportMaintenanceCsv}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-xs"
+                    onClick={exportMaintenanceCsv}
+                  >
                     <Download className="h-3.5 w-3.5" /> ส่งออกงานซ่อมบำรุง (CSV)
                   </Button>
                 </div>
@@ -1497,22 +1787,48 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 {/* Revenue Overview */}
                 <Card className="shadow-card border">
                   <CardHeader>
-                    <CardTitle className="text-base font-semibold">สรุปผลประกอบการทางการเงิน</CardTitle>
-                    <CardDescription>วิเคราะห์รายรับ ค่าใช้จ่าย และกำไรสุทธิตามช่วงเวลา</CardDescription>
+                    <CardTitle className="text-base font-semibold">
+                      สรุปผลประกอบการทางการเงิน
+                    </CardTitle>
+                    <CardDescription>
+                      วิเคราะห์รายรับ ค่าใช้จ่าย และกำไรสุทธิตามช่วงเวลา
+                    </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">รายได้จากการเช่า:</span>
-                        <span className="font-semibold text-primary">{thb(reportMetrics.revenue)}</span>
+                        <span className="font-semibold text-primary">
+                          {thb(reportMetrics.revenue)}
+                        </span>
+                      </div>
+                      <div
+                        className="flex justify-between pl-3 text-xs"
+                        data-testid="revenue-online"
+                      >
+                        <span className="text-muted-foreground">· ชำระออนไลน์:</span>
+                        <span>{thb(reportMetrics.onlineRevenue)}</span>
+                      </div>
+                      <div
+                        className="flex justify-between pl-3 text-xs"
+                        data-testid="revenue-pickup"
+                      >
+                        <span className="text-muted-foreground">
+                          · เก็บ ณ วันรับรถ (ค่าเช่าส่วนที่เหลือ):
+                        </span>
+                        <span>{thb(reportMetrics.pickupRevenue)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">ค่าใช้จ่ายซ่อมบำรุงรวม:</span>
-                        <span className="font-semibold text-destructive">- {thb(reportMetrics.maintCost)}</span>
+                        <span className="font-semibold text-destructive">
+                          - {thb(reportMetrics.maintCost)}
+                        </span>
                       </div>
                       <div className="border-t pt-2 flex justify-between text-base font-bold">
                         <span>กำไรสุทธิจากการดำเนินงาน:</span>
-                        <span className={reportMetrics.profit < 0 ? "text-destructive" : "text-success"}>
+                        <span
+                          className={reportMetrics.profit < 0 ? "text-destructive" : "text-success"}
+                        >
                           {thb(reportMetrics.profit)}
                         </span>
                       </div>
@@ -1520,23 +1836,34 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
                     <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-3 text-xs">
                       <span className="text-muted-foreground">รายการชำระเงิน:</span>
-                      <span className="text-right font-medium">{reportMetrics.paidCount} รายการ</span>
+                      <span className="text-right font-medium">
+                        {reportMetrics.paidCount} รายการ
+                      </span>
                       <span className="text-muted-foreground">การจองใหม่ (ไม่รวมยกเลิก):</span>
-                      <span className="text-right font-medium">{reportMetrics.bookingCount} รายการ</span>
+                      <span className="text-right font-medium">
+                        {reportMetrics.bookingCount} รายการ
+                      </span>
                       <span className="text-muted-foreground">รอดำเนินการ (สัญญา/ชำระเงิน):</span>
-                      <span className="text-right font-medium">{reportMetrics.pendingCount} รายการ</span>
+                      <span className="text-right font-medium">
+                        {reportMetrics.pendingCount} รายการ
+                      </span>
                       <span className="text-muted-foreground">เสร็จสิ้น / ยกเลิก:</span>
                       <span className="text-right font-medium">
                         {reportMetrics.completedCount} / {reportMetrics.cancelledCount}
                       </span>
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      รายได้นับจากการชำระเงิน (โหมด DEMO) ของการจองที่ยืนยันแล้ว กำลังเช่า หรือเสร็จสิ้น ตามวันที่ชำระ
-                      ไม่รวมการจองที่รอชำระหรือถูกยกเลิก
+                      รายได้ = เงินที่ชำระออนไลน์ (DEMO) ของการจองที่ยืนยันแล้ว กำลังเช่า
+                      หรือเสร็จสิ้น ตามวันที่ชำระ + ค่าเช่าส่วนที่เหลือที่เก็บ ณ วันรับรถ
+                      ตามวันรับรถ เมื่อผู้ดูแลเปลี่ยนสถานะเป็น "กำลังเช่า" หรือ "เสร็จสิ้น" +
+                      ค่าจองของการจองที่ถูกยกเลิก (ไม่คืนตามเงื่อนไขสัญญา) ไม่รวมเงินประกัน
+                      (คืนให้ลูกค้า) และการจองที่รอชำระ
                     </p>
 
                     <div className="pt-4 border-t">
-                      <p className="text-xs text-muted-foreground mb-3 font-medium">สัดส่วนประเภทยานพาหนะในระบบ</p>
+                      <p className="text-xs text-muted-foreground mb-3 font-medium">
+                        สัดส่วนประเภทยานพาหนะในระบบ
+                      </p>
                       <div className="h-44">
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
@@ -1550,7 +1877,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                               dataKey="value"
                             >
                               {categoryData.map((_, index) => (
-                                <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                                <Cell
+                                  key={`cell-${index}`}
+                                  fill={PIE_COLORS[index % PIE_COLORS.length]}
+                                />
                               ))}
                             </Pie>
                             <Tooltip />
@@ -1564,35 +1894,52 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 {/* Operational Performance */}
                 <Card className="shadow-card border">
                   <CardHeader>
-                    <CardTitle className="text-base font-semibold">ดัชนีชี้วัดประสิทธิภาพการดำเนินงาน (KPIs)</CardTitle>
+                    <CardTitle className="text-base font-semibold">
+                      ดัชนีชี้วัดประสิทธิภาพการดำเนินงาน (KPIs)
+                    </CardTitle>
                     <CardDescription>วิเคราะห์การใช้งานกองยานพาหนะและความคุ้มค่า</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4 text-sm">
                     <div className="rounded-xl bg-muted/40 p-4 space-y-2.5">
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">อัตราการใช้งานรถยนต์ (Utilization):</span>
-                        <span className="font-bold text-foreground">{metrics.utilizationRate}%</span>
+                        <span className="text-muted-foreground">
+                          อัตราการใช้งานรถยนต์ (Utilization):
+                        </span>
+                        <span className="font-bold text-foreground">
+                          {metrics.utilizationRate}%
+                        </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">ค่าเฉลี่ยรายได้ต่อคัน:</span>
                         <span className="font-semibold text-foreground">
-                          {metrics.totalCarsCount > 0 ? thb(metrics.totalRevenue / metrics.totalCarsCount) : thb(0)}
+                          {metrics.totalCarsCount > 0
+                            ? thb(metrics.totalRevenue / metrics.totalCarsCount)
+                            : thb(0)}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">จำนวนทริปที่สำเร็จแล้ว:</span>
-                        <span className="font-semibold text-foreground">{metrics.completedBookingsCount} ทริป</span>
+                        <span className="font-semibold text-foreground">
+                          {metrics.completedBookingsCount} ทริป
+                        </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">รถที่พร้อมให้บริการทันที:</span>
-                        <span className="font-semibold text-success">{metrics.availableCarsCount} คัน</span>
+                        <span className="font-semibold text-success">
+                          {metrics.availableCarsCount} คัน
+                        </span>
                       </div>
                     </div>
 
                     <div className="p-4 border rounded-xl text-xs text-muted-foreground space-y-1.5">
                       <p className="font-medium text-foreground">💡 ข้อแนะนำสำหรับการดำเนินงาน:</p>
-                      <p>• หากอัตรา Utilization สูงกว่า 80% ควรพิจารณาเพิ่มจำนวนรถในหมวดหมู่ยอดนิยม (Eco/Sedan)</p>
-                      <p>• ตรวจสอบรถยนต์ที่มีกำหนดซ่อมบำรุงสม่ำเสมอเพื่อลดความเสี่ยงต่ออุบัติเหตุ</p>
+                      <p>
+                        • หากอัตรา Utilization สูงกว่า 80% ควรพิจารณาเพิ่มจำนวนรถในหมวดหมู่ยอดนิยม
+                        (Eco/Sedan)
+                      </p>
+                      <p>
+                        • ตรวจสอบรถยนต์ที่มีกำหนดซ่อมบำรุงสม่ำเสมอเพื่อลดความเสี่ยงต่ออุบัติเหตุ
+                      </p>
                     </div>
                   </CardContent>
                 </Card>
@@ -1608,7 +1955,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       <Dialog open={carModalOpen} onOpenChange={setCarModalOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingCar ? "แก้ไขข้อมูลรถยนต์" : "เพิ่มรถยนต์ใหม่เข้าสู่ระบบ"}</DialogTitle>
+            <DialogTitle>
+              {editingCar ? "แก้ไขข้อมูลรถยนต์" : "เพิ่มรถยนต์ใหม่เข้าสู่ระบบ"}
+            </DialogTitle>
             <DialogDescription>
               ระบุรายละเอียดของตัวรถ หมายเลขทะเบียน และอัตราค่าเช่าต่อวัน
             </DialogDescription>
@@ -1617,7 +1966,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           <form onSubmit={handleSaveCar} className="space-y-4 pt-2">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label htmlFor="car-brand" className="text-xs">ยี่ห้อ (Brand) *</Label>
+                <Label htmlFor="car-brand" className="text-xs">
+                  ยี่ห้อ (Brand) *
+                </Label>
                 <Input
                   id="car-brand"
                   placeholder="เช่น Toyota, Honda"
@@ -1627,7 +1978,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 />
               </div>
               <div>
-                <Label htmlFor="car-model" className="text-xs">รุ่น (Model) *</Label>
+                <Label htmlFor="car-model" className="text-xs">
+                  รุ่น (Model) *
+                </Label>
                 <Input
                   id="car-model"
                   placeholder="เช่น Yaris, Camry"
@@ -1640,17 +1993,23 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <Label htmlFor="car-year" className="text-xs">ปีรถ (Year)</Label>
+                <Label htmlFor="car-year" className="text-xs">
+                  ปีรถ (Year)
+                </Label>
                 <Input
                   id="car-year"
                   type="number"
+                  min={CAR_LIMITS.minYear}
+                  max={CAR_LIMITS.maxYear}
                   value={carForm.year}
                   onChange={(e) => setCarForm({ ...carForm, year: Number(e.target.value) })}
                   required
                 />
               </div>
               <div>
-                <Label htmlFor="car-category" className="text-xs">หมวดหมู่</Label>
+                <Label htmlFor="car-category" className="text-xs">
+                  หมวดหมู่
+                </Label>
                 <Select
                   value={carForm.category}
                   onValueChange={(val) => setCarForm({ ...carForm, category: val })}
@@ -1668,7 +2027,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 </Select>
               </div>
               <div>
-                <Label htmlFor="car-plate" className="text-xs">หมายเลขทะเบียน *</Label>
+                <Label htmlFor="car-plate" className="text-xs">
+                  หมายเลขทะเบียน *
+                </Label>
                 <Input
                   id="car-plate"
                   placeholder="เช่น 1กข 1234"
@@ -1681,16 +2042,22 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <Label htmlFor="car-seats" className="text-xs">จำนวนที่นั่ง</Label>
+                <Label htmlFor="car-seats" className="text-xs">
+                  จำนวนที่นั่ง
+                </Label>
                 <Input
                   id="car-seats"
                   type="number"
+                  min={CAR_LIMITS.minSeats}
+                  max={CAR_LIMITS.maxSeats}
                   value={carForm.seats}
                   onChange={(e) => setCarForm({ ...carForm, seats: Number(e.target.value) })}
                 />
               </div>
               <div>
-                <Label htmlFor="car-trans" className="text-xs">ระบบเกียร์</Label>
+                <Label htmlFor="car-trans" className="text-xs">
+                  ระบบเกียร์
+                </Label>
                 <Input
                   id="car-trans"
                   value={carForm.transmission}
@@ -1698,7 +2065,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 />
               </div>
               <div>
-                <Label htmlFor="car-fuel" className="text-xs">เชื้อเพลิง</Label>
+                <Label htmlFor="car-fuel" className="text-xs">
+                  เชื้อเพลิง
+                </Label>
                 <Input
                   id="car-fuel"
                   value={carForm.fuel}
@@ -1709,31 +2078,41 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <Label htmlFor="car-price" className="text-xs">ราคาต่อวัน (THB) *</Label>
+                <Label htmlFor="car-price" className="text-xs">
+                  ราคาต่อวัน (THB) *
+                </Label>
                 <Input
                   id="car-price"
                   type="number"
-                  min={0.01}
-                  step={0.01}
+                  min={1}
                   value={carForm.price_per_day}
-                  onChange={(e) => setCarForm({ ...carForm, price_per_day: Number(e.target.value) })}
+                  onChange={(e) =>
+                    setCarForm({ ...carForm, price_per_day: Number(e.target.value) })
+                  }
                   required
                 />
               </div>
               <div>
-                <Label htmlFor="car-mileage" className="text-xs">เลขไมล์สะสม (กม.)</Label>
+                <Label htmlFor="car-mileage" className="text-xs">
+                  เลขไมล์สะสม (กม.)
+                </Label>
                 <Input
                   id="car-mileage"
                   type="number"
+                  min={0}
                   value={carForm.mileage}
                   onChange={(e) => setCarForm({ ...carForm, mileage: Number(e.target.value) })}
                 />
               </div>
               <div>
-                <Label htmlFor="car-status-select" className="text-xs">สถานะเริ่มต้น</Label>
+                <Label htmlFor="car-status-select" className="text-xs">
+                  สถานะเริ่มต้น
+                </Label>
                 <Select
                   value={carForm.status}
-                  onValueChange={(val) => setCarForm({ ...carForm, status: val as Tables<"cars">["status"] })}
+                  onValueChange={(val) =>
+                    setCarForm({ ...carForm, status: val as Tables<"cars">["status"] })
+                  }
                 >
                   <SelectTrigger id="car-status-select">
                     <SelectValue />
@@ -1750,7 +2129,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             </div>
 
             <div>
-              <Label htmlFor="car-img" className="text-xs">URL รูปภาพรถยนต์ (เว้นว่างไว้เพื่อใช้รูปมาตรฐาน)</Label>
+              <Label htmlFor="car-img" className="text-xs">
+                URL รูปภาพรถยนต์ (เว้นว่างไว้เพื่อใช้รูปมาตรฐาน)
+              </Label>
               <Input
                 id="car-img"
                 placeholder="https://images.unsplash.com/..."
@@ -1760,7 +2141,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             </div>
 
             <div>
-              <Label htmlFor="car-desc" className="text-xs">คำอธิบายเพิ่มเติม</Label>
+              <Label htmlFor="car-desc" className="text-xs">
+                คำอธิบายเพิ่มเติม
+              </Label>
               <Textarea
                 id="car-desc"
                 rows={2}
@@ -1788,7 +2171,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           <DialogHeader>
             <DialogTitle>ปรับปรุงสถานะการจอง</DialogTitle>
             <DialogDescription>
-              รหัสการจอง: <span className="font-mono font-bold text-foreground">{updatingBooking?.booking_code}</span>
+              รหัสการจอง:{" "}
+              <span className="font-mono font-bold text-foreground">
+                {updatingBooking?.booking_code}
+              </span>
             </DialogDescription>
           </DialogHeader>
 
@@ -1799,11 +2185,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 value={newBookingStatus}
                 onValueChange={(val) => setNewBookingStatus(val as Tables<"bookings">["status"])}
               >
-                <SelectTrigger className="mt-1.5">
-                  <SelectValue />
+                <SelectTrigger className="mt-1.5" aria-label="เลือกสถานะใหม่">
+                  <SelectValue placeholder="เลือกสถานะ..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {adminBookingMoves(updatingBooking?.status ?? "").map((s) => (
+                  {(updatingBooking ? bookingMovesOn(updatingBooking, todayBkk()) : []).map((s) => (
                     <SelectItem key={s} value={s}>
                       {BOOKING_MOVE_LABEL[s] ?? s}
                     </SelectItem>
@@ -1813,9 +2199,25 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             </div>
 
             <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground space-y-1">
-              <p>• การจองที่รอดำเนินการจะ <strong>ยืนยัน</strong> ได้หลังผู้ดูแลอนุมัติสัญญาและลูกค้าชำระเงินแล้วเท่านั้น</p>
-              <p>• เมื่อเปลี่ยนเป็น <strong>กำลังเช่า (Active)</strong> ระบบจะปรับสถานะรถคันนี้เป็น "ถูกเช่า" อัตโนมัติ</p>
-              <p>• เมื่อเปลี่ยนเป็น <strong>เสร็จสิ้น (Completed)</strong> รถจะกลับสู่สถานะ "ว่าง" พร้อมให้บริการต่อ</p>
+              <p>
+                • การจองที่รอดำเนินการจะ <strong>ยืนยัน</strong>{" "}
+                ได้หลังลูกค้ายืนยันสัญญาและชำระค่าจองแล้วเท่านั้น
+              </p>
+              <p>
+                • เมื่อเปลี่ยนเป็น <strong>กำลังเช่า (Active)</strong> ระบบจะปรับสถานะรถคันนี้เป็น
+                "ถูกเช่า" อัตโนมัติ และลูกค้าจะเห็น QR สำหรับชำระยอดวันรับรถ (ค่าเช่า + เงินประกัน −
+                ค่าจอง) ทันที
+              </p>
+              {updatingBooking && todayBkk() < updatingBooking.start_date && (
+                <p className="font-medium text-amber-700" data-testid="before-pickup-note">
+                  • ส่งมอบรถ (กำลังเช่า) และรับรถคืน (เสร็จสิ้น) ได้ตั้งแต่วันรับรถ{" "}
+                  {fmtDate(updatingBooking.start_date)} เป็นต้นไป
+                </p>
+              )}
+              <p>
+                • เมื่อเปลี่ยนเป็น <strong>เสร็จสิ้น (Completed)</strong> รถจะกลับสู่สถานะ "ว่าง"
+                พร้อมให้บริการต่อ
+              </p>
             </div>
           </div>
 
@@ -1823,7 +2225,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             <Button variant="outline" onClick={() => setUpdatingBooking(null)}>
               ยกเลิก
             </Button>
-            <Button onClick={handleUpdateBookingStatus} disabled={!perms.updateBookingStatus}>
+            <Button
+              onClick={handleUpdateBookingStatus}
+              disabled={!perms.updateBookingStatus || !newBookingStatus}
+              variant={newBookingStatus === "cancelled" ? "destructive" : "default"}
+            >
               บันทึกสถานะ
             </Button>
           </DialogFooter>
@@ -1863,7 +2269,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             </div>
 
             <div>
-              <Label htmlFor="maint-title" className="text-xs">หัวข้องานซ่อมบำรุง *</Label>
+              <Label htmlFor="maint-title" className="text-xs">
+                หัวข้องานซ่อมบำรุง *
+              </Label>
               <Input
                 id="maint-title"
                 placeholder="เช่น เปลี่ยนถ่ายน้ำมันเครื่อง 20,000 กม."
@@ -1875,7 +2283,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label htmlFor="maint-date" className="text-xs">วันที่นัดหมาย</Label>
+                <Label htmlFor="maint-date" className="text-xs">
+                  วันที่นัดหมาย
+                </Label>
                 <Input
                   id="maint-date"
                   type="date"
@@ -1885,10 +2295,14 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 />
               </div>
               <div>
-                <Label htmlFor="maint-cost" className="text-xs">ค่าใช้จ่ายโดยประมาณ (THB)</Label>
+                <Label htmlFor="maint-cost" className="text-xs">
+                  ค่าใช้จ่ายโดยประมาณ (THB)
+                </Label>
                 <Input
                   id="maint-cost"
                   type="number"
+                  min={0}
+                  step={1}
                   value={maintForm.cost}
                   onChange={(e) => setMaintForm({ ...maintForm, cost: Number(e.target.value) })}
                 />
@@ -1899,7 +2313,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               <Label className="text-xs">สถานะงานซ่อมบำรุง</Label>
               <Select
                 value={maintForm.status}
-                onValueChange={(val) => setMaintForm({ ...maintForm, status: val as Tables<"maintenance">["status"] })}
+                onValueChange={(val) =>
+                  setMaintForm({ ...maintForm, status: val as Tables<"maintenance">["status"] })
+                }
               >
                 <SelectTrigger className="mt-1">
                   <SelectValue />
@@ -1913,7 +2329,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             </div>
 
             <div>
-              <Label htmlFor="maint-desc" className="text-xs">รายละเอียดการซ่อมเพิ่มเติม</Label>
+              <Label htmlFor="maint-desc" className="text-xs">
+                รายละเอียดการซ่อมเพิ่มเติม
+              </Label>
               <Textarea
                 id="maint-desc"
                 rows={2}
@@ -1936,31 +2354,76 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       {/* ------------------------------------------------------------- */}
       {/* DIALOG 4: OWNER MANUAL CONFIRMATION (exceptional, audited) */}
       {/* ------------------------------------------------------------- */}
+      <Dialog open={!!earlyComplete} onOpenChange={(open) => !open && setEarlyComplete(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ยังไม่ถึงวันนัดหมาย</DialogTitle>
+            <DialogDescription>
+              งาน "{earlyComplete?.title}" ของ {earlyComplete?.cars?.brand}{" "}
+              {earlyComplete?.cars?.model} นัดไว้วันที่{" "}
+              {earlyComplete ? fmtDate(earlyComplete.scheduled_date) : ""}{" "}
+              ยืนยันว่าทำเสร็จแล้ววันนี้ ({fmtDate(todayBkk())}) ใช่ไหม?
+              ระบบจะบันทึกวันที่เสร็จเป็นวันนี้ และแสดงว่า "ก่อนวันนัด"
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setEarlyComplete(null)}>
+              ยังไม่เสร็จ
+            </Button>
+            <Button
+              onClick={() => {
+                const m = earlyComplete;
+                setEarlyComplete(null);
+                if (m) void handleMaintenanceStatus(m, "completed");
+              }}
+            >
+              ยืนยันว่าเสร็จแล้ววันนี้
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!manualConfirmFor} onOpenChange={(open) => !open && setManualConfirmFor(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>ยืนยันการจองด้วยตนเอง (เฉพาะเจ้าของระบบ)</DialogTitle>
             <DialogDescription>
-              การจอง <span className="font-mono font-bold text-foreground">{manualConfirmFor?.booking_code}</span> จะถูกยืนยันโดยไม่ผ่านขั้นตอนสัญญาและการชำระเงิน
-              ระบบจะไม่สร้างรายการชำระเงิน และบันทึกเหตุผลพร้อมชื่อผู้ทำรายการในบันทึกตรวจสอบ
+              การจอง{" "}
+              <span className="font-mono font-bold text-foreground">
+                {manualConfirmFor?.booking_code}
+              </span>{" "}
+              จะถูกยืนยันโดยไม่ผ่านขั้นตอนสัญญาและการชำระเงิน ระบบจะไม่สร้างรายการชำระเงิน
+              และบันทึกเหตุผลพร้อมชื่อผู้ทำรายการในบันทึกตรวจสอบ
             </DialogDescription>
           </DialogHeader>
           <Label htmlFor="manual-reason" className="text-xs">
             เหตุผล (อย่างน้อย 10 ตัวอักษร)
           </Label>
-          <Textarea id="manual-reason" value={manualReason} onChange={(e) => setManualReason(e.target.value)} maxLength={1000} />
+          <Textarea
+            id="manual-reason"
+            value={manualReason}
+            onChange={(e) => setManualReason(e.target.value)}
+            maxLength={1000}
+          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setManualConfirmFor(null)}>
               ยกเลิก
             </Button>
-            <Button variant="destructive" onClick={handleManualConfirm} disabled={confirmingManually}>
+            <Button
+              variant="destructive"
+              onClick={handleManualConfirm}
+              disabled={confirmingManually}
+            >
               {confirmingManually ? "กำลังยืนยัน..." : "ยืนยันการจอง"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!carToDelete && perms.deleteCars} onOpenChange={(open) => !open && setCarToDelete(null)}>
+      <Dialog
+        open={!!carToDelete && perms.deleteCars}
+        onOpenChange={(open) => !open && setCarToDelete(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="text-destructive flex items-center gap-2">
@@ -1977,8 +2440,14 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
           <div className="rounded-lg bg-destructive/10 p-3 text-xs text-destructive border border-destructive/20 space-y-1">
             <p className="font-semibold">⚠️ ข้อกำหนดความปลอดภัยของระบบ:</p>
-            <p>• หากรถยนต์คันนี้เคยมีประวัติการจองหรือสัญญาเช่าในระบบ ระบบจะไม่อนุญาตให้ลบ เพื่อป้องกันข้อมูลสูญหาย</p>
-            <p>• หากต้องการหยุดให้บริการรถคันนี้ กรุณาเปลี่ยนสถานะเป็น "งดให้บริการ" หรือ "ซ่อมบำรุง" แทน</p>
+            <p>
+              • หากรถยนต์คันนี้เคยมีประวัติการจองหรือสัญญาเช่าในระบบ ระบบจะไม่อนุญาตให้ลบ
+              เพื่อป้องกันข้อมูลสูญหาย
+            </p>
+            <p>
+              • หากต้องการหยุดให้บริการรถคันนี้ กรุณาเปลี่ยนสถานะเป็น "งดให้บริการ" หรือ "ซ่อมบำรุง"
+              แทน
+            </p>
           </div>
 
           <DialogFooter>

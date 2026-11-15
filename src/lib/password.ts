@@ -8,6 +8,19 @@ export function validateNewPassword(password: string, confirm: string): string |
   return null;
 }
 
+/** Thai error message for a signed-in password change, or null when it can be sent. */
+export function validatePasswordChange(
+  current: string,
+  password: string,
+  confirm: string,
+): string | null {
+  if (!current) return "กรุณากรอกรหัสผ่านปัจจุบัน";
+  const problem = validateNewPassword(password, confirm);
+  if (problem) return problem;
+  if (password === current) return "รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านปัจจุบัน";
+  return null;
+}
+
 /**
  * Error that Supabase puts in the reset link's redirect URL (hash or query),
  * e.g. when the link has expired or was already used. Null when there is none.

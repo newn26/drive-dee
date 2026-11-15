@@ -60,11 +60,30 @@ export type BookingContract = {
 };
 
 /** A customer's booking with its car, (at most one) review and (at most one) contract. */
+/** kind/deposit come from docs/database/pickup-payment.sql (not in the generated types yet). */
+export type CustomerPayment = Tables<"payments"> & {
+  kind?: string | null;
+  deposit?: number | string | null;
+};
+
 export type CustomerBooking = Tables<"bookings"> & {
   cars: Tables<"cars"> | null;
   reviews: Tables<"reviews"> | Tables<"reviews">[] | null;
   contracts?: BookingContract | BookingContract[] | null;
+  payments?: CustomerPayment[] | null;
 };
+
+/** What a cancellation means for the money paid online (mirrors pickup-refund.sql). */
+export function cancellationMoney(b: Pick<CustomerBooking, "status" | "payments">) {
+  const paid = (b.payments ?? []).filter((p) => p.status === "paid");
+  const pickup = paid.find((p) => p.kind === "pickup");
+  const kept = paid
+    .filter((p) => p.kind !== "pickup")
+    .reduce((s, p) => s + Number(p.amount ?? 0), 0);
+  // The rest paid online is returned only when the car was never handed over
+  const refunded = pickup && b.status !== "active" ? Number(pickup.amount ?? 0) : 0;
+  return { kept, refunded };
+}
 
 /** The review attached to a booking, whether PostgREST returned it as an object or an array. */
 export const bookingReview = (b: Pick<CustomerBooking, "reviews">): Tables<"reviews"> | null =>
@@ -84,7 +103,7 @@ export const workflowContract = (c: BookingContract | null) =>
       }
     : null;
 
-export const CUSTOMER_BOOKINGS_SELECT = "*, cars(*), reviews(*), contracts(*)";
+export const CUSTOMER_BOOKINGS_SELECT = "*, cars(*), reviews(*), contracts(*), payments(*)";
 
 /**
  * One query (one key, one data shape) shared by /dashboard and /bookings.

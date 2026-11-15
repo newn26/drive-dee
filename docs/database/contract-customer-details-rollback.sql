@@ -1,15 +1,18 @@
 -- =====================================================================
--- Rollback for contract-customer-details.sql (restores the 0004 behaviour).
--- Function bodies below are copied verbatim from 0004_contract_approval_workflow.sql.
--- The 4 new contract_versions columns are KEPT (dropping them would lose snapshot data);
--- the 0004 functions simply stop filling them. See the optional block at the end.
+-- Rollback for contract-customer-details.sql (restores the live behaviour before it).
+-- write_contract_version is copied verbatim from 0007_booking_fee_flow.sql (the live version);
+-- protect_contract_version is copied verbatim from 0004_contract_approval_workflow.sql (not
+-- changed since). The 4 new contract_versions columns are KEPT (dropping them would lose
+-- snapshot data); the restored functions simply stop filling them. Note: an unsent draft written
+-- after the migration and edited in place after this rollback keeps its old email/address/ID
+-- values in those columns while its text no longer shows them.
 -- =====================================================================
 
 -- No licence check on booking
 drop trigger if exists trg_require_booking_licence on public.bookings;
 drop function if exists public.require_booking_licence();
 
--- Contract versions written as in 0004 (licence only when _include_license)
+-- Contract versions written as in 0007 (licence only when _include_license)
 create or replace function public.write_contract_version(
   _contract public.contracts, _b public.bookings, _version int, _is_new boolean,
   _pickup_at timestamptz, _return_at timestamptz, _deposit numeric,
@@ -17,6 +20,7 @@ create or replace function public.write_contract_version(
 returns void language plpgsql security definer set search_path = public as $$
 declare pr public.profiles; car public.cars; lic text; t text; label text;
 begin
+  _deposit := _b.total_amount;
   if _pickup_at is null or _return_at is null then raise exception 'กรุณาระบุวันและเวลารับ-คืนรถ'; end if;
   if (_pickup_at at time zone 'Asia/Bangkok')::date <> _b.start_date then
     raise exception 'วันรับรถต้องตรงกับวันที่จอง (%)', to_char(_b.start_date, 'DD/MM/YYYY');
@@ -25,7 +29,6 @@ begin
     raise exception 'วันคืนรถต้องตรงกับวันที่จอง (%)', to_char(_b.end_date, 'DD/MM/YYYY');
   end if;
   if _return_at <= _pickup_at then raise exception 'เวลาคืนรถต้องหลังเวลารับรถ'; end if;
-  if _deposit is null or _deposit < 0 then raise exception 'เงินประกันต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป'; end if;
   if btrim(coalesce(_mileage_allowance, '')) = '' then raise exception 'กรุณาระบุข้อกำหนดระยะทาง'; end if;
   if btrim(coalesce(_late_penalty, '')) = '' then raise exception 'กรุณาระบุค่าปรับส่งคืนล่าช้า'; end if;
 

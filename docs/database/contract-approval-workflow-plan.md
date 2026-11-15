@@ -77,7 +77,7 @@ Decisions taken (from the owner, 2026-11-12):
 3. Customer revision requests use `revision_requested` with a reason. New version → new acceptance → new approval.
 4. Contract snapshot: full name, phone, driving licence number only when the Admin ticks "include". No national ID.
 
-This plan also **supersedes** `security-fixes-lovable-prompt.md` (fixes B and H are folded in below). Do not apply both.
+This plan also **supersedes** `security-fixes-lovable-prompt.md` (fixes B and H are folded in below; that file has since been removed from the repository).
 
 ---
 

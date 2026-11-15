@@ -54,7 +54,7 @@ export type DashboardPermissions = {
   viewContracts: boolean;
   /** Create, edit and send contracts (contracts_manage). */
   editContracts: boolean;
-  /** Approve contracts or ask for a revision (contracts_approve). */
+  /** Approve contracts left in pending_admin_review by the old flow (contracts_approve); new bookings skip it. */
   approveContracts: boolean;
   manageMaintenance: boolean;
   viewReports: boolean;

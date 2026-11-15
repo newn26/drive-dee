@@ -7,8 +7,6 @@ import {
   CheckCircle2,
   CreditCard,
   FileText,
-  KeyRound,
-  Lock,
   Mail,
   MapPin,
   Phone,
@@ -19,22 +17,48 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { LoadError } from "@/components/load-error";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/integrations/supabase/client";
+import { ChangePasswordCard } from "@/components/change-password-card";
 import { useAuth } from "@/hooks/use-auth";
 import type { Tables } from "@/integrations/supabase/types";
-import { stripSeparators, validateProfile, type ProfileErrors } from "@/lib/form-validation";
+import {
+  type ProfileErrors,
+  normalizeIdCard,
+  normalizeLicense,
+  normalizePhone,
+  profileErrors,
+} from "@/lib/profile-validation";
+
+function FieldError({ id, message }: { id: string; message?: string | undefined }) {
+  if (!message) return null;
+  return (
+    <p id={id} role="alert" className="text-xs text-destructive">
+      {message}
+    </p>
+  );
+}
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
     meta: [
       { title: "โปรไฟล์และข้อมูลผู้ขับขี่ — Drive Dee" },
-      { name: "description", content: "จัดการข้อมูลส่วนตัว ข้อมูลใบอนุญาตขับขี่ และความปลอดภัยของบัญชีผู้ใช้งาน" },
+      {
+        name: "description",
+        content: "จัดการข้อมูลส่วนตัว ข้อมูลใบอนุญาตขับขี่ และความปลอดภัยของบัญชีผู้ใช้งาน",
+      },
       { property: "og:title", content: "โปรไฟล์ของฉัน — Drive Dee" },
     ],
   }),
@@ -47,7 +71,6 @@ function ProfilePage() {
   const queryClient = useQueryClient();
 
   const [savingProfile, setSavingProfile] = useState(false);
-  const [changingPassword, setChangingPassword] = useState(false);
 
   // Form states for profile
   const [fullName, setFullName] = useState("");
@@ -55,11 +78,7 @@ function ProfilePage() {
   const [address, setAddress] = useState("");
   const [licenseNo, setLicenseNo] = useState("");
   const [idCardNo, setIdCardNo] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<ProfileErrors>({});
-
-  // Form states for password change
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [errors, setErrors] = useState<ProfileErrors>({});
 
   // Fetch current user profile
   const {
@@ -102,27 +121,24 @@ function ProfilePage() {
     e.preventDefault();
     if (!user) return;
 
-    const errors = validateProfile({ fullName, phone, idCardNo, licenseNo });
-    setFieldErrors(errors);
-    const firstError = Object.values(errors)[0];
-    if (firstError) {
-      toast.error(firstError);
+    const problems = profileErrors({ fullName, phone, idCardNo, licenseNo });
+    setErrors(problems);
+    if (Object.keys(problems).length > 0) {
+      toast.error("กรุณาตรวจสอบข้อมูลที่กรอกให้ถูกต้อง");
       return;
     }
 
     setSavingProfile(true);
     try {
-      const { error } = await supabase
-        .from("profiles")
-        .upsert({
-          id: user.id,
-          full_name: fullName.trim(),
-          phone: stripSeparators(phone),
-          address: address.trim(),
-          license_no: licenseNo.trim(),
-          id_card_no: stripSeparators(idCardNo).toUpperCase(),
-          updated_at: new Date().toISOString(),
-        });
+      const { error } = await supabase.from("profiles").upsert({
+        id: user.id,
+        full_name: fullName.trim(),
+        phone: normalizePhone(phone),
+        address: address.trim(),
+        license_no: normalizeLicense(licenseNo),
+        id_card_no: normalizeIdCard(idCardNo),
+        updated_at: new Date().toISOString(),
+      });
 
       if (error) throw error;
 
@@ -133,39 +149,6 @@ function ProfilePage() {
       toast.error(error.message || "ไม่สามารถบันทึกข้อมูลได้ กรุณาลองใหม่อีกครั้ง");
     } finally {
       setSavingProfile(false);
-    }
-  };
-
-  // Handle password change
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (newPassword.length < 6) {
-      toast.error("รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร");
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      toast.error("รหัสผ่านใหม่และการยืนยันรหัสผ่านไม่ตรงกัน");
-      return;
-    }
-
-    setChangingPassword(true);
-    try {
-      const { error } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
-
-      if (error) throw error;
-
-      toast.success("เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว");
-      setNewPassword("");
-      setConfirmPassword("");
-    } catch (err: unknown) {
-      const error = err as Error;
-      toast.error(error.message || "ไม่สามารถเปลี่ยนรหัสผ่านได้");
-    } finally {
-      setChangingPassword(false);
     }
   };
 
@@ -185,7 +168,9 @@ function ProfilePage() {
       <div className="mx-auto max-w-md px-4 py-20 text-center">
         <AlertCircle className="mx-auto h-12 w-12 text-warning" />
         <h2 className="mt-4 text-2xl font-semibold">กรุณาเข้าสู่ระบบ</h2>
-        <p className="mt-2 text-sm text-muted-foreground">คุณต้องเข้าสู่ระบบก่อนจึงจะสามารถจัดการข้อมูลโปรไฟล์ได้</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          คุณต้องเข้าสู่ระบบก่อนจึงจะสามารถจัดการข้อมูลโปรไฟล์ได้
+        </p>
         <Button className="mt-6 w-full" onClick={() => navigate({ to: "/auth" })}>
           เข้าสู่ระบบ / สมัครสมาชิก
         </Button>
@@ -204,7 +189,8 @@ function ProfilePage() {
     <div className="mx-auto max-w-5xl px-4 py-10">
       {isDemo && (
         <div className="mb-6 rounded-lg border border-dashed border-accent bg-accent/10 p-4 text-sm">
-          <strong>บัญชีทดลอง (DEMO):</strong> ข้อมูลในบัญชีนี้เป็นข้อมูลสมมติ กรุณาอย่ากรอกข้อมูลส่วนตัวจริง เช่น เบอร์โทร เลขบัตรประชาชน หรือเลขใบขับขี่
+          <strong>บัญชีทดลอง (DEMO):</strong> ข้อมูลในบัญชีนี้เป็นข้อมูลสมมติ
+          กรุณาอย่ากรอกข้อมูลส่วนตัวจริง เช่น เบอร์โทร เลขบัตรประชาชน หรือเลขใบขับขี่
         </div>
       )}
       {/* Header */}
@@ -217,11 +203,17 @@ function ProfilePage() {
         </div>
         <div>
           {isLicenseComplete ? (
-            <Badge variant="outline" className="border-success/30 bg-success/10 text-success gap-1.5 py-1 px-3">
+            <Badge
+              variant="outline"
+              className="border-success/30 bg-success/10 text-success gap-1.5 py-1 px-3"
+            >
               <CheckCircle2 className="h-4 w-4" /> ข้อมูลผู้ขับขี่พร้อมใช้งาน
             </Badge>
           ) : (
-            <Badge variant="outline" className="border-warning/30 bg-warning/10 text-warning gap-1.5 py-1 px-3">
+            <Badge
+              variant="outline"
+              className="border-warning/30 bg-warning/10 text-warning gap-1.5 py-1 px-3"
+            >
               <AlertCircle className="h-4 w-4" /> รอระบุข้อมูลใบขับขี่
             </Badge>
           )}
@@ -242,28 +234,30 @@ function ProfilePage() {
               </CardDescription>
             </CardHeader>
 
-            <form onSubmit={handleSaveProfile}>
+            <form onSubmit={handleSaveProfile} noValidate>
               <CardContent className="space-y-5">
                 {/* Full Name & Email */}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label htmlFor="prof-name" className="text-xs">ชื่อ-นามสกุล *</Label>
+                    <Label htmlFor="prof-name" className="text-xs">
+                      ชื่อ-นามสกุล *
+                    </Label>
                     <Input
                       id="prof-name"
-                      aria-invalid={!!fieldErrors.fullName}
-                      aria-describedby={fieldErrors.fullName ? "prof-name-error" : undefined}
                       placeholder="นายสมชาย มั่นคง"
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       required
+                      aria-invalid={!!errors.fullName}
+                      aria-describedby={errors.fullName ? "prof-name-error" : undefined}
                     />
-                    {fieldErrors.fullName && (
-                      <p id="prof-name-error" className="text-xs text-destructive">{fieldErrors.fullName}</p>
-                    )}
+                    <FieldError id="prof-name-error" message={errors.fullName} />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="prof-email" className="text-xs">อีเมล (ใช้เข้าสู่ระบบ)</Label>
+                    <Label htmlFor="prof-email" className="text-xs">
+                      อีเมล (ใช้เข้าสู่ระบบ)
+                    </Label>
                     <div className="relative">
                       <Input
                         id="prof-email"
@@ -279,43 +273,46 @@ function ProfilePage() {
                 {/* Phone & National ID */}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label htmlFor="prof-phone" className="text-xs">เบอร์โทรศัพท์ติดต่อ</Label>
+                    <Label htmlFor="prof-phone" className="text-xs">
+                      เบอร์โทรศัพท์ติดต่อ
+                    </Label>
                     <div className="relative">
                       <Input
                         id="prof-phone"
-                        aria-invalid={!!fieldErrors.phone}
-                        aria-describedby={fieldErrors.phone ? "prof-phone-error" : undefined}
-                        type="tel"
-                        inputMode="tel"
                         placeholder="0812345678"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         className="font-mono"
+                        type="tel"
+                        inputMode="tel"
+                        maxLength={15}
+                        autoComplete="tel"
+                        aria-invalid={!!errors.phone}
+                        aria-describedby={errors.phone ? "prof-phone-error" : undefined}
                       />
                       <Phone className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
                     </div>
-                    {fieldErrors.phone && (
-                      <p id="prof-phone-error" className="text-xs text-destructive">{fieldErrors.phone}</p>
-                    )}
+                    <FieldError id="prof-phone-error" message={errors.phone} />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="prof-idcard" className="text-xs">เลขบัตรประชาชน / พาสปอร์ต</Label>
+                    <Label htmlFor="prof-idcard" className="text-xs">
+                      เลขบัตรประชาชน / พาสปอร์ต
+                    </Label>
                     <div className="relative">
                       <Input
                         id="prof-idcard"
-                        aria-invalid={!!fieldErrors.idCardNo}
-                        aria-describedby={fieldErrors.idCardNo ? "prof-idcard-error" : undefined}
                         placeholder="1100000000000"
                         value={idCardNo}
                         onChange={(e) => setIdCardNo(e.target.value)}
                         className="font-mono"
+                        maxLength={17}
+                        aria-invalid={!!errors.idCardNo}
+                        aria-describedby={errors.idCardNo ? "prof-idcard-error" : undefined}
                       />
                       <CreditCard className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
                     </div>
-                    {fieldErrors.idCardNo && (
-                      <p id="prof-idcard-error" className="text-xs text-destructive">{fieldErrors.idCardNo}</p>
-                    )}
+                    <FieldError id="prof-idcard-error" message={errors.idCardNo} />
                   </div>
                 </div>
 
@@ -330,19 +327,18 @@ function ProfilePage() {
                   <div className="relative">
                     <Input
                       id="prof-license"
-                      aria-invalid={!!fieldErrors.licenseNo}
-                      aria-describedby={fieldErrors.licenseNo ? "prof-license-error" : undefined}
                       placeholder="เช่น 12345678"
                       value={licenseNo}
                       onChange={(e) => setLicenseNo(e.target.value)}
-                      required
                       className="font-mono"
+                      required
+                      maxLength={24}
+                      aria-invalid={!!errors.licenseNo}
+                      aria-describedby={errors.licenseNo ? "prof-license-error" : undefined}
                     />
                     <FileText className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
                   </div>
-                  {fieldErrors.licenseNo && (
-                    <p id="prof-license-error" className="text-xs text-destructive">{fieldErrors.licenseNo}</p>
-                  )}
+                  <FieldError id="prof-license-error" message={errors.licenseNo} />
                   <p className="text-xs text-muted-foreground">
                     ผู้เช่าต้องแสดงใบอนุญาตขับขี่ตัวจริงที่ยังไม่หมดอายุ ณ วันรับรถยนต์
                   </p>
@@ -350,7 +346,9 @@ function ProfilePage() {
 
                 {/* Contact Address */}
                 <div className="space-y-1.5">
-                  <Label htmlFor="prof-address" className="text-xs">ที่อยู่สำหรับออกเอกสาร</Label>
+                  <Label htmlFor="prof-address" className="text-xs">
+                    ที่อยู่สำหรับออกเอกสาร
+                  </Label>
                   <Textarea
                     id="prof-address"
                     rows={3}
@@ -374,65 +372,7 @@ function ProfilePage() {
         {/* Right Column: Security & Privacy (4 Cols) */}
         <div className="space-y-6 lg:col-span-4">
           {/* Change Password Card */}
-          <Card className="shadow-card border">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <KeyRound className="h-5 w-5 text-primary" />
-                <CardTitle className="text-lg">เปลี่ยนรหัสผ่าน</CardTitle>
-              </div>
-              <CardDescription>
-                ตั้งรหัสผ่านใหม่เพื่อความปลอดภัยในการเข้าใช้งาน
-              </CardDescription>
-            </CardHeader>
-
-            <form onSubmit={handleChangePassword}>
-              <CardContent className="space-y-3.5">
-                <div className="space-y-1.5">
-                  <Label htmlFor="new-pw" className="text-xs">รหัสผ่านใหม่</Label>
-                  <div className="relative">
-                    <Input
-                      id="new-pw"
-                      type="password"
-                      placeholder="อย่างน้อย 6 ตัวอักษร"
-                      minLength={6}
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      required
-                    />
-                    <Lock className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="confirm-pw" className="text-xs">ยืนยันรหัสผ่านใหม่</Label>
-                  <div className="relative">
-                    <Input
-                      id="confirm-pw"
-                      type="password"
-                      placeholder="กรอกรหัสผ่านซ้ำอีกครั้ง"
-                      minLength={6}
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      required
-                    />
-                    <Lock className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                  </div>
-                </div>
-              </CardContent>
-
-              <CardFooter className="border-t pt-3.5">
-                <Button
-                  type="submit"
-                  variant="outline"
-                  size="sm"
-                  disabled={changingPassword || !newPassword}
-                  className="w-full"
-                >
-                  {changingPassword ? "กำลังอัปเดตรหัสผ่าน..." : "เปลี่ยนรหัสผ่าน"}
-                </Button>
-              </CardFooter>
-            </form>
-          </Card>
+          <ChangePasswordCard email={user.email ?? ""} isDemo={isDemo} />
 
           {/* Privacy & Security Guarantee Card */}
           <div className="rounded-xl border bg-card p-4 text-sm text-muted-foreground space-y-2 shadow-sm">
@@ -441,7 +381,8 @@ function ProfilePage() {
               <span>การคุ้มครองข้อมูลส่วนบุคคล</span>
             </div>
             <p className="text-xs leading-relaxed">
-              ข้อมูลใบขับขี่และข้อมูลระบุตัวตนของคุณได้รับการปกป้องตามมาตรฐาน PDPA เพื่อใช้ในการทำสัญญาเช่ารถยนต์เท่านั้น และจะไม่ถูกนำไปเปิดเผยต่อบุคคลภายนอก
+              ข้อมูลใบขับขี่และข้อมูลระบุตัวตนของคุณได้รับการปกป้องตามมาตรฐาน PDPA
+              เพื่อใช้ในการทำสัญญาเช่ารถยนต์เท่านั้น และจะไม่ถูกนำไปเปิดเผยต่อบุคคลภายนอก
             </p>
           </div>
         </div>

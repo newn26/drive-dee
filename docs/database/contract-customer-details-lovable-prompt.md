@@ -1,7 +1,8 @@
 # Contract customer details – Lovable prompt
 
-Status: **NOT APPLIED.** Prepared 2026-11-15. Apply after `0004_contract_approval_workflow.sql`
-(becomes migration 0005). Needs one Lovable message (credits).
+Status: **NOT APPLIED.** Prepared 2026-11-15. Apply after `0007_booking_fee_flow.sql` (the live
+stack). It keeps 0007's rules (deposit = rent, booking-fee lines in the contract text) and does not
+depend on the other pending files in `docs/database/`. Needs one Lovable message (credits).
 
 Design: `docs/superpowers/specs/2026-11-15-contract-customer-details-design.md`.
 SQL: `docs/database/contract-customer-details.sql` (tested on PGlite:
@@ -22,8 +23,8 @@ versions keep NULL in the new columns. The app already works before and after th
 ## Step 0 – Read-only pre-checks (Cloud → SQL editor)
 
 ```sql
--- 0004 is applied (must return 1 row)
-select 1 from information_schema.tables where table_name = 'contract_versions';
+-- 0007 is applied (must return 1 row)
+select 1 from pg_proc where proname = 'booking_fee';
 
 -- Pending bookings whose customer has no licence: after the migration the admin cannot create
 -- their contract until the customer fills in the licence (nothing is cancelled)
@@ -40,7 +41,7 @@ select tgname from pg_trigger where tgname = 'trg_require_booking_licence';
 ## Prompt to paste into Lovable
 
 > Please create ONE database migration for the Drive Dee prototype, applied after the
-> contract approval workflow migration. It adds 4 nullable columns to
+> booking fee flow migration (0007). It adds 4 nullable columns to
 > `public.contract_versions`, replaces the functions `write_contract_version` and
 > `protect_contract_version`, adds a new overload of `render_contract_terms` and adds one
 > trigger `trg_require_booking_licence` on `public.bookings`. Do not drop or delete any table,
@@ -62,11 +63,16 @@ where table_name = 'contract_versions'
 select tgname from pg_trigger where tgname = 'trg_require_booking_licence';
 ```
 
+Tests: once the migration exists in `drizzle/migrations/`, drop
+`extraSql: [CUSTOMER_DETAILS_SQL]` from `src/test/db/contract-customer-details.db.test.ts` (it is
+then applied with `applyLater: true`; applying it twice is harmless but confusing). Test users get a
+fake licence by default (`createUser`), so the existing suites keep passing.
+
 In the app: as a demo customer without a licence, the book button is disabled; after creating a
 contract as admin, the contract shows อีเมล and ผู้จัดทำสัญญา.
 
 ## Rollback (only if needed)
 
 Run `docs/database/contract-customer-details-rollback.sql` in the SQL editor. It restores the
-0004 functions and removes the booking trigger; the new columns are kept (an optional, commented
+live functions (0007's `write_contract_version`, 0004's `protect_contract_version`) and removes the booking trigger; the new columns are kept (an optional, commented
 block drops them and their data).

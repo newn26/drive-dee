@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * Proposed migration docs/database/contract-customer-details.sql (D01-D10):
+ * Proposed migration docs/database/contract-customer-details.sql on the live stack (0004-0007), D01-D10:
  * licence required to book and on every contract, full customer details and the creator's
  * name snapshotted per contract version. Real database (PGlite), real roles and RLS.
  * Fictional people only.
@@ -56,7 +56,7 @@ async function versionRow(contractId: string, version = 1): Promise<Row> {
 }
 
 beforeAll(async () => {
-  db = await createTestDb({ extraSql: [CUSTOMER_DETAILS_SQL] });
+  db = await createTestDb({ applyLater: true, extraSql: [CUSTOMER_DETAILS_SQL] });
   admin = await createAdmin(db);
   await setProfile(admin.id, "full_name", "ทดสอบ แอดมินหนึ่ง");
   carol = await createUser(db, {
@@ -67,7 +67,7 @@ beforeAll(async () => {
   });
   await setProfile(carol.id, "address", "ที่อยู่ทดสอบ 1");
   await setProfile(carol.id, "id_card_no", "FAKE-ID-0003");
-  dan = await createUser(db, { name: "ทดสอบ ลูกค้าดี" });
+  dan = await createUser(db, { name: "ทดสอบ ลูกค้าดี", licence: "" });
   cars = await allCarIds(db);
 }, 60000);
 afterAll(() => db.close());
@@ -204,13 +204,36 @@ describe("contract snapshot", () => {
   });
 });
 
+describe("keeps the live (0007) contract rules", () => {
+  it("D11 deposit still equals the rent and the booking-fee lines stay in the text", async () => {
+    const b = await book(carol);
+    const id = await adminCreate(db, admin, b.id, terms(b, { deposit: 1 }));
+    const v = await versionRow(id);
+    expect(String(v["deposit"])).toBe(b.total_amount);
+    expect(String(v["terms"])).toContain("ค่าจอง (ชำระออนไลน์หลังยืนยันสัญญา): 1,000.00 บาท");
+    expect(String(v["terms"])).toContain("ยอดชำระ ณ วันรับรถ (ค่าเช่า + เงินประกัน - ค่าจอง):");
+  });
+
+  it("D12 a draft written before this migration gets its creator's name on an in-place edit", async () => {
+    const b = await book(carol);
+    const id = await adminCreate(db, admin, b.id, terms(b));
+    // what a draft written under 0007 looks like: no creator name yet
+    await db.sql(
+      "update public.contract_versions set created_by_name = null where contract_id = $1",
+      [id],
+    );
+    await adminUpdate(db, admin, id, terms(b, { extra: "แก้ไขหลังย้ายระบบ" }));
+    expect(await versionRow(id)).toMatchObject({ created_by_name: "ทดสอบ แอดมินหนึ่ง" });
+  });
+});
+
 describe("rollback", () => {
-  it("D10 the rollback script restores the 0004 behaviour", async () => {
-    const rdb = await createTestDb({ extraSql: [CUSTOMER_DETAILS_SQL] });
+  it("D10 the rollback script restores the 0007 behaviour", async () => {
+    const rdb = await createTestDb({ applyLater: true, extraSql: [CUSTOMER_DETAILS_SQL] });
     try {
       await rdb.exec(readFileSync(ROLLBACK_SQL, "utf8"));
       const radmin = await createAdmin(rdb);
-      const noLicence = await createUser(rdb, { name: "ทดสอบ ลูกค้าอี" });
+      const noLicence = await createUser(rdb, { name: "ทดสอบ ลูกค้าอี", licence: "" });
       const rcars = await allCarIds(rdb);
       const b = await createBooking(rdb, noLicence, rcars[0]!, 3, 2);
       const id = await adminCreate(rdb, radmin, b.id, terms(b, { licence: false }));

@@ -23,9 +23,9 @@ export const isContractStatus = (s: unknown): s is ContractStatus =>
 export const contractStatusLabel: Record<ContractStatus, string> = {
   draft: "ฉบับร่าง",
   pending_customer: "รอลูกค้าตรวจสอบ",
-  pending_admin_review: "รอผู้ดูแลอนุมัติ",
+  pending_admin_review: "รอผู้ดูแลอนุมัติ (ระบบเดิม)",
   revision_requested: "ขอแก้ไขสัญญา",
-  approved: "อนุมัติแล้ว · รอชำระเงิน",
+  approved: "ลูกค้ายืนยันแล้ว · รอชำระค่าจอง",
   paid: "ชำระเงินแล้ว",
   cancelled: "ยกเลิก",
 };
@@ -43,7 +43,13 @@ export function customerContractLabel(status: ContractStatus, everSent: boolean)
 /** Allowed status moves; must match guard_contract_update() in the migration. */
 export const CONTRACT_TRANSITIONS: Readonly<Record<ContractStatus, readonly ContractStatus[]>> = {
   draft: ["pending_customer", "cancelled"],
-  pending_customer: ["pending_admin_review", "revision_requested", "draft", "cancelled"],
+  pending_customer: [
+    "approved",
+    "pending_admin_review",
+    "revision_requested",
+    "draft",
+    "cancelled",
+  ],
   pending_admin_review: ["approved", "revision_requested", "draft", "cancelled"],
   revision_requested: ["draft", "cancelled"],
   approved: ["paid", "draft", "cancelled"],
@@ -67,7 +73,10 @@ export type BookingLike = { status: string; hold_expires_at?: string | null };
 export const holdActive = (b: BookingLike, now: number = Date.now()) =>
   b.status === "pending" && !!b.hold_expires_at && new Date(b.hold_expires_at).getTime() > now;
 
-/** Payment is offered only for an approved contract on an open booking. */
+/**
+ * The booking fee is offered once the customer has confirmed the sent contract
+ * (status 'approved'; docs/database/booking-fee-flow.sql), while the 15-minute window runs.
+ */
 export const canPay = (
   b: BookingLike,
   c: ContractLike | null | undefined,
@@ -120,7 +129,7 @@ export function customerStage(
 export const customerStageLabel: Record<CustomerStage, string> = {
   awaiting_contract: "รอสัญญา",
   review_contract: "รอตรวจสัญญา",
-  awaiting_approval: "รออนุมัติ",
+  awaiting_approval: "รอผู้ดูแล (ระบบเดิม)",
   revision_requested: "ขอแก้ไขสัญญา",
   awaiting_payment: "รอชำระเงิน",
   confirmed: "ยืนยันแล้ว",
@@ -147,6 +156,29 @@ export const ADMIN_BOOKING_MOVES: Readonly<Record<string, readonly string[]>> = 
 export const adminBookingMoves = (status: string): readonly string[] =>
   ADMIN_BOOKING_MOVES[status] ?? [];
 
+/**
+ * The move the status dialog starts on: the first move that is not a cancellation.
+ * Cancelling is never preselected (one careless "save" would cancel a paid booking); when it is
+ * the only move, the admin must choose it. Returns "" when nothing should be preselected.
+ */
+export const defaultBookingMove = (moves: readonly string[]): string =>
+  moves.find((m) => m !== "cancelled") ?? "";
+
+/** Handing the car over (active) or taking it back (completed) only from the pickup day on. */
+export const PICKUP_DAY_MOVES = ["active", "completed"] as const;
+
+/**
+ * The moves an admin may make today: adminBookingMoves without "active"/"completed" before the
+ * pickup day (`today` and `start_date` are Bangkok YYYY-MM-DD). Enforced in the admin UI.
+ */
+export const bookingMovesOn = (
+  b: { status: string; start_date: string },
+  today: string,
+): readonly string[] =>
+  adminBookingMoves(b.status).filter(
+    (m) => !(PICKUP_DAY_MOVES as readonly string[]).includes(m) || today >= b.start_date,
+  );
+
 // ---------------------------------------------------------------------------
 // Contract events
 // ---------------------------------------------------------------------------
@@ -158,7 +190,7 @@ export const contractEventLabel: Record<string, string> = {
   sent: "ส่งให้ลูกค้าตรวจสอบ",
   accepted: "ลูกค้ายอมรับสัญญา",
   revision_requested: "ขอแก้ไขสัญญา",
-  approved: "ผู้ดูแลอนุมัติสัญญา",
+  approved: "ผู้ดูแลอนุมัติสัญญา (ระบบเดิม)",
   paid: "ชำระเงิน (DEMO)",
   cancelled: "ยกเลิก",
   expired: "หมดเวลา",
@@ -178,8 +210,8 @@ export const actorRoleLabel: Record<string, string> = {
 
 export const refundStatusLabel: Record<string, string> = {
   none: "-",
-  not_refunded: "ยกเลิกแล้ว · ยังไม่คืนเงิน (DEMO ไม่มีระบบคืนเงิน)",
-  refunded: "คืนเงินแล้ว",
+  not_refunded: "ยกเลิกแล้ว · ไม่คืนเงิน (ค่าจองไม่คืนเมื่อยกเลิก ตามเงื่อนไขในสัญญา)",
+  refunded: "ยกเลิกแล้ว · คืนเงินแล้ว (DEMO)",
 };
 
 // ---------------------------------------------------------------------------
@@ -225,12 +257,65 @@ export function validateContractForm(
   const time = /^([01]\d|2[0-3]):[0-5]\d$/;
   if (!time.test(f.pickupTime) || !time.test(f.returnTime))
     return "กรุณาระบุเวลารับ-คืนรถให้ถูกต้อง (HH:MM)";
+  if (!withinHours(f.pickupTime) || !withinHours(f.returnTime))
+    return `เวลารับรถและคืนรถต้องอยู่ระหว่าง ${OPENING_TIME}-${CLOSING_TIME} น.`;
   if (startDate === endDate && f.returnTime <= f.pickupTime) return "เวลาคืนรถต้องหลังเวลารับรถ";
   if (!Number.isFinite(f.deposit) || f.deposit < 0)
     return "เงินประกันต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป";
   if (!f.mileageAllowance.trim()) return "กรุณาระบุข้อกำหนดระยะทาง";
   if (!f.latePenalty.trim()) return "กรุณาระบุค่าปรับส่งคืนล่าช้า";
   return null;
+}
+
+/** Branch opening hours: pickup and return times must fall inside them. */
+export const OPENING_TIME = "08:00";
+export const CLOSING_TIME = "18:00";
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const withinHours = (t: string) => HHMM.test(t) && t >= OPENING_TIME && t <= CLOSING_TIME;
+
+/** Change requests a customer may make per contract; must match max_customer_revisions(). */
+export const MAX_CUSTOMER_REVISIONS = 2;
+
+/** How many change requests the customer has made (from the contract events). */
+export const customerRevisionCount = (events: { action: string; actor_role: string }[]) =>
+  events.filter((e) => e.action === "revision_requested" && e.actor_role === "customer").length;
+
+/** What a customer can ask to change in a sent contract. */
+export type RevisionRequest = { customerName: string; pickupTime: string; returnTime: string };
+
+/** Thai error message, or null when the request is valid. */
+export function revisionRequestError(r: RevisionRequest, sameDay: boolean): string | null {
+  if (r.customerName.trim().length < 2) return "กรุณากรอกชื่อลูกค้า";
+  if (!withinHours(r.pickupTime) || !withinHours(r.returnTime))
+    return `เวลารับรถและคืนรถต้องอยู่ระหว่าง ${OPENING_TIME}-${CLOSING_TIME} น.`;
+  if (sameDay && r.returnTime <= r.pickupTime) return "เวลาคืนรถต้องหลังเวลารับรถ";
+  return null;
+}
+
+/** True when the request asks for nothing new (same name and times as the sent version). */
+export const revisionUnchanged = (original: RevisionRequest, r: RevisionRequest) =>
+  r.customerName.trim() === original.customerName.trim() &&
+  r.pickupTime.slice(0, 5) === original.pickupTime.slice(0, 5) &&
+  r.returnTime.slice(0, 5) === original.returnTime.slice(0, 5);
+
+/** Shown (and returned by customer_request_revision) when nothing was changed. */
+export const REVISION_UNCHANGED_MESSAGE =
+  "ยังไม่ได้แก้ไขข้อมูลใด กรุณาเปลี่ยนชื่อหรือเวลาที่ต้องการก่อนส่งคำขอ";
+
+/** The reason text sent to the admin (customer_request_revision needs at least 5 characters). */
+export const revisionReasonText = (r: RevisionRequest) =>
+  [
+    `ชื่อลูกค้า: ${r.customerName.trim()}`,
+    `เวลารับรถ: ${r.pickupTime} น.`,
+    `เวลาคืนรถ: ${r.returnTime} น.`,
+  ].join("\n");
+
+/** Reads back a request written by revisionReasonText; null for free-text reasons. */
+export function parseRevisionReason(text: string | null | undefined): RevisionRequest | null {
+  const m = /ชื่อลูกค้า: (.+)\nเวลารับรถ: (\d{2}:\d{2}) น\.\nเวลาคืนรถ: (\d{2}:\d{2}) น\./.exec(
+    (text ?? "").replace(/\r\n/g, "\n"),
+  );
+  return m ? { customerName: m[1]!.trim(), pickupTime: m[2]!, returnTime: m[3]! } : null;
 }
 
 /** A reason for a revision request or a manual confirmation (same minimums as the database). */
