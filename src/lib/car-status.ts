@@ -1,4 +1,5 @@
-import { supabase } from "@/integrations/supabase/client";
+// Sandbox-aware: on the Demo Admin page this updates the sample data, not the real database
+import { db as supabase } from "@/lib/db";
 import type { Tables } from "@/integrations/supabase/types";
 import { todayBkk } from "@/lib/format";
 

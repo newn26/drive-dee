@@ -529,6 +529,23 @@ function AuthForms({
           </CardContent>
         </Card>
       )}
+      {/* Demo Admin: the admin dashboard on in-browser sample data (no account, no real data) */}
+      {(mode === "login" || mode === "register") && (
+        <Card className="mt-4 border-dashed border-amber-400" data-testid="demo-admin-card">
+          <CardContent className="space-y-3 pt-6 text-center">
+            <p className="text-sm font-semibold">{tr("โหมดทดลองผู้ดูแลระบบ (Demo Admin)", "Demo Admin mode")}</p>
+            <p className="text-xs text-muted-foreground">
+              {tr(
+                "เปิดหน้าผู้ดูแลระบบด้วยข้อมูลตัวอย่างทันที ไม่ต้องมีบัญชี ลองจัดการรถ การจอง สัญญา รายงาน และผู้ดูแลได้ทุกเมนู ข้อมูลทั้งหมดเป็นข้อมูลสมมติ ไม่เห็นข้อมูลลูกค้าจริง และการเปลี่ยนแปลงไม่ถูกบันทึก",
+                "Open the admin dashboard with sample data instantly, no account needed. Try cars, bookings, contracts, reports and admin management. Everything is fictional, no real customer data is shown, and nothing is saved.",
+              )}
+            </p>
+            <Button type="button" variant="outline" className="w-full gap-1.5" onClick={() => navigate({ to: "/demo-admin" })}>
+              <MonitorPlay className="h-4 w-4" /> {tr("ทดลองใช้งานในฐานะผู้ดูแลระบบ", "Try it as an admin")}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

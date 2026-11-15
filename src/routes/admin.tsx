@@ -83,7 +83,9 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/status-badge";
-import { supabase } from "@/integrations/supabase/client";
+// Real database, or the in-browser sample data on the public Demo Admin page
+import { db as supabase } from "@/lib/db";
+import { SANDBOX_OWNER_ID } from "@/lib/demo-sandbox";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
 import {
@@ -211,10 +213,13 @@ const BOOKING_MOVE_LABEL: Record<string, string> = bilingual({
 export function AdminDashboard({ mode }: { mode: DashboardMode }) {
   const { user, role, adminMember, loading: authLoading } = useAuth();
   const isDemo = mode === "demo";
-  // Each dashboard only opens for its own role: admins use /admin, demo admins use /demo-admin.
-  const allowed = isDemo ? role === "demo_admin" : role === "admin";
+  // /admin opens for admins only. /demo-admin is open to anyone: it runs on in-browser sample
+  // data (src/lib/demo-sandbox.ts), never on the real database, with every Owner feature.
+  const allowed = isDemo || role === "admin";
   // Admins: the member row decides (Owner / suspended / fine-grained permissions)
-  const perms = dashboardPermissions(allowed ? role : "customer", isDemo ? null : adminMember);
+  const perms = isDemo
+    ? dashboardPermissions("admin", { is_owner: true, status: "active", permissions: [] })
+    : dashboardPermissions(allowed ? role : "customer", adminMember);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -843,7 +848,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
   // -------------------------------------------------------------
   // Security Guard Check
   // -------------------------------------------------------------
-  if (authLoading) {
+  if (authLoading && !isDemo) {
     return (
       <div className="mx-auto max-w-5xl px-4 py-20 text-center">
         <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
@@ -852,7 +857,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     );
   }
 
-  if (!user || !allowed) {
+  if (!isDemo && (!user || !allowed)) {
     return (
       <div className="mx-auto max-w-md px-4 py-20 text-center">
         <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-destructive/10 text-destructive">
@@ -899,9 +904,12 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
         >
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
-            <p className="font-semibold">{tr("โหมดสาธิต (Demo Admin)", "Demo mode (Demo Admin)")}</p>
+            <p className="font-semibold">{tr("โหมดสาธิต (Demo Admin) · ข้อมูลตัวอย่าง", "Demo mode (Demo Admin) · sample data")}</p>
             <p className="mt-0.5">
-              {tr("เพิ่ม/แก้ไขรถ เปลี่ยนสถานะการจอง และบันทึกงานซ่อมบำรุงได้ ดูสัญญาเช่าและรายงานได้ แต่ลบข้อมูล แก้ไขสัญญา หรือเปลี่ยนสิทธิ์ผู้ใช้ไม่ได้", "You can add/edit cars, change booking status, record maintenance, and view contracts and reports, but you cannot delete data, edit contracts or change user permissions.")}
+              {tr(
+                "ทุกอย่างในหน้านี้เป็นข้อมูลสมมติ ไม่ใช่ข้อมูลลูกค้าจริง ลองใช้ได้ทุกเมนู (เพิ่มรถ เปลี่ยนสถานะการจอง ทำสัญญา จัดการผู้ดูแล) แต่การเปลี่ยนแปลงไม่ถูกบันทึกลงระบบจริง และจะหายเมื่อรีเฟรชหน้า",
+                "Everything on this page is fictional sample data, not real customers. Try every menu (add cars, change bookings, create contracts, manage admins), but nothing is saved to the real system and changes disappear when you reload.",
+              )}
             </p>
           </div>
         </div>
@@ -1726,8 +1734,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           {activeTab === "customers" && <AdminCustomersPanel rows={customerRows} />}
 
           {/* TAB: ADMIN MANAGEMENT (Owner only; the database enforces it) */}
-          {activeTab === "admins" && perms.manageAdmins && user && (
-            <AdminManagementPanel ownerId={user.id} />
+          {activeTab === "admins" && perms.manageAdmins && (isDemo || user) && (
+            <AdminManagementPanel ownerId={isDemo ? SANDBOX_OWNER_ID : user!.id} />
           )}
 
           {/* TAB 6: REPORTS & ANALYTICS */}
