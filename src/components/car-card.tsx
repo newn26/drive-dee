@@ -1,11 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { Fuel, Settings2, Star, Users } from "lucide-react";
+import { Fuel, Settings2, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { carImage, isStockCarImage } from "@/lib/car-images";
 import { categoryLabel, thb } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 
-export function CarCard({ car, rating }: { car: Tables<"cars">; rating?: { avg: number; count: number } | undefined }) {
+export function CarCard({ car }: { car: Tables<"cars"> }) {
   return (
     <Link
       to="/cars/$id"
@@ -38,11 +38,6 @@ export function CarCard({ car, rating }: { car: Tables<"cars">; rating?: { avg: 
             </h3>
             <p className="text-sm text-muted-foreground">ปี {car.year}</p>
           </div>
-          {rating && rating.count > 0 && (
-            <span className="flex items-center gap-1 text-sm font-medium">
-              <Star className="h-4 w-4 fill-accent text-accent" /> {rating.avg.toFixed(1)}
-            </span>
-          )}
         </div>
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" />{car.seats} ที่นั่ง</span>

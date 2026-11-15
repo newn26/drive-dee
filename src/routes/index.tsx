@@ -5,7 +5,7 @@ import { CalendarCheck, CreditCard, QrCode, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CarCard } from "@/components/car-card";
-import { carsQuery, ratingsQuery } from "@/lib/queries";
+import { carsQuery } from "@/lib/queries";
 import { todayBkk } from "@/lib/format";
 import { adjustEndForStart, rentalDateError } from "@/lib/date-range";
 import { LoadError } from "@/components/load-error";
@@ -31,7 +31,6 @@ function Index() {
   const carsQ = useQuery(carsQuery());
   const cars = carsQ.data;
   const featured = cars?.filter((c) => c.status === "available").slice(0, 4) ?? [];
-  const { data: ratings } = useQuery(ratingsQuery());
 
   return (
     <div>
@@ -107,7 +106,7 @@ function Index() {
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {featured.map((c) => (
-              <CarCard key={c.id} car={c} rating={ratings?.[c.id]} />
+              <CarCard key={c.id} car={c} />
             ))}
           </div>
         )}

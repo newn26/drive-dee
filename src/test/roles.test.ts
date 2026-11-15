@@ -57,7 +57,6 @@ describe("dashboardPermissions", () => {
       approveContracts: false,
       updateBookingStatus: false,
       addEditCars: false,
-      moderateReviews: false,
       manageAdmins: false,
       manualConfirm: false,
     });
@@ -86,7 +85,6 @@ describe("dashboardPermissions", () => {
       deleteCars: false,
       editContracts: false,
       approveContracts: false,
-      moderateReviews: false,
       manageAdmins: false,
       manualConfirm: false,
     });

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CarCard } from "@/components/car-card";
 import { Button } from "@/components/ui/button";
-import { bookedCarIdsQuery, carsQuery, ratingsQuery } from "@/lib/queries";
+import { bookedCarIdsQuery, carsQuery } from "@/lib/queries";
 import { categoryLabel, todayBkk } from "@/lib/format";
 import { filterCarsForSearch, type Availability } from "@/lib/availability";
 import { rentalDateError } from "@/lib/date-range";
@@ -39,7 +39,6 @@ function CarsPage() {
   const set = (patch: Partial<S>) => navigate({ search: (p: S) => ({ ...p, ...patch }), replace: true });
   const carsQ = useQuery(carsQuery());
   const cars = useMemo(() => carsQ.data ?? [], [carsQ.data]);
-  const { data: ratings } = useQuery(ratingsQuery());
   const hasDates = !!search.start && !!search.end;
   const dateError = hasDates ? rentalDateError(search.start!, search.end!, todayBkk()) : null;
   const datesValid = hasDates && !dateError;
@@ -118,7 +117,7 @@ function CarsPage() {
         </div>
       ) : (
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {list.map((c) => <CarCard key={c.id} car={c} rating={ratings?.[c.id]} />)}
+          {list.map((c) => <CarCard key={c.id} car={c} />)}
         </div>
       )}
     </div>
