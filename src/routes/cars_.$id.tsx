@@ -16,6 +16,7 @@ import { categoryLabel, daysBetween, fmtDate, thb, todayBkk } from "@/lib/format
 import { bookedCarIdsQuery, invalidateBookingData } from "@/lib/queries";
 import { adjustEndForStart, rentalDateError } from "@/lib/date-range";
 import { rentalCharges } from "@/lib/booking-fee";
+import { missingBookingDocuments } from "@/lib/profile-validation";
 
 export const Route = createFileRoute("/cars_/$id")({
   head: () => ({
@@ -55,6 +56,18 @@ function CarDetail() {
     queryFn: async () =>
       (await supabase.from("reviews").select("*").eq("car_id", id).order("created_at", { ascending: false })).data ?? [],
   });
+
+  // Booking needs an ID card / passport and a driver's licence in the profile (the DB checks too)
+  const profileQ = useQuery({
+    queryKey: ["profile", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("profiles").select("*").eq("id", user!.id).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user,
+  });
+  const missingDocs = user && profileQ.isSuccess ? missingBookingDocuments(profileQ.data) : [];
 
   const dateError = rentalDateError(start, end, todayBkk());
   const datesValid = !dateError;
@@ -97,6 +110,7 @@ function CarDetail() {
     if (!user) return navigate({ to: "/auth" });
     if (dateError || days <= 0) return toast.error(dateError ?? "กรุณาเลือกวันที่ให้ถูกต้อง");
     if (bookedForDates) return toast.error("รถคันนี้ไม่ว่างในช่วงวันที่เลือก");
+    if (missingDocs.length) return toast.error(`กรุณากรอก${missingDocs.join(" และ ")}ในหน้าโปรไฟล์ก่อนจองรถ`);
     setBusy(true);
     const { data, error } = await supabase
       .from("bookings")
@@ -197,11 +211,17 @@ function CarDetail() {
             รถคันนี้ไม่ว่างในช่วงวันที่เลือก กรุณาเลือกวันอื่น
           </p>
         )}
+        {missingDocs.length > 0 && (
+          <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs" role="alert" data-testid="missing-docs">
+            ต้องมีเลขบัตรประชาชน (หรือพาสปอร์ต) และเลขใบอนุญาตขับขี่จึงจะจองรถได้ ยังขาด: {missingDocs.join(", ")}{" "}
+            <Link to="/profile" className="font-medium text-primary underline">กรอกข้อมูลในโปรไฟล์</Link>
+          </div>
+        )}
         {checkingDates && <p className="text-xs text-muted-foreground" role="status">กำลังตรวจสอบวันว่าง...</p>}
         <Button
           className="w-full"
           size="lg"
-          disabled={busy || (!!user && !!dateError) || bookedForDates || car.status === "maintenance" || car.status === "unavailable"}
+          disabled={busy || (!!user && !!dateError) || missingDocs.length > 0 || bookedForDates || car.status === "maintenance" || car.status === "unavailable"}
           onClick={book}
         >
           {user ? "จองรถคันนี้" : "เข้าสู่ระบบเพื่อจอง"}

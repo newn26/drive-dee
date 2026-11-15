@@ -42,7 +42,8 @@ export function profileErrors(f: ProfileFields): ProfileErrors {
     errors.phone = "เบอร์โทรศัพท์ไม่ถูกต้อง (ตัวเลข 9-10 หลัก ขึ้นต้นด้วย 0)";
 
   const id = normalizeIdCard(f.idCardNo);
-  if (id && !isValidThaiId(id) && !isPassportNo(id))
+  if (!id) errors.idCardNo = "กรุณากรอกเลขบัตรประชาชนหรือพาสปอร์ต (ต้องมีจึงจะจองรถได้)";
+  else if (!isValidThaiId(id) && !isPassportNo(id))
     errors.idCardNo = /^\d+$/.test(id)
       ? "เลขบัตรประชาชนต้องเป็นตัวเลข 13 หลักที่ถูกต้อง"
       : "เลขพาสปอร์ตต้องเป็นตัวอักษรหรือตัวเลข 6-9 ตัว";
@@ -53,4 +54,15 @@ export function profileErrors(f: ProfileFields): ProfileErrors {
     errors.licenseNo = "หมายเลขใบอนุญาตขับขี่ไม่ถูกต้อง (ตัวอักษรหรือตัวเลข 6-20 ตัว)";
 
   return errors;
+}
+
+/** What a customer must have in their profile before booking (docs/database/booking-documents.sql). */
+export type BookingDocuments = { id_card_no: string | null; license_no: string | null };
+
+/** Thai names of the missing documents; empty when the customer can book. */
+export function missingBookingDocuments(p: BookingDocuments | null | undefined): string[] {
+  const missing: string[] = [];
+  if (!p?.id_card_no?.trim()) missing.push("เลขบัตรประชาชน / พาสปอร์ต");
+  if (!p?.license_no?.trim()) missing.push("เลขใบอนุญาตขับขี่");
+  return missing;
 }

@@ -297,7 +297,7 @@ function ProfilePage() {
 
                   <div className="space-y-1.5">
                     <Label htmlFor="prof-idcard" className="text-xs">
-                      เลขบัตรประชาชน / พาสปอร์ต
+                      เลขบัตรประชาชน / พาสปอร์ต *
                     </Label>
                     <div className="relative">
                       <Input
@@ -307,6 +307,7 @@ function ProfilePage() {
                         onChange={(e) => setIdCardNo(e.target.value)}
                         className="font-mono"
                         maxLength={17}
+                        required
                         aria-invalid={!!errors.idCardNo}
                         aria-describedby={errors.idCardNo ? "prof-idcard-error" : undefined}
                       />

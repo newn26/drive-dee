@@ -65,6 +65,8 @@ import {
   fetchContractEvents,
   fetchContractForBooking,
   fetchContractVersions,
+  fetchReceiptDetails,
+  type ReceiptDetails,
 } from "@/lib/contract-api";
 import {
   canCustomerRespond,
@@ -197,6 +199,13 @@ function BookingDetailsPage() {
     queryKey: ["contract-events", id],
     queryFn: () => fetchContractEvents(id),
     enabled: !!contract,
+  });
+
+  // 4. Receipt: the customer's full details and the admin who created the contract
+  const receiptQ = useQuery({
+    queryKey: ["receipt", id],
+    queryFn: () => fetchReceiptDetails(id),
+    enabled: !!id && !!booking && booking.status !== "pending" && booking.status !== "cancelled",
   });
 
   const timeLeft = booking ? holdSecondsLeft(booking, now) : 0;
@@ -992,6 +1001,12 @@ function BookingDetailsPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
+                <ReceiptCustomer
+                  loading={receiptQ.isLoading}
+                  failed={receiptQ.isError}
+                  details={receiptQ.data ?? null}
+                  bookingNo={booking.booking_code}
+                />
                 <p className="text-xs font-medium text-muted-foreground">ค่าจอง</p>
                 <PaymentDetails loading={paymentLoading} payment={feePayment} />
                 {pickupPayment ? (
@@ -1169,6 +1184,74 @@ function StageCard({
         </div>
       </CardHeader>
     </Card>
+  );
+}
+
+function ReceiptField({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string | null | undefined;
+  mono?: boolean;
+}) {
+  return (
+    <div>
+      <span className="text-xs text-muted-foreground">{label}:</span>
+      <p className={`break-all text-foreground ${mono ? "font-mono" : "font-medium"}`}>
+        {value?.trim() ? value : "-"}
+      </p>
+    </div>
+  );
+}
+
+/** Customer and contract details printed on the receipt. */
+function ReceiptCustomer({
+  loading,
+  failed,
+  details,
+  bookingNo,
+}: {
+  loading: boolean;
+  failed: boolean;
+  details: ReceiptDetails | null;
+  bookingNo: string | null;
+}) {
+  if (loading) {
+    return (
+      <p className="rounded-lg border bg-card p-3 text-muted-foreground" role="status">
+        กำลังโหลดข้อมูลลูกค้า...
+      </p>
+    );
+  }
+  if (failed || !details) {
+    return (
+      <p className="rounded-lg border bg-card p-3 text-muted-foreground">
+        โหลดข้อมูลลูกค้าบนใบเสร็จไม่สำเร็จ กรุณารีเฟรชหน้านี้
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-3" data-testid="receipt-customer">
+      <p className="text-xs font-medium text-muted-foreground">ข้อมูลลูกค้า</p>
+      <div className="grid grid-cols-2 gap-3 rounded-lg border bg-card p-3">
+        <ReceiptField label="ชื่อ-นามสกุล" value={details.customer_name} />
+        <ReceiptField label="อีเมล" value={details.customer_email} />
+        <ReceiptField label="เบอร์โทรศัพท์" value={details.customer_phone} mono />
+        <ReceiptField label="เลขบัตรประชาชน / พาสปอร์ต" value={details.customer_id_card_no} mono />
+        <ReceiptField label="เลขใบอนุญาตขับขี่" value={details.customer_license_no} mono />
+        <ReceiptField label="รหัสการจอง" value={bookingNo} mono />
+        <div className="col-span-2">
+          <ReceiptField label="ที่อยู่" value={details.customer_address} />
+        </div>
+      </div>
+      <p className="text-xs font-medium text-muted-foreground">ข้อมูลสัญญา</p>
+      <div className="grid grid-cols-2 gap-3 rounded-lg border bg-card p-3">
+        <ReceiptField label="เลขที่สัญญา" value={details.contract_no} mono />
+        <ReceiptField label="ผู้จัดทำสัญญา (แอดมิน)" value={details.contract_created_by_name} />
+      </div>
+    </div>
   );
 }
 
