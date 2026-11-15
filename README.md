@@ -160,14 +160,25 @@ published site. See [`AGENTS.md`](AGENTS.md) for what Lovable manages.
 Roles are stored in `user_roles` (`app_role` enum: `admin`, `customer`). Administrator details
 (Owner flag, status, permissions) are stored in `admin_members`.
 
-| Role                    | How it is assigned                                                     | Access                                                                    |
-| ----------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Visitor                 | Not signed in                                                          | Home page, car search, car details                                        |
-| **Customer**            | Every new sign-up (trigger `handle_new_user`)                          | Own profile, bookings, contracts and payments                             |
-| Demo Customer           | "Demo Customer" button on `/auth`                                      | Same as Customer with fictional data; can never become an administrator   |
-| **Admin**               | Accepting an Owner's invitation (or the one-time SQL setup, see below) | `/admin`, limited to the permissions in their `admin_members` row         |
-| **Owner / Super Admin** | One-time `bootstrap_owner` SQL step on an existing admin               | Everything an admin can do, plus admin management and manual confirmation |
-| Demo Admin              | **Disabled**                                                           | None. See [limitations](#15-current-prototype-limitations)                |
+| Role                    | How it is assigned                                                     | Access                                                                             |
+| ----------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Visitor                 | Not signed in                                                          | Home page, car search, car details                                                 |
+| **Customer**            | Every new sign-up (trigger `handle_new_user`)                          | Own profile, bookings, contracts and payments                                      |
+| Demo Customer           | "Demo Customer" button on `/auth`                                      | Same as Customer with fictional data; can never become an administrator            |
+| **Admin**               | Accepting an Owner's invitation (or the one-time SQL setup, see below) | `/admin`, limited to the permissions in their `admin_members` row                  |
+| **Owner / Super Admin** | One-time `bootstrap_owner` SQL step on an existing admin               | Everything an admin can do, plus admin management and manual confirmation          |
+| Demo Admin              | "Try it as an admin" button on `/auth` (no account)                    | `/demo-admin` only: the full admin dashboard on in-browser sample data (see below) |
+
+### Demo Admin (sample data)
+
+The "Try it as an admin" button on `/auth` opens `/demo-admin` with no account. It is the real
+admin dashboard with every Owner feature, but while that page is open the admin code's
+`from()` / `rpc()` calls go to an in-browser sandbox (`src/lib/demo-sandbox.ts`, switched in
+`src/lib/db.ts`) holding fictional sample cars, customers, bookings, contracts, payments,
+maintenance and admins. Nothing is read from or written to the real database, so no real
+customer data is shown; changes last until the page is reloaded. `demo-admin-sandbox.test.tsx`
+fails if the page ever calls the real client. (The older `demo_admin` database role in
+`docs/database/demo-admin-lovable-prompt.md` is not used.)
 
 ### Admin permissions
 
@@ -683,8 +694,8 @@ clients.
   There is no scheduled job.
 - **Single Owner, no transfer.** There is no function to transfer or remove the Owner role
   from the app.
-- **Demo Administrator is not available.** `/demo-admin` exists, but the `demo_admin` role is
-  not in the database and its sign-in is disabled (`DEMO_ADMIN_SIGN_IN_ENABLED = false`).
+- **Demo Admin is a sample-data sandbox.** It shows how the admin side works but never touches
+  the real database, so it cannot demonstrate a real customer's booking end to end.
 - **Demo Customer accounts** are created without rate limiting and need the service-role key.
 - Car images are URLs or category stock photos; no upload.
 - Email and password sign-in only. In English mode the contract text, CSV exports, page
@@ -698,7 +709,6 @@ clients.
 - Email notifications for invitations, contract sends, approvals and payment reminders.
 - Scheduled job for expiring holds and updating car status.
 - Owner transfer procedure.
-- Apply the Demo Administrator migration and enable its sign-in.
 - Rate limiting and clean-up for Demo Customer accounts.
 - End-to-end browser tests (for example Playwright) in CI.
 - Car image upload to storage.

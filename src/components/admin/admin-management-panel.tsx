@@ -312,7 +312,7 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
             >
               <p className="flex items-center gap-1 font-semibold">
                 <ShieldAlert className="h-4 w-4" /> {tr("ลิงก์สำหรับ", "Link for")}{" "}
-                {createdLink.email} (หมดอายุ {fmtDateTime(createdLink.expires)})
+                {createdLink.email} ({tr("หมดอายุ", "expires")} {fmtDateTime(createdLink.expires)})
               </p>
               <p className="break-all font-mono">{createdLink.link}</p>
               <p>

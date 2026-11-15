@@ -10,7 +10,7 @@ import type { Database, Tables } from "@/integrations/supabase/types";
 import { bangkokTimestamp, type ContractForm, type ContractStatus } from "@/lib/contract-workflow";
 import { bilingual, tr } from "@/lib/i18n";
 
-const db = supabase;
+import { db } from "@/lib/db";
 
 export type ContractRow = Omit<Tables<"contracts">, "status" | "revision_requested_by"> & {
   status: ContractStatus;
@@ -102,7 +102,7 @@ export async function fetchContractEvents(bookingId: string): Promise<ContractEv
 
 /** The signed-in admin's own member row (null for customers, or before the migration). */
 export async function fetchOwnAdminMember(userId: string): Promise<AdminMemberRow | null> {
-  const { data, error } = await db
+  const { data, error } = await supabase
     .from("admin_members")
     .select("*")
     .eq("user_id", userId)
