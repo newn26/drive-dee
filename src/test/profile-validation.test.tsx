@@ -66,7 +66,8 @@ describe("profile rules", () => {
   it("accepts a valid profile, a passport and an empty ID card", () => {
     expect(profileErrors(VALID)).toEqual({});
     expect(profileErrors({ ...VALID, idCardNo: "AA1234567" })).toEqual({});
-    expect(profileErrors({ ...VALID, idCardNo: "", phone: "" })).toEqual({});
+    expect(profileErrors({ ...VALID, phone: "" })).toEqual({});
+    expect(profileErrors({ ...VALID, idCardNo: "" }).idCardNo).toMatch(/จองรถได้/);
   });
 
   it("B2 licence is required; B3 phone 'abc12' and B4 ID '123' are rejected", () => {

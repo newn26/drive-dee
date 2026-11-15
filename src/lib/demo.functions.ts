@@ -18,7 +18,7 @@ export const createDemoAccount = createServerFn({ method: "POST" }).handler(asyn
   const pick = (a: string[]) => a[(bytes[0] ?? 0) % a.length] ?? a[0]!;
   const full_name = `[DEMO] คุณ${pick(FIRST)} ${pick(LAST)}`;
 
-  const { error } = await supabaseAdmin.auth.admin.createUser({
+  const { data, error } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
@@ -26,5 +26,10 @@ export const createDemoAccount = createServerFn({ method: "POST" }).handler(asyn
     user_metadata: { full_name, phone: "" },
   });
   if (error) throw new Error("ไม่สามารถสร้างบัญชีทดลองได้");
+  // Booking needs an ID card and a licence: give the demo account obviously fictional ones
+  await supabaseAdmin
+    .from("profiles")
+    .update({ id_card_no: "DEMO12345", license_no: "DEMO123456" })
+    .eq("id", data.user.id);
   return { email, password };
 });

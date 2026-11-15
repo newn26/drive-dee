@@ -268,3 +268,26 @@ export const invitationLink = (origin: string, token: string) =>
 /** An invitation token from a URL search param, or undefined if it is not a well-formed token. */
 export const inviteTokenFrom = (value: unknown): string | undefined =>
   typeof value === "string" && /^[0-9a-f]{64}$/.test(value) ? value : undefined;
+
+/** What the receipt shows (docs/database/booking-documents.sql; not in the generated types yet). */
+export type ReceiptDetails = {
+  customer_name: string | null;
+  customer_email: string | null;
+  customer_phone: string | null;
+  customer_address: string | null;
+  customer_id_card_no: string | null;
+  customer_license_no: string | null;
+  contract_no: string | null;
+  contract_created_by_name: string | null;
+  contract_created_at: string | null;
+};
+
+/** The booking customer's details and the admin who created the contract (owner or admin only). */
+export async function fetchReceiptDetails(bookingId: string): Promise<ReceiptDetails | null> {
+  const { data, error } = await db.rpc(
+    "booking_receipt_details" as never,
+    { _booking_id: bookingId } as never,
+  );
+  if (error) throw error;
+  return ((data as ReceiptDetails[] | null) ?? [])[0] ?? null;
+}
