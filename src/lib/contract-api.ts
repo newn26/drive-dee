@@ -26,11 +26,9 @@ export type AdminPermission =
   | "contracts_manage"
   | "contracts_approve"
   | "bookings_manage"
-  | "fleet_manage"
-  | "reviews_moderate";
+  | "fleet_manage";
 
-/** Permissions the Owner can grant. reviews_moderate still exists in the database but the
- * review feature was removed from the app, so it is no longer offered. */
+/** Permissions the Owner can grant; same as admin_permission_list() in the database. */
 export const ADMIN_PERMISSIONS: readonly AdminPermission[] = [
   "contracts_manage",
   "contracts_approve",
@@ -43,7 +41,6 @@ export const adminPermissionLabel: Record<AdminPermission, string> = {
   contracts_approve: "อนุมัติสัญญาที่ค้างจากระบบเดิม (การจองใหม่ไม่ต้องอนุมัติ)",
   bookings_manage: "จัดการสถานะการจอง",
   fleet_manage: "จัดการรถและงานซ่อมบำรุง",
-  reviews_moderate: "ดูแลรีวิว",
 };
 
 export type AdminMemberRow = Omit<Tables<"admin_members">, "status" | "permissions"> & {
