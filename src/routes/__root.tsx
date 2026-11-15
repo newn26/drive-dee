@@ -17,22 +17,24 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { PrototypeNotice } from "@/components/prototype-notice";
 import { Toaster } from "@/components/ui/sonner";
+import { LanguageProvider } from "@/lib/i18n";
+import { tr } from "@/lib/i18n";
 
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">ไม่พบหน้าที่คุณต้องการ</h2>
+        <h2 className="mt-4 text-xl font-semibold text-foreground">{tr("ไม่พบหน้าที่คุณต้องการ", "Page not found")}</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          หน้านี้ไม่มีอยู่ในระบบ หรืออาจถูกย้ายไปแล้ว
+          {tr("หน้านี้ไม่มีอยู่ในระบบ หรืออาจถูกย้ายไปแล้ว", "This page does not exist or may have moved.")}
         </p>
         <div className="mt-6">
           <Link
             to="/"
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            กลับสู่หน้าหลัก
+            {tr("กลับสู่หน้าหลัก", "Back to home")}
           </Link>
         </div>
       </div>
@@ -51,10 +53,10 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          หน้านี้โหลดไม่สำเร็จ
+          {tr("หน้านี้โหลดไม่สำเร็จ", "This page failed to load")}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          เกิดข้อผิดพลาดบางอย่าง กรุณาลองใหม่อีกครั้ง หรือกลับไปที่หน้าหลัก
+          {tr("เกิดข้อผิดพลาดบางอย่าง กรุณาลองใหม่อีกครั้ง หรือกลับไปที่หน้าหลัก", "Something went wrong. Please try again or go back to the home page.")}
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           <button
@@ -64,13 +66,13 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
             }}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            ลองใหม่
+            {tr("ลองใหม่", "Try again")}
           </button>
           <a
             href="/"
             className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
-            กลับสู่หน้าหลัก
+            {tr("กลับสู่หน้าหลัก", "Back to home")}
           </a>
         </div>
       </div>
@@ -147,12 +149,14 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <SiteHeader />
-        <PrototypeNotice />
-        <main className="min-h-[calc(100vh-4rem)]">
-          <Outlet />
-        </main>
-        <SiteFooter />
+        <LanguageProvider>
+          <SiteHeader />
+          <PrototypeNotice />
+          <main className="min-h-[calc(100vh-4rem)]">
+            <Outlet />
+          </main>
+          <SiteFooter />
+        </LanguageProvider>
         <Toaster richColors position="top-center" />
       </AuthProvider>
     </QueryClientProvider>

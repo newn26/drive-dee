@@ -34,7 +34,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage } from "@/lib/car-images";
-import { categoryLabel, fmtDate, thb } from "@/lib/format";
+import { categoryLabel, fmtDate, pickupLocationLabel, thb } from "@/lib/format";
 import { BOOKING_FEE, rentalCharges } from "@/lib/booking-fee";
 import {
   bookingContract,
@@ -44,6 +44,7 @@ import {
   type CustomerBooking,
   cancellationMoney,
 } from "@/lib/queries";
+import { tr, trError } from "@/lib/i18n";
 
 export const Route = createFileRoute("/bookings")({
   head: () => ({
@@ -97,13 +98,13 @@ function BookingsHistoryPage() {
 
       if (error) throw error;
 
-      toast.success("ยกเลิกการจองเรียบร้อยแล้ว");
+      toast.success(tr("ยกเลิกการจองเรียบร้อยแล้ว", "Booking cancelled"));
       setCancellingId(null);
       // Cancelling frees the car, so availability caches must refresh too
       await invalidateBookingData(queryClient);
     } catch (err: unknown) {
       const error = err as Error;
-      toast.error(error.message || "ไม่สามารถยกเลิกการจองได้");
+      toast.error(trError(error.message) || tr("ไม่สามารถยกเลิกการจองได้", "Could not cancel the booking"));
     } finally {
       setCancelling(false);
     }
@@ -115,13 +116,13 @@ function BookingsHistoryPage() {
   const stageOf = (b: BookingWithCar): CustomerStage =>
     customerStage(b, workflowContract(bookingContract(b)));
   const TABS: { value: string; label: string; stages: CustomerStage[] }[] = [
-    { value: "contract", label: "รอสัญญา", stages: ["awaiting_contract"] },
-    { value: "review", label: "รอตรวจสัญญา", stages: ["review_contract"] },
-    { value: "approval", label: "ขอแก้ไขสัญญา", stages: ["awaiting_approval", "revision_requested"] },
-    { value: "payment", label: "รอชำระเงิน", stages: ["awaiting_payment"] },
-    { value: "active", label: "ยืนยันแล้ว/กำลังเช่า", stages: ["confirmed"] },
-    { value: "completed", label: "เสร็จสิ้น", stages: ["completed"] },
-    { value: "cancelled", label: "ยกเลิก", stages: ["cancelled"] },
+    { value: "contract", label: tr("รอสัญญา", "Awaiting contract"), stages: ["awaiting_contract"] },
+    { value: "review", label: tr("รอตรวจสัญญา", "Review contract"), stages: ["review_contract"] },
+    { value: "approval", label: tr("ขอแก้ไขสัญญา", "Changes requested"), stages: ["awaiting_approval", "revision_requested"] },
+    { value: "payment", label: tr("รอชำระเงิน", "Awaiting payment"), stages: ["awaiting_payment"] },
+    { value: "active", label: tr("ยืนยันแล้ว/กำลังเช่า", "Confirmed / in progress"), stages: ["confirmed"] },
+    { value: "completed", label: tr("เสร็จสิ้น", "Completed"), stages: ["completed"] },
+    { value: "cancelled", label: tr("ยกเลิก", "Cancelled"), stages: ["cancelled"] },
   ];
   const countFor = (stages: CustomerStage[]) => bookings.filter((b) => stages.includes(stageOf(b))).length;
 
@@ -137,7 +138,7 @@ function BookingsHistoryPage() {
     return (
       <div className="mx-auto max-w-5xl px-4 py-20 text-center">
         <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-        <p className="mt-4 text-muted-foreground">กำลังโหลดประวัติการจองของคุณ...</p>
+        <p className="mt-4 text-muted-foreground">{tr("กำลังโหลดประวัติการจองของคุณ...", "Loading your bookings...")}</p>
       </div>
     );
   }
@@ -147,17 +148,17 @@ function BookingsHistoryPage() {
     return (
       <div className="mx-auto max-w-md px-4 py-20 text-center">
         <AlertCircle className="mx-auto h-12 w-12 text-warning" />
-        <h2 className="mt-4 text-2xl font-semibold">กรุณาเข้าสู่ระบบ</h2>
-        <p className="mt-2 text-sm text-muted-foreground">คุณต้องเข้าสู่ระบบก่อนจึงจะสามารถดูประวัติการจองของคุณได้</p>
+        <h2 className="mt-4 text-2xl font-semibold">{tr("กรุณาเข้าสู่ระบบ", "Please sign in")}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{tr("คุณต้องเข้าสู่ระบบก่อนจึงจะสามารถดูประวัติการจองของคุณได้", "You need to sign in to see your bookings.")}</p>
         <Button className="mt-6 w-full" onClick={() => navigate({ to: "/auth" })}>
-          เข้าสู่ระบบ / สมัครสมาชิก
+          {tr("เข้าสู่ระบบ / สมัครสมาชิก", "Sign in / Sign up")}
         </Button>
       </div>
     );
   }
 
   if (bookingsError) {
-    return <LoadError title="โหลดประวัติการจองไม่สำเร็จ" onRetry={() => void refetchBookings()} />;
+    return <LoadError title={tr("โหลดประวัติการจองไม่สำเร็จ", "Could not load your bookings")} onRetry={() => void refetchBookings()} />;
   }
 
   return (
@@ -165,14 +166,14 @@ function BookingsHistoryPage() {
       {/* Page Header */}
       <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">การจองของฉัน</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{tr("การจองของฉัน", "My bookings")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            ติดตามสถานะการจอง ชำระเงิน และตรวจสอบสัญญาเช่าดิจิทัล
+            {tr("ติดตามสถานะการจอง ชำระเงิน และตรวจสอบสัญญาเช่าดิจิทัล", "Track your bookings, payments and digital rental contracts")}
           </p>
         </div>
         <Button asChild>
           <Link to="/cars">
-            <CarIcon className="mr-1.5 h-4 w-4" /> จองรถคันใหม่
+            <CarIcon className="mr-1.5 h-4 w-4" /> {tr("จองรถคันใหม่", "Book a new car")}
           </Link>
         </Button>
       </div>
@@ -180,7 +181,7 @@ function BookingsHistoryPage() {
       {/* Status Filter Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
         <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4 [&>button]:whitespace-normal">
-          <TabsTrigger value="all">ทั้งหมด ({bookings.length})</TabsTrigger>
+          <TabsTrigger value="all">{tr("ทั้งหมด (", "All (")}{bookings.length})</TabsTrigger>
           {TABS.map((t) => (
             <TabsTrigger key={t.value} value={t.value}>
               {t.label} ({countFor(t.stages)})
@@ -193,15 +194,15 @@ function BookingsHistoryPage() {
       {filteredBookings.length === 0 ? (
         <Card className="shadow-card border text-center py-16 px-4">
           <CarIcon className="mx-auto h-12 w-12 text-muted-foreground/50" />
-          <h3 className="mt-4 text-lg font-semibold">ไม่พบรายการจอง</h3>
+          <h3 className="mt-4 text-lg font-semibold">{tr("ไม่พบรายการจอง", "No bookings found")}</h3>
           <p className="mt-1 text-sm text-muted-foreground">
             {activeTab === "all"
-              ? "คุณยังไม่มีประวัติการจองรถยนต์ เลือกรถที่ถูกใจแล้วออกเดินทางได้ทันที"
-              : "ไม่พบรายการจองในหมวดหมู่นี้"}
+              ? tr("คุณยังไม่มีประวัติการจองรถยนต์ เลือกรถที่ถูกใจแล้วออกเดินทางได้ทันที", "You have no bookings yet. Pick a car you like and hit the road.")
+              : tr("ไม่พบรายการจองในหมวดหมู่นี้", "No bookings in this category")}
           </p>
           <div className="mt-6">
             <Button asChild>
-              <Link to="/cars">ค้นหารถเช่า</Link>
+              <Link to="/cars">{tr("ค้นหารถเช่า", "Search cars")}</Link>
             </Button>
           </div>
         </Card>
@@ -246,12 +247,12 @@ function BookingsHistoryPage() {
                       <div className="flex items-center gap-1.5">
                         <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
                         <span>
-                          {fmtDate(b.start_date)} — {fmtDate(b.end_date)} ({b.days} วัน)
+                          {fmtDate(b.start_date)} — {fmtDate(b.end_date)} ({b.days} {tr("วัน", "days")})
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
-                        <span className="truncate">{b.pickup_location}</span>
+                        <span className="truncate">{pickupLocationLabel(b.pickup_location)}</span>
                       </div>
                     </div>
 
@@ -259,10 +260,13 @@ function BookingsHistoryPage() {
                       <p className="flex items-center gap-1.5 text-xs font-medium text-warning" role="timer">
                         <Clock className="h-3.5 w-3.5 shrink-0" />
                         {secondsLeft === 0
-                          ? "หมดเวลาแล้ว การจองจะถูกยกเลิก"
+                          ? tr("หมดเวลาแล้ว การจองจะถูกยกเลิก", "Time is up. The booking will be cancelled.")
                           : stage === "awaiting_payment"
-                            ? `ชำระเงินภายใน ${formatCountdown(secondsLeft)}`
-                            : `ขั้นตอนนี้ต้องเสร็จภายใน ${formatCountdown(secondsLeft)}`}
+                            ? tr(`ชำระเงินภายใน ${formatCountdown(secondsLeft)}`, `Pay within ${formatCountdown(secondsLeft)}`)
+                            : tr(
+                                `ขั้นตอนนี้ต้องเสร็จภายใน ${formatCountdown(secondsLeft)}`,
+                                `This step must be done within ${formatCountdown(secondsLeft)}`,
+                              )}
                       </p>
                     )}
 
@@ -271,13 +275,13 @@ function BookingsHistoryPage() {
                   {/* Price & Actions (3 Cols) */}
                   <div className="flex flex-col sm:items-end justify-between gap-3 sm:col-span-3 border-t sm:border-t-0 sm:border-l sm:pl-4 pt-3 sm:pt-0">
                     <div className="sm:text-right">
-                      <span className="text-xs text-muted-foreground">ค่าเช่ารวม</span>
+                      <span className="text-xs text-muted-foreground">{tr("ค่าเช่ารวม", "Total rent")}</span>
                       <p className="font-display text-xl font-bold text-primary">
                         {thb(b.total_amount)}
                       </p>
                       {b.status === "pending" && (
                         <p className="text-xs text-muted-foreground" data-testid="fee-breakdown">
-                          ค่าจองออนไลน์ {thb(BOOKING_FEE)} · ชำระวันรับรถ{" "}
+                          {tr("ค่าจองออนไลน์", "Online booking fee")} {thb(BOOKING_FEE)} {tr("· ชำระวันรับรถ", "· due at pickup")}{" "}
                           {thb(rentalCharges(b.total_amount).dueAtPickup)}
                         </p>
                       )}
@@ -294,12 +298,12 @@ function BookingsHistoryPage() {
                           <Link to="/bookings/$id" params={{ id: b.id }}>
                             {stage === "awaiting_payment" ? (
                               <>
-                                <CreditCard className="h-3.5 w-3.5" /> ชำระเงิน
+                                <CreditCard className="h-3.5 w-3.5" /> {tr("ชำระเงิน", "Pay now")}
                               </>
                             ) : (
                               <>
                                 <FileCheck2 className="h-3.5 w-3.5" />{" "}
-                                {stage === "review_contract" ? "ตรวจสอบสัญญา" : "ดูรายละเอียด"}
+                                {stage === "review_contract" ? tr("ตรวจสอบสัญญา", "Review contract") : tr("ดูรายละเอียด", "View details")}
                               </>
                             )}
                           </Link>
@@ -309,7 +313,7 @@ function BookingsHistoryPage() {
                       {(b.status === "confirmed" || b.status === "active" || b.status === "completed") && (
                         <Button variant="outline" size="sm" className="w-full gap-1.5" asChild>
                           <Link to="/bookings/$id" params={{ id: b.id }}>
-                            <FileCheck2 className="h-3.5 w-3.5" /> ดูสัญญาเช่า
+                            <FileCheck2 className="h-3.5 w-3.5" /> {tr("ดูสัญญาเช่า", "View contract")}
                           </Link>
                         </Button>
                       )}
@@ -321,7 +325,7 @@ function BookingsHistoryPage() {
                           className="w-full text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
                           onClick={() => setCancellingId(b.id)}
                         >
-                          <XCircle className="h-3.5 w-3.5 mr-1" /> ยกเลิกการจอง
+                          <XCircle className="h-3.5 w-3.5 mr-1" /> {tr("ยกเลิกการจอง", "Cancel booking")}
                         </Button>
                       )}
                     </div>
@@ -337,14 +341,14 @@ function BookingsHistoryPage() {
       <Dialog open={!!cancellingId} onOpenChange={(open) => !open && setCancellingId(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>ยืนยันการยกเลิกการจอง</DialogTitle>
+            <DialogTitle>{tr("ยืนยันการยกเลิกการจอง", "Confirm cancellation")}</DialogTitle>
             <DialogDescription>
-              คุณแน่ใจหรือไม่ว่าต้องการยกเลิกการจองนี้? การดำเนินการนี้ไม่สามารถย้อนกลับได้
+              {tr("คุณแน่ใจหรือไม่ว่าต้องการยกเลิกการจองนี้? การดำเนินการนี้ไม่สามารถย้อนกลับได้", "Are you sure you want to cancel this booking? This cannot be undone.")}
             </DialogDescription>
           </DialogHeader>
           {cancellingBooking?.status === "pending" ? (
             <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
-              การจองนี้ยังไม่ได้ชำระค่าจอง ยกเลิกได้โดยไม่มีค่าใช้จ่าย
+              {tr("การจองนี้ยังไม่ได้ชำระค่าจอง ยกเลิกได้โดยไม่มีค่าใช้จ่าย", "The booking fee has not been paid, so you can cancel at no cost.")}
             </p>
           ) : (
             cancellingBooking && (
@@ -357,11 +361,11 @@ function BookingsHistoryPage() {
                   return (
                     <>
                       <p className="text-destructive">
-                        ไม่ได้รับคืน: เงินที่ชำระออนไลน์แล้ว (ค่าจอง){m.kept > 0 ? ` ${thb(m.kept)}` : ""} ตามเงื่อนไขในสัญญา
+                        {tr("ไม่ได้รับคืน: เงินที่ชำระออนไลน์แล้ว (ค่าจอง)", "Not refunded: the amount already paid online (booking fee)")}{m.kept > 0 ? ` ${thb(m.kept)}` : ""} {tr("ตามเงื่อนไขในสัญญา", "under the contract terms")}
                       </p>
                       {m.refunded > 0 && (
                         <p className="text-foreground" data-testid="cancel-refund">
-                          ได้รับคืน: ยอดที่ชำระเพิ่ม (ค่าเช่า + เงินประกัน − ค่าจอง) {thb(m.refunded)} (DEMO)
+                          {tr("ได้รับคืน: ยอดที่ชำระเพิ่ม (ค่าเช่า + เงินประกัน − ค่าจอง)", "Refunded: the additional payment (rent + deposit − booking fee)")} {thb(m.refunded)} (DEMO)
                         </p>
                       )}
                     </>
@@ -372,10 +376,10 @@ function BookingsHistoryPage() {
           )}
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setCancellingId(null)}>
-              ย้อนกลับ
+              {tr("ย้อนกลับ", "Go back")}
             </Button>
             <Button variant="destructive" disabled={cancelling} onClick={handleCancelBooking}>
-              {cancelling ? "กำลังยกเลิก..." : "ยืนยันยกเลิกการจอง"}
+              {cancelling ? tr("กำลังยกเลิก...", "Cancelling...") : tr("ยืนยันยกเลิกการจอง", "Yes, cancel booking")}
             </Button>
           </DialogFooter>
         </DialogContent>

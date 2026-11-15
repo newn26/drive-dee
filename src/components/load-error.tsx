@@ -1,11 +1,12 @@
 import { AlertCircle, RotateCw } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { tr } from "@/lib/i18n";
 
 /** Shown when data fails to load, so a failure never looks like an empty list. */
 export function LoadError({
-  title = "โหลดข้อมูลไม่สำเร็จ",
-  message = "เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง",
+  title = tr("โหลดข้อมูลไม่สำเร็จ", "Could not load the data"),
+  message = tr("เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง", "A connection error occurred. Please try again."),
   onRetry,
   children,
 }: {
@@ -22,7 +23,7 @@ export function LoadError({
       <div className="mt-6 flex flex-col gap-2">
         {onRetry && (
           <Button onClick={onRetry}>
-            <RotateCw className="mr-2 h-4 w-4" /> ลองใหม่
+            <RotateCw className="mr-2 h-4 w-4" /> {tr("ลองใหม่", "Try again")}
           </Button>
         )}
         {children}

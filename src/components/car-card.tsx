@@ -2,8 +2,9 @@ import { Link } from "@tanstack/react-router";
 import { Fuel, Settings2, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { carImage, isStockCarImage } from "@/lib/car-images";
-import { categoryLabel, thb } from "@/lib/format";
+import { carSpecLabel, categoryLabel, thb } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
+import { tr } from "@/lib/i18n";
 
 export function CarCard({ car }: { car: Tables<"cars"> }) {
   return (
@@ -26,7 +27,7 @@ export function CarCard({ car }: { car: Tables<"cars"> }) {
         </Badge>
         {isStockCarImage(car.image_url) && (
           <span className="absolute bottom-2 right-2 rounded-full bg-background/85 px-2 py-0.5 text-[10px] text-muted-foreground">
-            ภาพประกอบ
+            {tr("ภาพประกอบ", "Stock photo")}
           </span>
         )}
       </div>
@@ -36,16 +37,16 @@ export function CarCard({ car }: { car: Tables<"cars"> }) {
             <h3 className="font-display text-lg font-semibold leading-tight">
               {car.brand} {car.model}
             </h3>
-            <p className="text-sm text-muted-foreground">ปี {car.year}</p>
+            <p className="text-sm text-muted-foreground">{tr("ปี", "Year")} {car.year}</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" />{car.seats} ที่นั่ง</span>
-          <span className="flex items-center gap-1"><Settings2 className="h-3.5 w-3.5" />{car.transmission}</span>
-          <span className="flex items-center gap-1"><Fuel className="h-3.5 w-3.5" />{car.fuel}</span>
+          <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" />{car.seats} {tr("ที่นั่ง", "seats")}</span>
+          <span className="flex items-center gap-1"><Settings2 className="h-3.5 w-3.5" />{carSpecLabel(car.transmission)}</span>
+          <span className="flex items-center gap-1"><Fuel className="h-3.5 w-3.5" />{carSpecLabel(car.fuel)}</span>
         </div>
         <div className="flex items-end justify-between border-t pt-3">
-          <span className="text-xs text-muted-foreground">ราคาต่อวัน</span>
+          <span className="text-xs text-muted-foreground">{tr("ราคาต่อวัน", "Price per day")}</span>
           <span className="font-display text-xl font-semibold text-primary">{thb(car.price_per_day)}</span>
         </div>
       </div>

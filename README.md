@@ -8,14 +8,24 @@ management and reporting.
 - **Drive Dee** is the customer-facing brand (page titles end in "— Drive Dee").
 - **Siam Wheels Rental Hub** is the name of the software and this repository.
 
-The interface is in Thai, prices are in Thai Baht (THB) and all dates and times use the
-Asia/Bangkok time zone.
+The interface is in Thai, with an **English** switch (TH / EN button in the header) on the
+customer pages; admin pages stay Thai. Prices are in Thai Baht (THB) and all dates and times
+use the Asia/Bangkok time zone. See [Languages](#languages) below.
 
 > [!WARNING]
 > **Prototype — payments are DEMO only.** No payment gateway is connected and **no real money
 > is ever transferred**. See [Booking and payment workflow](#8-booking-and-payment-workflow).
 > Do not enter real personal data (names, ID card or driving licence numbers, phone numbers,
 > card details). Every page shows a Thai prototype notice saying the same.
+
+### Languages
+
+Text is written as pairs where it is used: `tr("ไทย", "English")` from
+[`src/lib/i18n.tsx`](src/lib/i18n.tsx). Thai is the default and what the server renders; the
+visitor's choice is saved in `localStorage` (`drive-dee-lang`) and applied after the page loads.
+Admin paths (`/admin`, `/admin-invite`, `/demo-admin`) always stay Thai. Thai error messages from
+the database are translated with `trError()`; pickup points, car transmission/fuel values and
+status labels are translated for display only (the database still stores Thai).
 
 ---
 
@@ -677,7 +687,8 @@ clients.
   not in the database and its sign-in is disabled (`DEMO_ADMIN_SIGN_IN_ENABLED = false`).
 - **Demo Customer accounts** are created without rate limiting and need the service-role key.
 - Car images are URLs or category stock photos; no upload.
-- Email and password sign-in only; Thai interface only.
+- Email and password sign-in only. English covers the customer pages only: admin pages,
+  the contract text, page titles and data typed in by staff (car descriptions) stay Thai.
 
 ## 16. Future improvements
 
@@ -690,4 +701,4 @@ clients.
 - Apply the Demo Administrator migration and enable its sign-in.
 - Rate limiting and clean-up for Demo Customer accounts.
 - End-to-end browser tests (for example Playwright) in CI.
-- Car image upload to storage; English interface option.
+- Car image upload to storage; English for the admin pages.

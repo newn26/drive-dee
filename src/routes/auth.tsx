@@ -13,6 +13,7 @@ import { fetchRole, useAuth } from "@/hooks/use-auth";
 import { createDemoAccount } from "@/lib/demo.functions";
 import { DEMO_ADMIN_SIGN_IN_ENABLED, homeForRole, initialAuthMode } from "@/lib/roles";
 import { invitationLink, inviteTokenFrom } from "@/lib/contract-api";
+import { tr } from "@/lib/i18n";
 
 type AuthSearch = {
   reset?: boolean | undefined;
@@ -99,10 +100,10 @@ function AuthForms({
       const creds = await createDemoAccount();
       const { error } = await supabase.auth.signInWithPassword(creds);
       if (error) throw error;
-      toast.success("เข้าสู่ระบบด้วยบัญชีทดลองแล้ว (ข้อมูลสมมติ)");
+      toast.success(tr("เข้าสู่ระบบด้วยบัญชีทดลองแล้ว (ข้อมูลสมมติ)", "Signed in with a demo account (fictional data)"));
       navigate({ to: "/" });
     } catch {
-      toast.error("ไม่สามารถเริ่มโหมดทดลองได้ กรุณาลองใหม่");
+      toast.error(tr("ไม่สามารถเริ่มโหมดทดลองได้ กรุณาลองใหม่", "Could not start demo mode. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -125,7 +126,7 @@ function AuthForms({
     // 1. Password Reset Flow
     if (mode === "forgot") {
       if (!email.trim() || !email.includes("@")) {
-        toast.error("กรุณากรอกอีเมลที่ถูกต้อง");
+        toast.error(tr("กรุณากรอกอีเมลที่ถูกต้อง", "Please enter a valid email"));
         return;
       }
       setLoading(true);
@@ -134,14 +135,14 @@ function AuthForms({
           redirectTo: `${window.location.origin}/auth?reset=true`,
         });
         if (error) {
-          toast.error(error.message || "ไม่สามารถส่งคำขอรีเซ็ตรหัสผ่านได้");
+          toast.error(error.message || tr("ไม่สามารถส่งคำขอรีเซ็ตรหัสผ่านได้", "Could not send the password reset request"));
         } else {
-          toast.success("ส่งลิงก์สำหรับรีเซ็ตรหัสผ่านไปยังอีเมลของคุณเรียบร้อยแล้ว");
+          toast.success(tr("ส่งลิงก์สำหรับรีเซ็ตรหัสผ่านไปยังอีเมลของคุณเรียบร้อยแล้ว", "A password reset link has been sent to your email"));
           switchMode("login");
         }
       } catch (err: unknown) {
         const error = err as Error;
-        toast.error(error.message || "เกิดข้อผิดพลาดในการเชื่อมต่อ");
+        toast.error(error.message || tr("เกิดข้อผิดพลาดในการเชื่อมต่อ", "A connection error occurred"));
       } finally {
         setLoading(false);
       }
@@ -151,7 +152,7 @@ function AuthForms({
     // 2. Sign In Flow (customer/admin, or the separate Demo Admin option)
     if (mode === "login" || mode === "demo") {
       if (!email.trim() || !password) {
-        toast.error("กรุณากรอกอีเมลและรหัสผ่าน");
+        toast.error(tr("กรุณากรอกอีเมลและรหัสผ่าน", "Please enter your email and password"));
         return;
       }
       setLoading(true);
@@ -163,11 +164,11 @@ function AuthForms({
 
         if (error) {
           if (error.message.includes("Invalid login credentials")) {
-            toast.error("อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง");
+            toast.error(tr("อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง", "Incorrect email or password. Please check and try again."));
           } else if (error.message.toLowerCase().includes("email not confirmed")) {
-            toast.error("อีเมลนี้ยังไม่ได้ยืนยัน กรุณากดลิงก์ยืนยันในอีเมลของคุณก่อนเข้าสู่ระบบ");
+            toast.error(tr("อีเมลนี้ยังไม่ได้ยืนยัน กรุณากดลิงก์ยืนยันในอีเมลของคุณก่อนเข้าสู่ระบบ", "This email is not confirmed yet. Please click the confirmation link in your email before signing in."));
           } else {
-            toast.error(error.message || "เกิดข้อผิดพลาดในการเข้าสู่ระบบ");
+            toast.error(error.message || tr("เกิดข้อผิดพลาดในการเข้าสู่ระบบ", "Sign-in failed"));
           }
           return;
         }
@@ -178,15 +179,15 @@ function AuthForms({
         if (mode === "demo") {
           if (role !== "demo_admin") {
             await supabase.auth.signOut();
-            toast.error("บัญชีนี้ไม่ใช่บัญชีผู้ดูแลระบบสาธิต (Demo Admin)");
+            toast.error(tr("บัญชีนี้ไม่ใช่บัญชีผู้ดูแลระบบสาธิต (Demo Admin)", "This account is not a Demo Admin account"));
             return;
           }
-          toast.success("เข้าสู่ระบบโหมดสาธิต (Demo Admin) สำเร็จ");
+          toast.success(tr("เข้าสู่ระบบโหมดสาธิต (Demo Admin) สำเร็จ", "Signed in to demo mode (Demo Admin)"));
           navigate({ to: "/demo-admin" });
           return;
         }
 
-        toast.success("เข้าสู่ระบบสำเร็จ ยินดีต้อนรับกลับมา");
+        toast.success(tr("เข้าสู่ระบบสำเร็จ ยินดีต้อนรับกลับมา", "Signed in. Welcome back!"));
         if (invite) {
           goToInvite(invite);
           return;
@@ -195,7 +196,7 @@ function AuthForms({
         navigate({ to: homeForRole(role) });
       } catch (err: unknown) {
         const error = err as Error;
-        toast.error(error.message || "ไม่สามารถเชื่อมต่อระบบได้");
+        toast.error(error.message || tr("ไม่สามารถเชื่อมต่อระบบได้", "Could not connect to the system"));
       } finally {
         setLoading(false);
       }
@@ -205,23 +206,23 @@ function AuthForms({
     // 3. Registration Flow
     if (mode === "register") {
       if (!name.trim()) {
-        toast.error("กรุณากรอกชื่อ-นามสกุล");
+        toast.error(tr("กรุณากรอกชื่อ-นามสกุล", "Please enter your full name"));
         return;
       }
       if (!phone.trim() || phone.replace(/\D/g, "").length < 9) {
-        toast.error("กรุณากรอกเบอร์โทรศัพท์ที่ติดต่อได้ (9-10 หลัก)");
+        toast.error(tr("กรุณากรอกเบอร์โทรศัพท์ที่ติดต่อได้ (9-10 หลัก)", "Please enter a contact phone number (9-10 digits)"));
         return;
       }
       if (!email.trim() || !email.includes("@")) {
-        toast.error("กรุณากรอกอีเมลให้ถูกต้อง");
+        toast.error(tr("กรุณากรอกอีเมลให้ถูกต้อง", "Please enter a valid email"));
         return;
       }
       if (password.length < 6) {
-        toast.error("รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร");
+        toast.error(tr("รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร", "The password must be at least 6 characters"));
         return;
       }
       if (password !== confirmPassword) {
-        toast.error("รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน");
+        toast.error(tr("รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน", "The passwords do not match"));
         return;
       }
 
@@ -246,10 +247,10 @@ function AuthForms({
 
         if (error) {
           if (error.message.toLowerCase().includes("user already registered") || error.message.toLowerCase().includes("already registered")) {
-            toast.error("อีเมลนี้ถูกลงทะเบียนไว้แล้ว กรุณาเข้าสู่ระบบ");
+            toast.error(tr("อีเมลนี้ถูกลงทะเบียนไว้แล้ว กรุณาเข้าสู่ระบบ", "This email is already registered. Please sign in."));
             switchMode("login");
           } else {
-            toast.error(error.message || "เกิดข้อผิดพลาดในการลงทะเบียน");
+            toast.error(error.message || tr("เกิดข้อผิดพลาดในการลงทะเบียน", "Sign-up failed"));
           }
           return;
         }
@@ -258,10 +259,10 @@ function AuthForms({
           // Email confirmation is on: the account exists but cannot sign in until confirmed
           switchMode("login");
           setConfirmEmailFor(email.trim());
-          toast.success("สมัครสมาชิกสำเร็จ กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ");
+          toast.success(tr("สมัครสมาชิกสำเร็จ กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ", "Signed up. Please confirm your email before signing in."));
           return;
         }
-        toast.success("สมัครสมาชิกสำเร็จ! ยินดีต้อนรับสู่ Drive Dee");
+        toast.success(tr("สมัครสมาชิกสำเร็จ! ยินดีต้อนรับสู่ Drive Dee", "Signed up! Welcome to Drive Dee"));
         if (invite) {
           goToInvite(invite);
           return;
@@ -269,7 +270,7 @@ function AuthForms({
         navigate({ to: "/" });
       } catch (err: unknown) {
         const error = err as Error;
-        toast.error(error.message || "ไม่สามารถลงทะเบียนได้");
+        toast.error(error.message || tr("ไม่สามารถลงทะเบียนได้", "Could not sign up"));
       } finally {
         setLoading(false);
       }
@@ -281,42 +282,39 @@ function AuthForms({
       {!authLoading && user && (
         <div role="status" className="mb-4 rounded-lg border bg-muted/40 p-4 text-sm">
           <p>
-            คุณเข้าสู่ระบบอยู่แล้ว{isDemo ? " (บัญชีทดลอง DEMO)" : ""}
-            {user.email && !isDemo ? <> ในชื่อ <strong>{user.email}</strong></> : null}
+            {tr("คุณเข้าสู่ระบบอยู่แล้ว", "You are already signed in")}{isDemo ? tr(" (บัญชีทดลอง DEMO)", " (DEMO account)") : ""}
+            {user.email && !isDemo ? <> {tr("ในชื่อ", "as")} <strong>{user.email}</strong></> : null}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            การเข้าสู่ระบบด้วยบัญชีอื่นด้านล่างจะออกจากบัญชีปัจจุบันโดยอัตโนมัติ
+            {tr("การเข้าสู่ระบบด้วยบัญชีอื่นด้านล่างจะออกจากบัญชีปัจจุบันโดยอัตโนมัติ", "Signing in with another account below will sign you out of the current one.")}
           </p>
           <Button size="sm" className="mt-3" onClick={() => navigate({ to: homeForRole(role) })}>
-            ไปที่หน้าหลักของบัญชีนี้
+            {tr("ไปที่หน้าหลักของบัญชีนี้", "Go to this account's home page")}
           </Button>
         </div>
       )}
       {invite && (
         <div role="status" className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-semibold">คุณกำลังรับคำเชิญเป็นผู้ดูแลระบบ</p>
+          <p className="font-semibold">{tr("คุณกำลังรับคำเชิญเป็นผู้ดูแลระบบ", "You are accepting an admin invitation")}</p>
           <p className="mt-1">
-            เข้าสู่ระบบหรือสมัครด้วยอีเมลที่ได้รับเชิญ แล้วระบบจะพากลับไปหน้าคำเชิญ
-            ต้องกด “ยอมรับคำเชิญ” ที่หน้านั้นจึงจะได้สิทธิ์ผู้ดูแล
+            {tr("เข้าสู่ระบบหรือสมัครด้วยอีเมลที่ได้รับเชิญ แล้วระบบจะพากลับไปหน้าคำเชิญ ต้องกด “ยอมรับคำเชิญ” ที่หน้านั้นจึงจะได้สิทธิ์ผู้ดูแล", "Sign in or sign up with the invited email and you will be taken back to the invitation. You must click “Accept invitation” there to get admin access.")}
           </p>
           {user && !authLoading && (
             <Button size="sm" variant="outline" className="mt-3 bg-white" onClick={() => goToInvite(invite)}>
-              กลับไปหน้าคำเชิญด้วยบัญชีนี้
+              {tr("กลับไปหน้าคำเชิญด้วยบัญชีนี้", "Back to the invitation with this account")}
             </Button>
           )}
         </div>
       )}
       {confirmEmailFor && mode === "login" && (
         <div role="status" className="mb-4 rounded-lg border border-primary/30 bg-primary/5 p-4 text-sm">
-          <p className="font-semibold">กรุณายืนยันอีเมลของคุณ</p>
+          <p className="font-semibold">{tr("กรุณายืนยันอีเมลของคุณ", "Please confirm your email")}</p>
           <p className="mt-1 text-muted-foreground">
-            เราได้ส่งลิงก์ยืนยันไปที่ <strong className="break-all text-foreground">{confirmEmailFor}</strong> แล้ว
-            กดลิงก์ในอีเมลก่อน แล้วจึงเข้าสู่ระบบด้านล่าง (หากไม่พบ โปรดตรวจสอบโฟลเดอร์สแปม)
+            {tr("เราได้ส่งลิงก์ยืนยันไปที่", "We sent a confirmation link to")} <strong className="break-all text-foreground">{confirmEmailFor}</strong> {tr("แล้ว กดลิงก์ในอีเมลก่อน แล้วจึงเข้าสู่ระบบด้านล่าง (หากไม่พบ โปรดตรวจสอบโฟลเดอร์สแปม)", "— click the link in the email first, then sign in below (check your spam folder if you cannot find it).")}
           </p>
           {invite && (
             <p className="mt-2 text-muted-foreground">
-              อีเมลนี้เป็นการยืนยันบัญชีเท่านั้น ยังไม่ใช่การรับคำเชิญ
-              หลังยืนยันแล้วต้องกด “ยอมรับคำเชิญ” ในหน้าคำเชิญ
+              {tr("อีเมลนี้เป็นการยืนยันบัญชีเท่านั้น ยังไม่ใช่การรับคำเชิญ หลังยืนยันแล้วต้องกด “ยอมรับคำเชิญ” ในหน้าคำเชิญ", "This email only confirms your account; it does not accept the invitation. After confirming, click “Accept invitation” on the invitation page.")}
             </p>
           )}
         </div>
@@ -336,21 +334,21 @@ function AuthForms({
           </div>
           <CardTitle className="text-2xl font-bold">
             {mode === "login"
-              ? "เข้าสู่ระบบ"
+              ? tr("เข้าสู่ระบบ", "Sign in")
               : mode === "register"
-                ? "สมัครสมาชิกใหม่"
+                ? tr("สมัครสมาชิกใหม่", "Create an account")
                 : mode === "demo"
-                  ? "เข้าสู่ระบบ Demo Admin"
-                  : "รีเซ็ตรหัสผ่าน"}
+                  ? tr("เข้าสู่ระบบ Demo Admin", "Demo Admin sign-in")
+                  : tr("รีเซ็ตรหัสผ่าน", "Reset password")}
           </CardTitle>
           <CardDescription>
             {mode === "login"
-              ? "ยินดีต้อนรับกลับสู่ Drive Dee"
+              ? tr("ยินดีต้อนรับกลับสู่ Drive Dee", "Welcome back to Drive Dee")
               : mode === "register"
-                ? "สร้างบัญชีผู้ใช้งานเพื่อเริ่มต้นจองรถเช่าออนไลน์ได้ทันที"
+                ? tr("สร้างบัญชีผู้ใช้งานเพื่อเริ่มต้นจองรถเช่าออนไลน์ได้ทันที", "Create an account to start booking rental cars online")
                 : mode === "demo"
-                  ? "สำหรับบัญชีสาธิตที่เจ้าของระบบสร้างให้เท่านั้น สิทธิ์จำกัด (ลบข้อมูลหรือเปลี่ยนสิทธิ์ผู้ใช้ไม่ได้)"
-                  : "กรอกอีเมลของคุณเพื่อรับลิงก์สำหรับตั้งรหัสผ่านใหม่"}
+                  ? tr("สำหรับบัญชีสาธิตที่เจ้าของระบบสร้างให้เท่านั้น สิทธิ์จำกัด (ลบข้อมูลหรือเปลี่ยนสิทธิ์ผู้ใช้ไม่ได้)", "Only for demo accounts created by the owner. Limited access (cannot delete data or change user permissions).")
+                  : tr("กรอกอีเมลของคุณเพื่อรับลิงก์สำหรับตั้งรหัสผ่านใหม่", "Enter your email to receive a link to set a new password")}
           </CardDescription>
         </CardHeader>
 
@@ -360,11 +358,11 @@ function AuthForms({
             {mode === "register" && (
               <>
                 <div className="space-y-1.5">
-                  <Label htmlFor="auth-name" className="text-xs">ชื่อ-นามสกุล</Label>
+                  <Label htmlFor="auth-name" className="text-xs">{tr("ชื่อ-นามสกุล", "Full name")}</Label>
                   <div className="relative">
                     <Input
                       id="auth-name"
-                      placeholder="นายสมชาย มั่นคง"
+                      placeholder={tr("นายสมชาย มั่นคง", "John Smith")}
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       required
@@ -375,7 +373,7 @@ function AuthForms({
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="auth-phone" className="text-xs">เบอร์โทรศัพท์มือถือ</Label>
+                  <Label htmlFor="auth-phone" className="text-xs">{tr("เบอร์โทรศัพท์มือถือ", "Mobile phone number")}</Label>
                   <div className="relative">
                     <Input
                       id="auth-phone"
@@ -394,7 +392,7 @@ function AuthForms({
 
             {/* Email field (All modes) */}
             <div className="space-y-1.5">
-              <Label htmlFor="auth-email" className="text-xs">อีเมล (Email)</Label>
+              <Label htmlFor="auth-email" className="text-xs">{tr("อีเมล (Email)", "Email")}</Label>
               <div className="relative">
                 <Input
                   id="auth-email"
@@ -413,14 +411,14 @@ function AuthForms({
             {mode !== "forgot" && (
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="auth-pw" className="text-xs">รหัสผ่าน</Label>
+                  <Label htmlFor="auth-pw" className="text-xs">{tr("รหัสผ่าน", "Password")}</Label>
                   {mode === "login" && (
                     <button
                       type="button"
                       onClick={() => switchMode("forgot")}
                       className="text-xs text-primary hover:underline"
                     >
-                      ลืมรหัสผ่าน?
+                      {tr("ลืมรหัสผ่าน?", "Forgot password?")}
                     </button>
                   )}
                 </div>
@@ -428,7 +426,7 @@ function AuthForms({
                   <Input
                     id="auth-pw"
                     type="password"
-                    placeholder="อย่างน้อย 6 ตัวอักษร"
+                    placeholder={tr("อย่างน้อย 6 ตัวอักษร", "At least 6 characters")}
                     minLength={6}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -443,12 +441,12 @@ function AuthForms({
             {/* Confirm Password (Register only) */}
             {mode === "register" && (
               <div className="space-y-1.5">
-                <Label htmlFor="auth-confirm-pw" className="text-xs">ยืนยันรหัสผ่าน</Label>
+                <Label htmlFor="auth-confirm-pw" className="text-xs">{tr("ยืนยันรหัสผ่าน", "Confirm password")}</Label>
                 <div className="relative">
                   <Input
                     id="auth-confirm-pw"
                     type="password"
-                    placeholder="กรอกรหัสผ่านซ้ำอีกครั้ง"
+                    placeholder={tr("กรอกรหัสผ่านซ้ำอีกครั้ง", "Enter the password again")}
                     minLength={6}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
@@ -464,12 +462,12 @@ function AuthForms({
           <CardFooter className="flex flex-col space-y-3 pt-2">
             <Button className="w-full text-base" type="submit" disabled={loading}>
               {loading
-                ? "กำลังดำเนินการ..."
+                ? tr("กำลังดำเนินการ...", "Working...")
                 : mode === "login" || mode === "demo"
-                  ? "เข้าสู่ระบบ"
+                  ? tr("เข้าสู่ระบบ", "Sign in")
                   : mode === "register"
-                    ? "สร้างบัญชีผู้ใช้งาน"
-                    : "ส่งลิงก์รีเซ็ตรหัสผ่าน"}
+                    ? tr("สร้างบัญชีผู้ใช้งาน", "Create account")
+                    : tr("ส่งลิงก์รีเซ็ตรหัสผ่าน", "Send reset link")}
             </Button>
 
             {mode === "login" && (
@@ -478,7 +476,7 @@ function AuthForms({
                 className="text-sm text-muted-foreground hover:text-foreground"
                 onClick={() => switchMode("register")}
               >
-                ยังไม่มีบัญชีผู้ใช้? <span className="text-primary font-medium underline">สมัครสมาชิก</span>
+                {tr("ยังไม่มีบัญชีผู้ใช้?", "Don't have an account?")} <span className="text-primary font-medium underline">{tr("สมัครสมาชิก", "Sign up")}</span>
               </button>
             )}
 
@@ -488,7 +486,7 @@ function AuthForms({
                 className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground"
                 onClick={() => switchMode("demo")}
               >
-                <MonitorPlay className="mr-1 h-3.5 w-3.5" /> เข้าสู่ระบบสำหรับผู้ดูแลระบบสาธิต (Demo Admin)
+                <MonitorPlay className="mr-1 h-3.5 w-3.5" /> {tr("เข้าสู่ระบบสำหรับผู้ดูแลระบบสาธิต (Demo Admin)", "Sign in as a Demo Admin")}
               </button>
             )}
 
@@ -498,7 +496,7 @@ function AuthForms({
                 className="text-sm text-muted-foreground hover:text-foreground"
                 onClick={() => switchMode("login")}
               >
-                มีบัญชีผู้ใช้งานแล้ว? <span className="text-primary font-medium underline">เข้าสู่ระบบ</span>
+                {tr("มีบัญชีผู้ใช้งานแล้ว?", "Already have an account?")} <span className="text-primary font-medium underline">{tr("เข้าสู่ระบบ", "Sign in")}</span>
               </button>
             )}
 
@@ -508,7 +506,7 @@ function AuthForms({
                 className="inline-flex items-center text-sm text-primary hover:underline"
                 onClick={() => switchMode("login")}
               >
-                <ArrowLeft className="mr-1 h-3.5 w-3.5" /> กลับสู่หน้าเข้าสู่ระบบ
+                <ArrowLeft className="mr-1 h-3.5 w-3.5" /> {tr("กลับสู่หน้าเข้าสู่ระบบ", "Back to sign-in")}
               </button>
             )}
           </CardFooter>
@@ -518,15 +516,15 @@ function AuthForms({
       {(mode === "login" || mode === "register") && (
         <Card className="mt-4 border-dashed border-accent">
           <CardContent className="space-y-3 pt-6 text-center">
-            <p className="text-sm font-semibold">โหมดทดลองลูกค้า (Demo Customer)</p>
+            <p className="text-sm font-semibold">{tr("โหมดทดลองลูกค้า (Demo Customer)", "Demo Customer mode")}</p>
             <p className="text-xs text-muted-foreground">
-              สร้างบัญชีลูกค้าทดลองพร้อมข้อมูลสมมติทันที ไม่ต้องใช้อีเมลหรือเบอร์โทรจริง บัญชีทดลองเป็นลูกค้าเท่านั้น ไม่สามารถเป็นผู้ดูแลระบบได้ และการชำระเงินเป็นการจำลอง
+              {tr("สร้างบัญชีลูกค้าทดลองพร้อมข้อมูลสมมติทันที ไม่ต้องใช้อีเมลหรือเบอร์โทรจริง บัญชีทดลองเป็นลูกค้าเท่านั้น ไม่สามารถเป็นผู้ดูแลระบบได้ และการชำระเงินเป็นการจำลอง", "Create a demo customer account with fictional data instantly, with no real email or phone needed. Demo accounts are customers only, can never be admins, and payments are simulated.")}
             </p>
             <p className="text-xs text-muted-foreground">
-              หมายเหตุ: เมื่อออกจากระบบแล้วจะกลับเข้าบัญชีทดลองเดิมไม่ได้ ต้องสร้างบัญชีทดลองใหม่
+              {tr("หมายเหตุ: เมื่อออกจากระบบแล้วจะกลับเข้าบัญชีทดลองเดิมไม่ได้ ต้องสร้างบัญชีทดลองใหม่", "Note: once you sign out you cannot return to the same demo account; create a new one instead.")}
             </p>
             <Button type="button" variant="outline" className="w-full" disabled={loading} onClick={startDemo}>
-              {loading ? "กำลังสร้างบัญชีทดลอง..." : "ทดลองใช้งานในฐานะลูกค้าตัวอย่าง"}
+              {loading ? tr("กำลังสร้างบัญชีทดลอง...", "Creating demo account...") : tr("ทดลองใช้งานในฐานะลูกค้าตัวอย่าง", "Try it as a sample customer")}
             </Button>
           </CardContent>
         </Card>
