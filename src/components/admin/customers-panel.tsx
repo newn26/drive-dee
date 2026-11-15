@@ -22,8 +22,9 @@ import {
 } from "@/components/ui/dialog";
 import { filterCustomers, maskId, NO_NAME, type CustomerRow } from "@/lib/customers";
 import { bookingStatusLabel, fmtDate, thb } from "@/lib/format";
+import { tr } from "@/lib/i18n";
 
-const nameOf = (row: CustomerRow) => row.profile.full_name?.trim() || NO_NAME;
+const nameOf = (row: CustomerRow) => row.profile.full_name?.trim() || tr(NO_NAME, "(no name)");
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
@@ -53,15 +54,23 @@ export function AdminCustomersPanel({ rows }: { rows: CustomerRow[] }) {
     <Card className="shadow-card">
       <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0">
         <div className="space-y-1">
-          <CardTitle>ข้อมูลลูกค้า ({filtered.length})</CardTitle>
-          <CardDescription>ดูข้อมูลและประวัติการเช่าของลูกค้า (ดูอย่างเดียว)</CardDescription>
+          <CardTitle>
+            {tr("ข้อมูลลูกค้า (", "Customers (")}
+            {filtered.length})
+          </CardTitle>
+          <CardDescription>
+            {tr(
+              "ดูข้อมูลและประวัติการเช่าของลูกค้า (ดูอย่างเดียว)",
+              "Customer details and rental history (view only)",
+            )}
+          </CardDescription>
         </div>
         <div className="relative w-full sm:w-72">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="ค้นหาชื่อ หรือเบอร์โทร..."
+            placeholder={tr("ค้นหาชื่อ หรือเบอร์โทร...", "Search name or phone...")}
             className="pl-9"
           />
         </div>
@@ -70,11 +79,11 @@ export function AdminCustomersPanel({ rows }: { rows: CustomerRow[] }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>ชื่อ</TableHead>
-              <TableHead>เบอร์โทร</TableHead>
-              <TableHead className="text-right">การจอง</TableHead>
-              <TableHead className="text-right">ชำระแล้ว</TableHead>
-              <TableHead>สมัครเมื่อ</TableHead>
+              <TableHead>{tr("ชื่อ", "Name")}</TableHead>
+              <TableHead>{tr("เบอร์โทร", "Phone")}</TableHead>
+              <TableHead className="text-right">{tr("การจอง", "Bookings")}</TableHead>
+              <TableHead className="text-right">{tr("ชำระแล้ว", "Paid")}</TableHead>
+              <TableHead>{tr("สมัครเมื่อ", "Joined")}</TableHead>
               <TableHead className="text-right" />
             </TableRow>
           </TableHeader>
@@ -82,7 +91,7 @@ export function AdminCustomersPanel({ rows }: { rows: CustomerRow[] }) {
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                  ไม่พบลูกค้า
+                  {tr("ไม่พบลูกค้า", "No customers found")}
                 </TableCell>
               </TableRow>
             ) : (
@@ -95,7 +104,7 @@ export function AdminCustomersPanel({ rows }: { rows: CustomerRow[] }) {
                   <TableCell>{fmtDate(row.profile.created_at)}</TableCell>
                   <TableCell className="text-right">
                     <Button size="sm" variant="outline" onClick={() => setSelected(row)}>
-                      ดู
+                      {tr("ดู", "View")}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -112,37 +121,46 @@ export function AdminCustomersPanel({ rows }: { rows: CustomerRow[] }) {
               <DialogHeader>
                 <DialogTitle>{nameOf(selected)}</DialogTitle>
                 <DialogDescription>
-                  สมัครเมื่อ {fmtDate(selected.profile.created_at)} · จอง {selected.bookingCount}{" "}
-                  ครั้ง · ชำระแล้ว {thb(selected.totalPaid)}
+                  {tr("สมัครเมื่อ", "Joined")} {fmtDate(selected.profile.created_at)}{" "}
+                  {tr("· จอง", "· bookings:")} {selected.bookingCount}{" "}
+                  {tr("ครั้ง · ชำระแล้ว", "· paid")} {thb(selected.totalPaid)}
                 </DialogDescription>
               </DialogHeader>
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="เบอร์โทร" value={selected.profile.phone || "-"} />
-                <Field label="ที่อยู่" value={selected.profile.address || "-"} />
-                <Field label="เลขใบขับขี่" value={idValue(selected.profile.license_no)} />
-                <Field label="เลขบัตรประชาชน" value={idValue(selected.profile.id_card_no)} />
+                <Field label={tr("เบอร์โทร", "Phone")} value={selected.profile.phone || "-"} />
+                <Field label={tr("ที่อยู่", "Address")} value={selected.profile.address || "-"} />
+                <Field
+                  label={tr("เลขใบขับขี่", "Licence no.")}
+                  value={idValue(selected.profile.license_no)}
+                />
+                <Field
+                  label={tr("เลขบัตรประชาชน", "ID card no.")}
+                  value={idValue(selected.profile.id_card_no)}
+                />
               </div>
               <div>
                 <Button size="sm" variant="ghost" onClick={() => setShowIds((v) => !v)}>
-                  {showIds ? "ซ่อน" : "แสดง"}
+                  {showIds ? tr("ซ่อน", "Hide") : tr("แสดง", "Show")}
                 </Button>
               </div>
 
               <div className="space-y-2">
-                <h3 className="text-sm font-semibold">ประวัติการจอง</h3>
+                <h3 className="text-sm font-semibold">{tr("ประวัติการจอง", "Booking history")}</h3>
                 {selected.bookings.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">ยังไม่มีการจอง</p>
+                  <p className="text-sm text-muted-foreground">
+                    {tr("ยังไม่มีการจอง", "No bookings yet")}
+                  </p>
                 ) : (
                   <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>รหัสการจอง</TableHead>
-                          <TableHead>รถ</TableHead>
-                          <TableHead>วันที่เช่า</TableHead>
-                          <TableHead className="text-right">ยอด</TableHead>
-                          <TableHead>สถานะ</TableHead>
+                          <TableHead>{tr("รหัสการจอง", "Booking code")}</TableHead>
+                          <TableHead>{tr("รถ", "Car")}</TableHead>
+                          <TableHead>{tr("วันที่เช่า", "Rental dates")}</TableHead>
+                          <TableHead className="text-right">{tr("ยอด", "Amount")}</TableHead>
+                          <TableHead>{tr("สถานะ", "Status")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>

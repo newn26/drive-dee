@@ -1,16 +1,10 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-const router = vi.hoisted(() => ({ pathname: "/" }));
-vi.mock("@tanstack/react-router", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@tanstack/react-router")>()),
-  useRouterState: ({ select }: { select: (s: { location: { pathname: string } }) => unknown }) =>
-    select({ location: { pathname: router.pathname } }),
-}));
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { LanguageSwitch } from "@/components/site-header";
 import { PrototypeNotice } from "@/components/prototype-notice";
-import { LanguageProvider, getLang, isThaiOnlyPath, tr, trError } from "@/lib/i18n";
+import { LanguageProvider, getLang, tr, trError } from "@/lib/i18n";
+import { adminPermissionLabel } from "@/lib/contract-api";
 import { bookingStatusLabel, categoryLabel, pickupLocationLabel, thb } from "@/lib/format";
 import { profileErrors } from "@/lib/profile-validation";
 
@@ -34,10 +28,7 @@ function Page() {
   );
 }
 
-beforeEach(() => {
-  router.pathname = "/";
-  localStorage.clear();
-});
+beforeEach(() => localStorage.clear());
 afterEach(() => localStorage.clear());
 
 describe("TH / EN switch", () => {
@@ -69,15 +60,19 @@ describe("TH / EN switch", () => {
     expect(localStorage.getItem("drive-dee-lang")).toBe("th");
   });
 
-  it("keeps the admin pages Thai and hides the switch there", () => {
+  it("shows the switch everywhere, admin labels included", () => {
     localStorage.setItem("drive-dee-lang", "en");
-    router.pathname = "/admin";
-    render(<Page />);
-    expect(screen.queryByTestId("language-switch")).toBeNull();
-    expect(screen.getByTestId("status")).toHaveTextContent("ยืนยันแล้ว");
-    expect(isThaiOnlyPath("/admin-invite")).toBe(true);
-    expect(isThaiOnlyPath("/demo-admin")).toBe(true);
-    expect(isThaiOnlyPath("/bookings/abc")).toBe(false);
+    function AdminLabel() {
+      return <p data-testid="perm">{adminPermissionLabel.fleet_manage}</p>;
+    }
+    render(
+      <LanguageProvider>
+        <LanguageSwitch />
+        <AdminLabel />
+      </LanguageProvider>,
+    );
+    expect(screen.getByTestId("language-switch")).toHaveTextContent("ไทย");
+    expect(screen.getByTestId("perm")).toHaveTextContent("Manage cars and maintenance");
   });
 });
 

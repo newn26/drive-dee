@@ -94,6 +94,7 @@ import {
   maintStatusLabel,
   thb,
   todayBkk,
+  pickupLocationLabel,
 } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 import { invalidateBookingData } from "@/lib/queries";
@@ -127,6 +128,7 @@ import { ownerManualConfirm } from "@/lib/contract-api";
 import { fleetCounts } from "@/lib/fleet";
 import { CAR_LIMITS, carFormError } from "@/lib/car-validation";
 import { OverdueBookingsCard } from "@/components/admin/overdue-bookings-card";
+import { bilingual, tr, trError } from "@/lib/i18n";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -168,27 +170,43 @@ type ContractWithBooking = Tables<"contracts"> & {
 };
 
 const CATEGORIES = [
-  { value: "eco", label: "อีโคคาร์ (Eco)" },
-  { value: "sedan", label: "ซีดาน (Sedan)" },
+  { value: "eco", get label() {
+      return tr("อีโคคาร์ (Eco)", "Eco car");
+    } },
+  { value: "sedan", get label() {
+      return tr("ซีดาน (Sedan)", "Sedan");
+    } },
   { value: "suv", label: "SUV" },
-  { value: "van", label: "รถตู้ (Van)" },
-  { value: "ev", label: "รถไฟฟ้า (EV)" },
+  { value: "van", get label() {
+      return tr("รถตู้ (Van)", "Van");
+    } },
+  { value: "ev", get label() {
+      return tr("รถไฟฟ้า (EV)", "Electric (EV)");
+    } },
 ];
 
 const CAR_STATUSES = [
-  { value: "available", label: "ว่าง (พร้อมให้บริการ)" },
-  { value: "rented", label: "ถูกเช่า (กำลังให้บริการ)" },
-  { value: "maintenance", label: "ซ่อมบำรุง" },
-  { value: "unavailable", label: "งดให้บริการ" },
+  { value: "available", get label() {
+      return tr("ว่าง (พร้อมให้บริการ)", "Available");
+    } },
+  { value: "rented", get label() {
+      return tr("ถูกเช่า (กำลังให้บริการ)", "Rented (in service)");
+    } },
+  { value: "maintenance", get label() {
+      return tr("ซ่อมบำรุง", "Maintenance");
+    } },
+  { value: "unavailable", get label() {
+      return tr("งดให้บริการ", "Unavailable");
+    } },
 ];
 
 const PIE_COLORS = ["#0ea5e9", "#10b981", "#f59e0b", "#6366f1", "#ec4899"];
 
-const BOOKING_MOVE_LABEL: Record<string, string> = {
-  active: "กำลังเช่า - ส่งมอบรถแล้ว (Active)",
-  completed: "เสร็จสิ้น - รับรถคืนแล้ว (Completed)",
-  cancelled: "ยกเลิกการจอง (Cancelled)",
-};
+const BOOKING_MOVE_LABEL: Record<string, string> = bilingual({
+  active: ["กำลังเช่า - ส่งมอบรถแล้ว (Active)", "In progress - car handed over (Active)"],
+  completed: ["เสร็จสิ้น - รับรถคืนแล้ว (Completed)", "Completed - car returned"],
+  cancelled: ["ยกเลิกการจอง (Cancelled)", "Cancel booking"],
+});
 
 export function AdminDashboard({ mode }: { mode: DashboardMode }) {
   const { user, role, adminMember, loading: authLoading } = useAuth();
@@ -361,13 +379,13 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
   // A failed load must not look like "no data", so failures are listed in a banner with a retry
   const failedQueries = [
-    { label: "รถยนต์", q: carsQ },
-    { label: "การจอง", q: bookingsQ },
-    { label: "ลูกค้า", q: profilesQ },
-    { label: "ซ่อมบำรุง", q: maintQ },
-    { label: "สัญญาเช่า", q: contractsQ },
-    { label: "การชำระเงิน", q: paymentsQ },
-    { label: "สิทธิ์ผู้ใช้", q: rolesQ },
+    { label: tr("รถยนต์", "Cars"), q: carsQ },
+    { label: tr("การจอง", "Bookings"), q: bookingsQ },
+    { label: tr("ลูกค้า", "Customers"), q: profilesQ },
+    { label: tr("ซ่อมบำรุง", "Maintenance"), q: maintQ },
+    { label: tr("สัญญาเช่า", "Contracts"), q: contractsQ },
+    { label: tr("การชำระเงิน", "Payments"), q: paymentsQ },
+    { label: tr("สิทธิ์ผู้ใช้", "User roles"), q: rolesQ },
   ].filter((x) => x.q.isError);
   const retryFailedQueries = () => failedQueries.forEach((x) => void x.q.refetch());
 
@@ -424,7 +442,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
   const handleSaveCar = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!carForm.brand || !carForm.model || !carForm.plate_no) {
-      toast.error("กรุณากรอกยี่ห้อ รุ่น และทะเบียนรถให้ครบถ้วน");
+      toast.error(tr("กรุณากรอกยี่ห้อ รุ่น และทะเบียนรถให้ครบถ้วน", "Please fill in the brand, model and plate"));
       return;
     }
     const numbersProblem = carFormError({
@@ -460,7 +478,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           .eq("id", editingCar.id);
 
         if (error) throw error;
-        toast.success("อัปเดตข้อมูลรถยนต์สำเร็จ");
+        toast.success(tr("อัปเดตข้อมูลรถยนต์สำเร็จ", "Car updated"));
       } else {
         const { error } = await supabase.from("cars").insert({
           brand: carForm.brand.trim(),
@@ -479,21 +497,21 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
         });
 
         if (error) throw error;
-        toast.success("เพิ่มรถยนต์เข้าสู่ระบบสำเร็จ");
+        toast.success(tr("เพิ่มรถยนต์เข้าสู่ระบบสำเร็จ", "Car added"));
       }
 
       setCarModalOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["admin-cars"] });
     } catch (err: unknown) {
       const error = err as Error;
-      toast.error(error.message || "ไม่สามารถบันทึกข้อมูลรถยนต์ได้");
+      toast.error(trError(error.message) || tr("ไม่สามารถบันทึกข้อมูลรถยนต์ได้", "Could not save the car"));
     }
   };
 
   const handleDeleteCar = async () => {
     if (!carToDelete) return;
     if (!perms.deleteCars) {
-      toast.error("โหมดสาธิตไม่สามารถลบรถยนต์ได้");
+      toast.error(tr("โหมดสาธิตไม่สามารถลบรถยนต์ได้", "Demo mode cannot delete cars"));
       setCarToDelete(null);
       return;
     }
@@ -502,7 +520,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       const hasBooking = bookings.some((b) => b.car_id === carToDelete.id);
       if (hasBooking) {
         toast.error(
-          "ไม่สามารถลบรถคันนี้ได้เนื่องจากมีประวัติการจองผูกอยู่ในระบบ กรุณาเปลี่ยนสถานะเป็น 'งดให้บริการ' แทน",
+          tr("ไม่สามารถลบรถคันนี้ได้เนื่องจากมีประวัติการจองผูกอยู่ในระบบ กรุณาเปลี่ยนสถานะเป็น 'งดให้บริการ' แทน", "This car cannot be deleted because it has bookings. Set its status to 'Unavailable' instead."),
         );
         setCarToDelete(null);
         return;
@@ -516,20 +534,20 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           error.message.includes("violates foreign key constraint")
         ) {
           toast.error(
-            "ไม่สามารถลบรถคันนี้ได้เนื่องจากมีประวัติการจองผูกอยู่ในระบบ กรุณาเปลี่ยนสถานะเป็น 'งดให้บริการ' แทน",
+            tr("ไม่สามารถลบรถคันนี้ได้เนื่องจากมีประวัติการจองผูกอยู่ในระบบ กรุณาเปลี่ยนสถานะเป็น 'งดให้บริการ' แทน", "This car cannot be deleted because it has bookings. Set its status to 'Unavailable' instead."),
           );
         } else {
-          toast.error(error.message || "ไม่สามารถลบรถยนต์ได้");
+          toast.error(trError(error.message) || tr("ไม่สามารถลบรถยนต์ได้", "Could not delete the car"));
         }
         return;
       }
 
-      toast.success("ลบรถยนต์ออกจากระบบเรียบร้อยแล้ว");
+      toast.success(tr("ลบรถยนต์ออกจากระบบเรียบร้อยแล้ว", "Car deleted"));
       setCarToDelete(null);
       await queryClient.invalidateQueries({ queryKey: ["admin-cars"] });
     } catch (err: unknown) {
       const error = err as Error;
-      toast.error(error.message || "เกิดข้อผิดพลาดในการลบรถยนต์");
+      toast.error(trError(error.message) || tr("เกิดข้อผิดพลาดในการลบรถยนต์", "An error occurred while deleting the car"));
     } finally {
       setDeletingCar(false);
     }
@@ -540,18 +558,18 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       const { error } = await supabase.from("cars").update({ status }).eq("id", carId);
 
       if (error) throw error;
-      toast.success("ปรับปรุงสถานะรถยนต์เรียบร้อยแล้ว");
+      toast.success(tr("ปรับปรุงสถานะรถยนต์เรียบร้อยแล้ว", "Car status updated"));
       await queryClient.invalidateQueries({ queryKey: ["admin-cars"] });
     } catch (err: unknown) {
       const error = err as Error;
-      toast.error(error.message || "ไม่สามารถเปลี่ยนสถานะได้");
+      toast.error(trError(error.message) || tr("ไม่สามารถเปลี่ยนสถานะได้", "Could not change the status"));
     }
   };
 
   const handleUpdateBookingStatus = async () => {
     if (!updatingBooking) return;
     if (!newBookingStatus) {
-      toast.error("กรุณาเลือกสถานะใหม่");
+      toast.error(tr("กรุณาเลือกสถานะใหม่", "Please choose a new status"));
       return;
     }
     if (
@@ -559,7 +577,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       !bookingMovesOn(updatingBooking, todayBkk()).includes(newBookingStatus)
     ) {
       toast.error(
-        "เปลี่ยนสถานะนี้ไม่ได้ การยืนยันการจองต้องผ่านการยืนยันสัญญาและการชำระค่าจองของลูกค้า และส่งมอบ/รับรถคืนได้ตั้งแต่วันรับรถเท่านั้น",
+        tr("เปลี่ยนสถานะนี้ไม่ได้ การยืนยันการจองต้องผ่านการยืนยันสัญญาและการชำระค่าจองของลูกค้า และส่งมอบ/รับรถคืนได้ตั้งแต่วันรับรถเท่านั้น", "This status change is not allowed. A booking is confirmed only after the customer confirms the contract and pays the booking fee, and hand-over/return is only possible from the pickup day."),
       );
       return;
     }
@@ -574,19 +592,19 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       // Car status follows its bookings and maintenance (rented / maintenance / available)
       await syncCarStatus(updatingBooking.car_id);
 
-      toast.success("ปรับปรุงสถานะการจองเรียบร้อยแล้ว");
+      toast.success(tr("ปรับปรุงสถานะการจองเรียบร้อยแล้ว", "Booking status updated"));
       setUpdatingBooking(null);
       await invalidateBookingData(queryClient);
     } catch (err: unknown) {
       const error = err as Error;
-      toast.error(error.message || "ไม่สามารถเปลี่ยนสถานะการจองได้");
+      toast.error(trError(error.message) || tr("ไม่สามารถเปลี่ยนสถานะการจองได้", "Could not change the booking status"));
     }
   };
 
   const handleSaveMaintenance = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!maintForm.car_id || !maintForm.title) {
-      toast.error("กรุณาเลือกรถและระบุชื่องานซ่อมบำรุง");
+      toast.error(tr("กรุณาเลือกรถและระบุชื่องานซ่อมบำรุง", "Please choose a car and enter the job title"));
       return;
     }
     const costProblem = maintenanceCostError(Number(maintForm.cost));
@@ -596,7 +614,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     }
     if (maintForm.status === "completed" && maintForm.scheduled_date > todayBkk()) {
       toast.error(
-        "ยังไม่ถึงวันนัดหมาย จึงบันทึกว่าเสร็จสิ้นไม่ได้ ถ้าทำเสร็จแล้วจริง ให้แก้วันนัดหมายเป็นวันที่ทำ",
+        tr("ยังไม่ถึงวันนัดหมาย จึงบันทึกว่าเสร็จสิ้นไม่ได้ ถ้าทำเสร็จแล้วจริง ให้แก้วันนัดหมายเป็นวันที่ทำ", "The scheduled date has not arrived, so it cannot be marked completed. If the work is really done, change the scheduled date to the day it was done."),
       );
       return;
     }
@@ -617,7 +635,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       // Car goes to "maintenance" when the job is in progress or due today
       await syncCarStatus(maintForm.car_id);
 
-      toast.success("บันทึกตารางการซ่อมบำรุงเรียบร้อยแล้ว");
+      toast.success(tr("บันทึกตารางการซ่อมบำรุงเรียบร้อยแล้ว", "Maintenance job saved"));
       setMaintModalOpen(false);
       setMaintForm({
         car_id: "",
@@ -631,7 +649,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       await queryClient.invalidateQueries({ queryKey: ["admin-cars"] });
     } catch (err: unknown) {
       const error = err as Error;
-      toast.error(error.message || "ไม่สามารถบันทึกงานซ่อมบำรุงได้");
+      toast.error(trError(error.message) || tr("ไม่สามารถบันทึกงานซ่อมบำรุงได้", "Could not save the maintenance job"));
     }
   };
 
@@ -648,7 +666,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
       await syncCarStatus(m.car_id);
       toast.success(
-        status === "completed" ? "ปิดงานซ่อมบำรุงเรียบร้อยแล้ว" : "เริ่มงานซ่อมบำรุงแล้ว",
+        status === "completed" ? tr("ปิดงานซ่อมบำรุงเรียบร้อยแล้ว", "Maintenance job completed") : tr("เริ่มงานซ่อมบำรุงแล้ว", "Maintenance job started"),
       );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["admin-maintenance"] }),
@@ -658,7 +676,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       ]);
     } catch (err: unknown) {
       const error = err as Error;
-      toast.error(error.message || "ไม่สามารถเปลี่ยนสถานะงานซ่อมบำรุงได้");
+      toast.error(trError(error.message) || tr("ไม่สามารถเปลี่ยนสถานะงานซ่อมบำรุงได้", "Could not change the maintenance status"));
     }
   };
 
@@ -673,11 +691,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     try {
       await ownerManualConfirm(manualConfirmFor.id, manualReason);
       await syncCarStatus(manualConfirmFor.car_id);
-      toast.success("ยืนยันการจองด้วยตนเองแล้ว (บันทึกในบันทึกตรวจสอบ)");
+      toast.success(tr("ยืนยันการจองด้วยตนเองแล้ว (บันทึกในบันทึกตรวจสอบ)", "Booking confirmed manually (recorded in the audit log)"));
       setManualConfirmFor(null);
       setManualReason("");
     } catch (err: unknown) {
-      toast.error((err as Error).message || "ยืนยันการจองไม่สำเร็จ");
+      toast.error(trError((err as Error).message) || tr("ยืนยันการจองไม่สำเร็จ", "Could not confirm the booking"));
     } finally {
       setConfirmingManually(false);
       await invalidateBookingData(queryClient);
@@ -797,7 +815,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       range: reportDateRange,
     });
     downloadTextFile(`siam-wheels-bookings-${reportDateRange}-${todayBkk()}.csv`, csv);
-    toast.success("ดาวน์โหลดรายงานการจองและรายได้ (CSV) แล้ว");
+    toast.success(tr("ดาวน์โหลดรายงานการจองและรายได้ (CSV) แล้ว", "Bookings and revenue report (CSV) downloaded"));
   };
 
   const exportMaintenanceCsv = () => {
@@ -807,7 +825,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       range: reportDateRange,
     });
     downloadTextFile(`siam-wheels-maintenance-${reportDateRange}-${todayBkk()}.csv`, csv);
-    toast.success("ดาวน์โหลดรายงานซ่อมบำรุง (CSV) แล้ว");
+    toast.success(tr("ดาวน์โหลดรายงานซ่อมบำรุง (CSV) แล้ว", "Maintenance report (CSV) downloaded"));
   };
 
   // Fleet distribution for PieChart
@@ -829,7 +847,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     return (
       <div className="mx-auto max-w-5xl px-4 py-20 text-center">
         <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-        <p className="mt-4 text-muted-foreground">กำลังตรวจสอบสิทธิ์ผู้ดูแลระบบ...</p>
+        <p className="mt-4 text-muted-foreground">{tr("กำลังตรวจสอบสิทธิ์ผู้ดูแลระบบ...", "Checking admin access...")}</p>
       </div>
     );
   }
@@ -840,30 +858,30 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
         <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-destructive/10 text-destructive">
           <ShieldAlert className="h-8 w-8" />
         </div>
-        <h2 className="text-2xl font-bold">ปฏิเสธการเข้าถึง (Access Denied)</h2>
+        <h2 className="text-2xl font-bold">{tr("ปฏิเสธการเข้าถึง (Access Denied)", "Access denied")}</h2>
         <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
           {isDemo
-            ? "หน้านี้สงวนไว้สำหรับบัญชีผู้ดูแลระบบสาธิต (Demo Admin) เท่านั้น"
-            : "หน้านี้สงวนไว้สำหรับผู้ดูแลระบบ (Administrator) ของ Siam Wheels Rental Hub เท่านั้น บัญชีของคุณไม่มีสิทธิ์ในการเข้าถึงระบบนี้"}
+            ? tr("หน้านี้สงวนไว้สำหรับบัญชีผู้ดูแลระบบสาธิต (Demo Admin) เท่านั้น", "This page is only for Demo Admin accounts.")
+            : tr("หน้านี้สงวนไว้สำหรับผู้ดูแลระบบ (Administrator) ของ Siam Wheels Rental Hub เท่านั้น บัญชีของคุณไม่มีสิทธิ์ในการเข้าถึงระบบนี้", "This page is only for Siam Wheels Rental Hub administrators. Your account does not have access.")}
         </p>
         <div className="mt-6 flex flex-col gap-2">
           {user && role === "demo_admin" && !isDemo && (
             <Button asChild>
-              <Link to="/demo-admin">ไปที่แดชบอร์ดสาธิต (Demo Admin)</Link>
+              <Link to="/demo-admin">{tr("ไปที่แดชบอร์ดสาธิต (Demo Admin)", "Go to the demo dashboard (Demo Admin)")}</Link>
             </Button>
           )}
           {user && role === "admin" && isDemo && (
             <Button asChild>
-              <Link to="/admin">ไปที่ระบบผู้ดูแล (Admin)</Link>
+              <Link to="/admin">{tr("ไปที่ระบบผู้ดูแล (Admin)", "Go to Admin")}</Link>
             </Button>
           )}
           <Button variant={user && role !== "customer" ? "outline" : "default"} asChild>
-            <Link to="/">กลับสู่หน้าหลัก</Link>
+            <Link to="/">{tr("กลับสู่หน้าหลัก", "Back to home")}</Link>
           </Button>
           {!user && (!isDemo || DEMO_ADMIN_SIGN_IN_ENABLED) && (
             <Button variant="outline" asChild>
               <Link to="/auth" search={isDemo ? { demo: true } : {}}>
-                {isDemo ? "เข้าสู่ระบบ Demo Admin" : "เข้าสู่ระบบด้วยบัญชีผู้ดูแล"}
+                {isDemo ? tr("เข้าสู่ระบบ Demo Admin", "Demo Admin sign-in") : tr("เข้าสู่ระบบด้วยบัญชีผู้ดูแล", "Sign in with an admin account")}
               </Link>
             </Button>
           )}
@@ -881,10 +899,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
         >
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
-            <p className="font-semibold">โหมดสาธิต (Demo Admin)</p>
+            <p className="font-semibold">{tr("โหมดสาธิต (Demo Admin)", "Demo mode (Demo Admin)")}</p>
             <p className="mt-0.5">
-              เพิ่ม/แก้ไขรถ เปลี่ยนสถานะการจอง และบันทึกงานซ่อมบำรุงได้ ดูสัญญาเช่าและรายงานได้
-              แต่ลบข้อมูล แก้ไขสัญญา หรือเปลี่ยนสิทธิ์ผู้ใช้ไม่ได้
+              {tr("เพิ่ม/แก้ไขรถ เปลี่ยนสถานะการจอง และบันทึกงานซ่อมบำรุงได้ ดูสัญญาเช่าและรายงานได้ แต่ลบข้อมูล แก้ไขสัญญา หรือเปลี่ยนสิทธิ์ผู้ใช้ไม่ได้", "You can add/edit cars, change booking status, record maintenance, and view contracts and reports, but you cannot delete data, edit contracts or change user permissions.")}
             </p>
           </div>
         </div>
@@ -897,12 +914,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           <div className="flex items-start gap-2">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              โหลดข้อมูลบางส่วนไม่สำเร็จ: {failedQueries.map((x) => x.label).join(", ")} —
-              ตัวเลขที่แสดงอาจไม่ครบถ้วน
+              {tr("โหลดข้อมูลบางส่วนไม่สำเร็จ:", "Some data failed to load:")} {failedQueries.map((x) => x.label).join(", ")} {tr("— ตัวเลขที่แสดงอาจไม่ครบถ้วน", "— the figures shown may be incomplete")}
             </span>
           </div>
           <Button size="sm" variant="outline" onClick={retryFailedQueries}>
-            ลองใหม่
+            {tr("ลองใหม่", "Try again")}
           </Button>
         </div>
       )}
@@ -925,16 +941,16 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             <span className="text-xs text-muted-foreground">Siam Wheels Operations</span>
           </div>
           <h1 className="mt-1 text-3xl font-bold tracking-tight">
-            ศูนย์ควบคุมและบริหารจัดการรถเช่า
+            {tr("ศูนย์ควบคุมและบริหารจัดการรถเช่า", "Rental management centre")}
           </h1>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <Button onClick={() => openCarModal()} className="gap-1.5 shadow-sm">
-            <Plus className="h-4 w-4" /> เพิ่มรถยนต์ใหม่
+            <Plus className="h-4 w-4" /> {tr("เพิ่มรถยนต์ใหม่", "Add car")}
           </Button>
           <Button variant="outline" onClick={() => setMaintModalOpen(true)} className="gap-1.5">
-            <Wrench className="h-4 w-4" /> บันทึกซ่อมบำรุง
+            <Wrench className="h-4 w-4" /> {tr("บันทึกซ่อมบำรุง", "Log maintenance")}
           </Button>
         </div>
       </div>
@@ -946,34 +962,34 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           <Card className="shadow-card border lg:sticky lg:top-24">
             <CardHeader className="pb-3 border-b bg-muted/20">
               <CardTitle className="text-sm font-semibold text-muted-foreground">
-                เมนูการจัดการระบบ
+                {tr("เมนูการจัดการระบบ", "Admin menu")}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-2 space-y-1">
               {[
-                { id: "overview", label: "ภาพรวมระบบ", icon: LayoutDashboard, count: null },
-                { id: "cars", label: "จัดการรถยนต์ในระบบ", icon: CarIcon, count: cars.length },
+                { id: "overview", label: tr("ภาพรวมระบบ", "Overview"), icon: LayoutDashboard, count: null },
+                { id: "cars", label: tr("จัดการรถยนต์ในระบบ", "Cars"), icon: CarIcon, count: cars.length },
                 {
                   id: "bookings",
-                  label: "รายการจองของลูกค้า",
+                  label: tr("รายการจองของลูกค้า", "Bookings"),
                   icon: Calendar,
                   count: bookings.length,
                 },
-                { id: "customers", label: "ข้อมูลลูกค้า", icon: Users, count: customerRows.length },
+                { id: "customers", label: tr("ข้อมูลลูกค้า", "Customers"), icon: Users, count: customerRows.length },
                 {
                   id: "contracts",
-                  label: "สัญญาเช่าดิจิทัล",
+                  label: tr("สัญญาเช่าดิจิทัล", "Contracts"),
                   icon: FileCheck2,
                   count: contracts.length,
                 },
                 {
                   id: "maintenance",
-                  label: "งานซ่อมบำรุง",
+                  label: tr("งานซ่อมบำรุง", "Maintenance"),
                   icon: Wrench,
                   count: maintenanceRecords.length,
                 },
-                { id: "reports", label: "รายงานและสถิติ", icon: BarChart3, count: null },
-                { id: "admins", label: "ผู้ดูแลระบบ (Owner)", icon: KeyRound, count: null },
+                { id: "reports", label: tr("รายงานและสถิติ", "Reports"), icon: BarChart3, count: null },
+                { id: "admins", label: tr("ผู้ดูแลระบบ (Owner)", "Admins (Owner)"), icon: KeyRound, count: null },
               ]
                 .filter((item) => item.id !== "admins" || perms.manageAdmins)
                 .map((item) => (
@@ -1026,7 +1042,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               <OverdueBookingsCard
                 bookings={bookings}
                 today={todayBkk()}
-                customerName={(b) => profileMap[b.user_id]?.full_name || "ลูกค้าสมาชิก"}
+                customerName={(b) => profileMap[b.user_id]?.full_name || tr("ลูกค้าสมาชิก", "Member")}
                 canUpdate={perms.updateBookingStatus}
                 onUpdate={(b) => {
                   setUpdatingBooking(b);
@@ -1041,7 +1057,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <Card className="shadow-card border">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <CardTitle className="text-xs font-medium text-muted-foreground">
-                      รายได้รวมสุทธิ (THB)
+                      {tr("รายได้รวมสุทธิ (THB)", "Total revenue (THB)")}
                     </CardTitle>
                     <DollarSign className="h-4 w-4 text-primary" />
                   </CardHeader>
@@ -1050,13 +1066,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       {thb(metrics.totalRevenue)}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      กำไรจากการดำเนินงาน:{" "}
+                      {tr("กำไรจากการดำเนินงาน:", "Operating profit:")}{" "}
                       <span className="font-semibold text-success">{thb(metrics.netProfit)}</span>
                     </p>
                     <p className="text-[11px] text-muted-foreground">
-                      เงินที่ชำระออนไลน์ (DEMO) + ค่าเช่าส่วนที่เหลือที่เก็บ ณ วันรับรถ
-                      (นับเมื่อสถานะเป็นกำลังเช่า/เสร็จสิ้น) + ค่าจองที่ไม่คืนจากการจองที่ยกเลิก
-                      ไม่รวมเงินประกัน
+                      {tr("เงินที่ชำระออนไลน์ (DEMO) + ค่าเช่าส่วนที่เหลือที่เก็บ ณ วันรับรถ (นับเมื่อสถานะเป็นกำลังเช่า/เสร็จสิ้น) + ค่าจองที่ไม่คืนจากการจองที่ยกเลิก ไม่รวมเงินประกัน", "Online payments (DEMO) + remaining rent collected at pickup (counted once in progress/completed) + kept booking fees of cancelled bookings, excluding deposits")}
                     </p>
                   </CardContent>
                 </Card>
@@ -1064,16 +1078,16 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <Card className="shadow-card border">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <CardTitle className="text-xs font-medium text-muted-foreground">
-                      กองยานพาหนะทั้งหมด
+                      {tr("กองยานพาหนะทั้งหมด", "Total fleet")}
                     </CardTitle>
                     <CarIcon className="h-4 w-4 text-primary" />
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-foreground">
-                      {metrics.totalCarsCount} คัน
+                      {metrics.totalCarsCount} {tr("คัน", "cars")}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      ว่าง {metrics.availableCarsCount} · ถูกเช่า {metrics.rentedCarsCount} · ซ่อม{" "}
+                      {tr("ว่าง", "Available")} {metrics.availableCarsCount} {tr("· ถูกเช่า", "· rented")} {metrics.rentedCarsCount} {tr("· ซ่อม", "· maintenance")}{" "}
                       {metrics.maintenanceCarsCount}
                     </p>
                   </CardContent>
@@ -1082,7 +1096,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <Card className="shadow-card border">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <CardTitle className="text-xs font-medium text-muted-foreground">
-                      อัตราการใช้งานรถยนต์
+                      {tr("อัตราการใช้งานรถยนต์", "Fleet utilisation")}
                     </CardTitle>
                     <TrendingUp className="h-4 w-4 text-primary" />
                   </CardHeader>
@@ -1091,8 +1105,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       {metrics.utilizationRate}%
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      อยู่กับลูกค้า {metrics.rentedCarsCount} จาก {metrics.totalCarsCount} คัน
-                      (รวมที่ถึงวันรับรถแล้ว)
+                      {tr("อยู่กับลูกค้า", "with customers")} {metrics.rentedCarsCount} {tr("จาก", "of")} {metrics.totalCarsCount} {tr("คัน", "cars")}
+                      {tr("(รวมที่ถึงวันรับรถแล้ว)", "(including pickups due today)")}
                     </p>
                   </CardContent>
                 </Card>
@@ -1100,16 +1114,16 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <Card className="shadow-card border">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <CardTitle className="text-xs font-medium text-muted-foreground">
-                      การจองที่รอดำเนินการ / กำลังเช่า
+                      {tr("การจองที่รอดำเนินการ / กำลังเช่า", "Pending / in-progress bookings")}
                     </CardTitle>
                     <Calendar className="h-4 w-4 text-primary" />
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-foreground">
-                      {metrics.activeBookingsCount} รายการ
+                      {metrics.activeBookingsCount} {tr("รายการ", "items")}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      เสร็จสิ้นทั้งหมด {metrics.completedBookingsCount} ทริป
+                      {tr("เสร็จสิ้นทั้งหมด", "Completed in total")} {metrics.completedBookingsCount} {tr("ทริป", "trips")}
                     </p>
                   </CardContent>
                 </Card>
@@ -1117,16 +1131,16 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <Card className="shadow-card border">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <CardTitle className="text-xs font-medium text-muted-foreground">
-                      ลูกค้าที่ลงทะเบียน
+                      {tr("ลูกค้าที่ลงทะเบียน", "Registered customers")}
                     </CardTitle>
                     <Users className="h-4 w-4 text-primary" />
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-foreground">
-                      {metrics.totalCustomers} ท่าน
+                      {metrics.totalCustomers} {tr("ท่าน", "people")}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      พร้อมประวัติและเอกสารยืนยันตัวตน
+                      {tr("พร้อมประวัติและเอกสารยืนยันตัวตน", "with history and identity documents")}
                     </p>
                   </CardContent>
                 </Card>
@@ -1134,7 +1148,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <Card className="shadow-card border">
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <CardTitle className="text-xs font-medium text-muted-foreground">
-                      ค่าใช้จ่ายซ่อมบำรุงสะสม
+                      {tr("ค่าใช้จ่ายซ่อมบำรุงสะสม", "Total maintenance cost")}
                     </CardTitle>
                     <Wrench className="h-4 w-4 text-warning" />
                   </CardHeader>
@@ -1143,7 +1157,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       {thb(metrics.totalMaintenanceCost)}
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
-                      บันทึกแล้ว {maintenanceRecords.length} รายการ
+                      {tr("บันทึกแล้ว", "recorded")} {maintenanceRecords.length} {tr("รายการ", "items")}
                     </p>
                   </CardContent>
                 </Card>
@@ -1153,11 +1167,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               <Card className="shadow-card border">
                 <CardHeader>
                   <CardTitle className="text-base font-semibold">
-                    แนวโน้มรายได้และจำนวนการจองรายเดือน
+                    {tr("แนวโน้มรายได้และจำนวนการจองรายเดือน", "Monthly revenue and bookings")}
                   </CardTitle>
                   <CardDescription>
-                    รายได้ 12 เดือนล่าสุด: ค่าจองตามวันที่ชำระ + ค่าเช่าที่เก็บ ณ วันรับรถ
-                    ตามวันรับรถ (เวลาประเทศไทย)
+                    {tr("รายได้ 12 เดือนล่าสุด: ค่าจองตามวันที่ชำระ + ค่าเช่าที่เก็บ ณ วันรับรถ ตามวันรับรถ (เวลาประเทศไทย)", "Revenue for the last 12 months: booking fees by payment date + rent collected at pickup by pickup date (Thailand time)")}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="h-72">
@@ -1170,7 +1183,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                         tickFormatter={(val) => `฿${(val / 1000).toFixed(0)}k`}
                       />
                       <Tooltip
-                        formatter={(val: unknown) => [thb(Number(val) || 0), "รายได้"]}
+                        formatter={(val: unknown) => [thb(Number(val) || 0), tr("รายได้", "Revenue")]}
                         labelStyle={{ fontWeight: "bold" }}
                       />
                       <Bar
@@ -1188,8 +1201,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               <Card className="shadow-card border">
                 <CardHeader className="flex flex-row items-center justify-between">
                   <div>
-                    <CardTitle className="text-base font-semibold">รายการจองล่าสุด</CardTitle>
-                    <CardDescription>รายการจองที่เข้ามาในระบบล่าสุด 5 รายการ</CardDescription>
+                    <CardTitle className="text-base font-semibold">{tr("รายการจองล่าสุด", "Latest bookings")}</CardTitle>
+                    <CardDescription>{tr("รายการจองที่เข้ามาในระบบล่าสุด 5 รายการ", "The 5 most recent bookings")}</CardDescription>
                   </div>
                   <Button
                     variant="ghost"
@@ -1197,19 +1210,19 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                     onClick={() => setActiveTab("bookings")}
                     className="gap-1"
                   >
-                    ดูทั้งหมด <ChevronRight className="h-4 w-4" />
+                    {tr("ดูทั้งหมด", "View all")} <ChevronRight className="h-4 w-4" />
                   </Button>
                 </CardHeader>
                 <CardContent className="p-0">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>รหัสการจอง</TableHead>
-                        <TableHead>ลูกค้า</TableHead>
-                        <TableHead>รถยนต์</TableHead>
-                        <TableHead>วันที่เช่า</TableHead>
-                        <TableHead>สถานะ</TableHead>
-                        <TableHead className="text-right">ค่าเช่า</TableHead>
+                        <TableHead>{tr("รหัสการจอง", "Booking code")}</TableHead>
+                        <TableHead>{tr("ลูกค้า", "Customers")}</TableHead>
+                        <TableHead>{tr("รถยนต์", "Cars")}</TableHead>
+                        <TableHead>{tr("วันที่เช่า", "Rental dates")}</TableHead>
+                        <TableHead>{tr("สถานะ", "Status")}</TableHead>
+                        <TableHead className="text-right">{tr("ค่าเช่า", "Rent")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1219,7 +1232,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                             {b.booking_code}
                           </TableCell>
                           <TableCell className="text-xs">
-                            {profileMap[b.user_id]?.full_name || "ลูกค้าสมาชิก"}
+                            {profileMap[b.user_id]?.full_name || tr("ลูกค้าสมาชิก", "Member")}
                           </TableCell>
                           <TableCell className="text-xs font-medium">
                             {b.cars?.brand} {b.cars?.model} ({b.cars?.plate_no})
@@ -1234,7 +1247,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                             {thb(b.total_amount)}
                             {paidOnline.has(b.id) && (
                               <span className="block text-[11px] font-normal text-muted-foreground">
-                                ชำระออนไลน์ {thb(paidOnline.get(b.id))}
+                                {tr("ชำระออนไลน์", "Paid online")} {thb(paidOnline.get(b.id))}
                               </span>
                             )}
                           </TableCell>
@@ -1243,7 +1256,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       {bookings.length === 0 && (
                         <TableRow>
                           <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
-                            ยังไม่มีรายการจองในระบบ
+                            {tr("ยังไม่มีรายการจองในระบบ", "No bookings yet")}
                           </TableCell>
                         </TableRow>
                       )}
@@ -1261,12 +1274,12 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
                     <CardTitle className="text-xl">
-                      จัดการรถยนต์ในระบบ ({filteredCars.length} คัน)
+                      {tr("จัดการรถยนต์ในระบบ (", "Cars (")}{filteredCars.length}{tr(" คัน)", ")")}
                     </CardTitle>
-                    <CardDescription>เพิ่ม ลบ แก้ไข ข้อมูลสเปกและราคาเช่ารายวัน</CardDescription>
+                    <CardDescription>{tr("เพิ่ม ลบ แก้ไข ข้อมูลสเปกและราคาเช่ารายวัน", "Add, delete and edit specs and daily rates")}</CardDescription>
                   </div>
                   <Button onClick={() => openCarModal()} className="gap-1.5">
-                    <Plus className="h-4 w-4" /> เพิ่มรถยนต์ใหม่
+                    <Plus className="h-4 w-4" /> {tr("เพิ่มรถยนต์ใหม่", "Add car")}
                   </Button>
                 </div>
 
@@ -1274,7 +1287,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <div className="relative">
                     <Input
-                      placeholder="ค้นหายี่ห้อ รุ่น หรือทะเบียน..."
+                      placeholder={tr("ค้นหายี่ห้อ รุ่น หรือทะเบียน...", "Search brand, model or plate...")}
                       value={carSearch}
                       onChange={(e) => setCarSearch(e.target.value)}
                       className="pl-9"
@@ -1284,10 +1297,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
                   <Select value={carCategoryFilter} onValueChange={setCarCategoryFilter}>
                     <SelectTrigger>
-                      <SelectValue placeholder="ประเภทรถยนต์" />
+                      <SelectValue placeholder={tr("ประเภทรถยนต์", "Car category")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">ทุกประเภท</SelectItem>
+                      <SelectItem value="all">{tr("ทุกประเภท", "All categories")}</SelectItem>
                       {CATEGORIES.map((cat) => (
                         <SelectItem key={cat.value} value={cat.value}>
                           {cat.label}
@@ -1298,10 +1311,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
                   <Select value={carStatusFilter} onValueChange={setCarStatusFilter}>
                     <SelectTrigger>
-                      <SelectValue placeholder="สถานะรถยนต์" />
+                      <SelectValue placeholder={tr("สถานะรถยนต์", "Car status")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">ทุกสถานะ</SelectItem>
+                      <SelectItem value="all">{tr("ทุกสถานะ", "All statuses")}</SelectItem>
                       {CAR_STATUSES.map((st) => (
                         <SelectItem key={st.value} value={st.value}>
                           {st.label}
@@ -1316,14 +1329,14 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>รูปรถ</TableHead>
-                      <TableHead>ยี่ห้อ / รุ่น / ปี</TableHead>
-                      <TableHead>ทะเบียน</TableHead>
-                      <TableHead>ประเภท</TableHead>
-                      <TableHead>ราคา / วัน</TableHead>
-                      <TableHead>เลขไมล์</TableHead>
-                      <TableHead>สถานะ</TableHead>
-                      <TableHead className="text-right">จัดการ</TableHead>
+                      <TableHead>{tr("รูปรถ", "Photo")}</TableHead>
+                      <TableHead>{tr("ยี่ห้อ / รุ่น / ปี", "Brand / model / year")}</TableHead>
+                      <TableHead>{tr("ทะเบียน", "Plate")}</TableHead>
+                      <TableHead>{tr("ประเภท", "Category")}</TableHead>
+                      <TableHead>{tr("ราคา / วัน", "Price / day")}</TableHead>
+                      <TableHead>{tr("เลขไมล์", "Mileage")}</TableHead>
+                      <TableHead>{tr("สถานะ", "Status")}</TableHead>
+                      <TableHead className="text-right">{tr("จัดการ", "Actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1340,7 +1353,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                           <span className="font-semibold text-foreground">
                             {car.brand} {car.model}
                           </span>
-                          <span className="block text-xs text-muted-foreground">ปี {car.year}</span>
+                          <span className="block text-xs text-muted-foreground">{tr("ปี", "Year")} {car.year}</span>
                         </TableCell>
                         <TableCell className="font-mono text-xs font-semibold">
                           {car.plate_no}
@@ -1354,7 +1367,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                           {thb(car.price_per_day)}
                         </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">
-                          {car.mileage.toLocaleString("th-TH")} กม.
+                          {car.mileage.toLocaleString("th-TH")} {tr("กม.", "km")}
                         </TableCell>
                         <TableCell>
                           <Select
@@ -1381,7 +1394,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                               variant="ghost"
                               size="sm"
                               onClick={() => openCarModal(car)}
-                              title="แก้ไข"
+                              title={tr("แก้ไข", "Edit")}
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
@@ -1391,7 +1404,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                                 size="sm"
                                 className="text-destructive hover:bg-destructive/10"
                                 onClick={() => setCarToDelete(car)}
-                                title="ลบรถยนต์"
+                                title={tr("ลบรถยนต์", "Delete car")}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -1403,7 +1416,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                     {filteredCars.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                          ไม่พบรถยนต์ที่ตรงกับเงื่อนไขการค้นหา
+                          {tr("ไม่พบรถยนต์ที่ตรงกับเงื่อนไขการค้นหา", "No cars match your search")}
                         </TableCell>
                       </TableRow>
                     )}
@@ -1420,10 +1433,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
                     <CardTitle className="text-xl">
-                      รายการจองของลูกค้า ({filteredBookings.length} รายการ)
+                      {tr("รายการจองของลูกค้า (", "Bookings (")}{filteredBookings.length}{tr(" รายการ)", ")")}
                     </CardTitle>
                     <CardDescription>
-                      ตรวจสอบ ยืนยันสถานะการเช่า และควบคุมการส่งมอบรถ
+                      {tr("ตรวจสอบ ยืนยันสถานะการเช่า และควบคุมการส่งมอบรถ", "Check bookings, update rental status and manage hand-overs")}
                     </CardDescription>
                   </div>
                 </div>
@@ -1431,7 +1444,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div className="relative">
                     <Input
-                      placeholder="ค้นหารหัสการจอง ชื่อลูกค้า หรือทะเบียนรถ..."
+                      placeholder={tr("ค้นหารหัสการจอง ชื่อลูกค้า หรือทะเบียนรถ...", "Search booking code, customer or plate...")}
                       value={bookingSearch}
                       onChange={(e) => setBookingSearch(e.target.value)}
                       className="pl-9"
@@ -1441,15 +1454,15 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
                   <Select value={bookingStatusFilter} onValueChange={setBookingStatusFilter}>
                     <SelectTrigger>
-                      <SelectValue placeholder="กรองตามสถานะ" />
+                      <SelectValue placeholder={tr("กรองตามสถานะ", "Filter by status")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">ทุกสถานะ</SelectItem>
-                      <SelectItem value="pending">รอดำเนินการ (สัญญา/ชำระเงิน)</SelectItem>
-                      <SelectItem value="confirmed">ยืนยันแล้ว</SelectItem>
-                      <SelectItem value="active">กำลังเช่า (รับรถแล้ว)</SelectItem>
-                      <SelectItem value="completed">เสร็จสิ้น</SelectItem>
-                      <SelectItem value="cancelled">ยกเลิก</SelectItem>
+                      <SelectItem value="all">{tr("ทุกสถานะ", "All statuses")}</SelectItem>
+                      <SelectItem value="pending">{tr("รอดำเนินการ (สัญญา/ชำระเงิน)", "Pending (contract/payment)")}</SelectItem>
+                      <SelectItem value="confirmed">{tr("ยืนยันแล้ว", "Confirmed")}</SelectItem>
+                      <SelectItem value="active">{tr("กำลังเช่า (รับรถแล้ว)", "In progress (picked up)")}</SelectItem>
+                      <SelectItem value="completed">{tr("เสร็จสิ้น", "Completed")}</SelectItem>
+                      <SelectItem value="cancelled">{tr("ยกเลิก", "Cancelled")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1459,13 +1472,13 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>รหัสการจอง</TableHead>
-                      <TableHead>ข้อมูลลูกค้า</TableHead>
-                      <TableHead>รถยนต์</TableHead>
-                      <TableHead>สาขา / วันที่</TableHead>
-                      <TableHead>สถานะ</TableHead>
-                      <TableHead>ค่าเช่า / ชำระออนไลน์</TableHead>
-                      <TableHead className="text-right">การจัดการ</TableHead>
+                      <TableHead>{tr("รหัสการจอง", "Booking code")}</TableHead>
+                      <TableHead>{tr("ข้อมูลลูกค้า", "Customers")}</TableHead>
+                      <TableHead>{tr("รถยนต์", "Cars")}</TableHead>
+                      <TableHead>{tr("สาขา / วันที่", "Branch / dates")}</TableHead>
+                      <TableHead>{tr("สถานะ", "Status")}</TableHead>
+                      <TableHead>{tr("ค่าเช่า / ชำระออนไลน์", "Rent / paid online")}</TableHead>
+                      <TableHead className="text-right">{tr("การจัดการ", "Actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1478,7 +1491,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                           </TableCell>
                           <TableCell>
                             <span className="font-medium text-xs block text-foreground">
-                              {profile?.full_name || "ลูกค้าสมาชิก"}
+                              {profile?.full_name || tr("ลูกค้าสมาชิก", "Member")}
                             </span>
                             <span className="text-[11px] text-muted-foreground font-mono">
                               {profile?.phone || "-"}
@@ -1493,9 +1506,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                             </span>
                           </TableCell>
                           <TableCell className="text-xs">
-                            <span className="block font-medium">{b.pickup_location}</span>
+                            <span className="block font-medium">{pickupLocationLabel(b.pickup_location)}</span>
                             <span className="text-muted-foreground text-[11px]">
-                              {fmtDate(b.start_date)} — {fmtDate(b.end_date)} ({b.days} วัน)
+                              {fmtDate(b.start_date)} — {fmtDate(b.end_date)} ({b.days} {tr("วัน", "days")})
                             </span>
                           </TableCell>
                           <TableCell>
@@ -1508,8 +1521,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                             {thb(b.total_amount)}
                             <span className="block text-[11px] font-normal text-muted-foreground">
                               {paidOnline.has(b.id)
-                                ? `ชำระออนไลน์ ${thb(paidOnline.get(b.id))}`
-                                : "ยังไม่ชำระ"}
+                                ? `${tr("ชำระออนไลน์", "Paid online")} ${thb(paidOnline.get(b.id))}`
+                                : tr("ยังไม่ชำระ", "Not paid")}
                             </span>
                           </TableCell>
                           <TableCell className="text-right">
@@ -1530,7 +1543,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                                   );
                                 }}
                               >
-                                เปลี่ยนสถานะ
+                                {tr("เปลี่ยนสถานะ", "Change status")}
                               </Button>
                               {perms.manualConfirm && b.status === "pending" && (
                                 <Button
@@ -1542,7 +1555,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                                     setManualReason("");
                                   }}
                                 >
-                                  ยืนยันด้วยตนเอง
+                                  {tr("ยืนยันด้วยตนเอง", "Confirm manually")}
                                 </Button>
                               )}
                               <Button variant="ghost" size="sm" className="h-7 px-2" asChild>
@@ -1558,7 +1571,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                     {filteredBookings.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                          ไม่พบรายการจองที่ตรงกับเงื่อนไข
+                          {tr("ไม่พบรายการจองที่ตรงกับเงื่อนไข", "No bookings match your filters")}
                         </TableCell>
                       </TableRow>
                     )}
@@ -1586,26 +1599,26 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <CardTitle className="text-xl">งานซ่อมบำรุงและดูแลรักษารถยนต์</CardTitle>
+                    <CardTitle className="text-xl">{tr("งานซ่อมบำรุงและดูแลรักษารถยนต์", "Maintenance and servicing")}</CardTitle>
                     <CardDescription>
-                      บันทึกประวัติการเข้าศูนย์ เช็คระยะ และค่าใช้จ่ายการซ่อมบำรุง
+                      {tr("บันทึกประวัติการเข้าศูนย์ เช็คระยะ และค่าใช้จ่ายการซ่อมบำรุง", "Record service visits, scheduled checks and maintenance costs")}
                     </CardDescription>
                   </div>
                   <Button onClick={() => setMaintModalOpen(true)} className="gap-1.5">
-                    <Plus className="h-4 w-4" /> บันทึกงานซ่อมบำรุง
+                    <Plus className="h-4 w-4" /> {tr("บันทึกงานซ่อมบำรุง", "Log maintenance job")}
                   </Button>
                 </div>
 
                 <div className="mt-4 max-w-xs">
                   <Select value={maintStatusFilter} onValueChange={setMaintStatusFilter}>
                     <SelectTrigger>
-                      <SelectValue placeholder="กรองสถานะซ่อมบำรุง" />
+                      <SelectValue placeholder={tr("กรองสถานะซ่อมบำรุง", "Filter maintenance status")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">ทุกสถานะ</SelectItem>
-                      <SelectItem value="scheduled">นัดหมายแล้ว</SelectItem>
-                      <SelectItem value="in_progress">กำลังดำเนินการ</SelectItem>
-                      <SelectItem value="completed">เสร็จสิ้น</SelectItem>
+                      <SelectItem value="all">{tr("ทุกสถานะ", "All statuses")}</SelectItem>
+                      <SelectItem value="scheduled">{tr("นัดหมายแล้ว", "Scheduled")}</SelectItem>
+                      <SelectItem value="in_progress">{tr("กำลังดำเนินการ", "In progress")}</SelectItem>
+                      <SelectItem value="completed">{tr("เสร็จสิ้น", "Completed")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1615,12 +1628,12 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>รถยนต์ / ทะเบียน</TableHead>
-                      <TableHead>รายการซ่อมบำรุง</TableHead>
-                      <TableHead>วันที่นัดหมาย</TableHead>
-                      <TableHead>ค่าใช้จ่าย</TableHead>
-                      <TableHead>สถานะ</TableHead>
-                      <TableHead className="text-right">จัดการ</TableHead>
+                      <TableHead>{tr("รถยนต์ / ทะเบียน", "Car / plate")}</TableHead>
+                      <TableHead>{tr("รายการซ่อมบำรุง", "Job")}</TableHead>
+                      <TableHead>{tr("วันที่นัดหมาย", "Scheduled date")}</TableHead>
+                      <TableHead>{tr("ค่าใช้จ่าย", "Cost")}</TableHead>
+                      <TableHead>{tr("สถานะ", "Status")}</TableHead>
+                      <TableHead className="text-right">{tr("จัดการ", "Actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1652,7 +1665,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                               className="block text-[11px] font-normal text-destructive"
                               data-testid="negative-cost"
                             >
-                              ค่าใช้จ่ายติดลบไม่ถูกต้อง (ไม่นับในรายงาน)
+                              {tr("ค่าใช้จ่ายติดลบไม่ถูกต้อง (ไม่นับในรายงาน)", "Negative cost is invalid (not counted in reports)")}
                             </span>
                           )}
                         </TableCell>
@@ -1660,9 +1673,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                           <StatusBadge status={m.status} kind="maint" />
                           {m.completed_date && (
                             <span className="block text-[11px] text-muted-foreground mt-1">
-                              เสร็จ {fmtDate(m.completed_date)}
+                              {tr("เสร็จ", "Done")} {fmtDate(m.completed_date)}
                               {m.completed_date < m.scheduled_date && (
-                                <span className="text-amber-700"> (ก่อนวันนัด)</span>
+                                <span className="text-amber-700"> {tr("(ก่อนวันนัด)", "(early)")}</span>
                               )}
                             </span>
                           )}
@@ -1676,7 +1689,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                                 className="text-xs h-7"
                                 onClick={() => handleMaintenanceStatus(m, "in_progress")}
                               >
-                                เริ่มซ่อม
+                                {tr("เริ่มซ่อม", "Start")}
                               </Button>
                             )}
                             {m.status !== "completed" && (
@@ -1689,7 +1702,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                                     : handleMaintenanceStatus(m, "completed")
                                 }
                               >
-                                เสร็จสิ้น
+                                {tr("เสร็จสิ้น", "Completed")}
                               </Button>
                             )}
                           </div>
@@ -1699,7 +1712,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                     {filteredMaintenance.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                          ไม่พบประวัติงานซ่อมบำรุง
+                          {tr("ไม่พบประวัติงานซ่อมบำรุง", "No maintenance records")}
                         </TableCell>
                       </TableRow>
                     )}
@@ -1724,10 +1737,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card p-4 shadow-sm">
                 <div>
                   <h3 className="font-semibold text-sm">
-                    ช่วงเวลาสำหรับรายงาน (Date Range Filter)
+                    {tr("ช่วงเวลาสำหรับรายงาน (Date Range Filter)", "Report date range")}
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    กรองสถิติรายได้และข้อมูลการใช้งานตามช่วงเวลา
+                    {tr("กรองสถิติรายได้และข้อมูลการใช้งานตามช่วงเวลา", "Filter revenue and usage by period")}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -1739,10 +1752,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">ข้อมูลทั้งหมด (All Time)</SelectItem>
-                      <SelectItem value="30d">30 วันล่าสุด (Last 30 Days)</SelectItem>
-                      <SelectItem value="90d">90 วันล่าสุด (Last 90 Days)</SelectItem>
-                      <SelectItem value="year">ปีปัจจุบัน (This Year)</SelectItem>
+                      <SelectItem value="all">{tr("ข้อมูลทั้งหมด (All Time)", "All time")}</SelectItem>
+                      <SelectItem value="30d">{tr("30 วันล่าสุด (Last 30 Days)", "Last 30 days")}</SelectItem>
+                      <SelectItem value="90d">{tr("90 วันล่าสุด (Last 90 Days)", "Last 90 days")}</SelectItem>
+                      <SelectItem value="year">{tr("ปีปัจจุบัน (This Year)", "This year")}</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button
@@ -1751,7 +1764,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                     className="gap-1.5 text-xs"
                     onClick={exportBookingsCsv}
                   >
-                    <Download className="h-3.5 w-3.5" /> ส่งออกการจองและรายได้ (CSV)
+                    <Download className="h-3.5 w-3.5" /> {tr("ส่งออกการจองและรายได้ (CSV)", "Export bookings and revenue (CSV)")}
                   </Button>
                   <Button
                     variant="outline"
@@ -1759,7 +1772,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                     className="gap-1.5 text-xs"
                     onClick={exportMaintenanceCsv}
                   >
-                    <Download className="h-3.5 w-3.5" /> ส่งออกงานซ่อมบำรุง (CSV)
+                    <Download className="h-3.5 w-3.5" /> {tr("ส่งออกงานซ่อมบำรุง (CSV)", "Export maintenance (CSV)")}
                   </Button>
                 </div>
               </div>
@@ -1769,16 +1782,16 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <Card className="shadow-card border">
                   <CardHeader>
                     <CardTitle className="text-base font-semibold">
-                      สรุปผลประกอบการทางการเงิน
+                      {tr("สรุปผลประกอบการทางการเงิน", "Financial summary")}
                     </CardTitle>
                     <CardDescription>
-                      วิเคราะห์รายรับ ค่าใช้จ่าย และกำไรสุทธิตามช่วงเวลา
+                      {tr("วิเคราะห์รายรับ ค่าใช้จ่าย และกำไรสุทธิตามช่วงเวลา", "Revenue, costs and net profit for the period")}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">รายได้จากการเช่า:</span>
+                        <span className="text-muted-foreground">{tr("รายได้จากการเช่า:", "Rental revenue:")}</span>
                         <span className="font-semibold text-primary">
                           {thb(reportMetrics.revenue)}
                         </span>
@@ -1787,7 +1800,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                         className="flex justify-between pl-3 text-xs"
                         data-testid="revenue-online"
                       >
-                        <span className="text-muted-foreground">· ชำระออนไลน์:</span>
+                        <span className="text-muted-foreground">{tr("· ชำระออนไลน์:", "· Paid online:")}</span>
                         <span>{thb(reportMetrics.onlineRevenue)}</span>
                       </div>
                       <div
@@ -1795,18 +1808,18 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                         data-testid="revenue-pickup"
                       >
                         <span className="text-muted-foreground">
-                          · เก็บ ณ วันรับรถ (ค่าเช่าส่วนที่เหลือ):
+                          {tr("· เก็บ ณ วันรับรถ (ค่าเช่าส่วนที่เหลือ):", "· Collected at pickup (remaining rent):")}
                         </span>
                         <span>{thb(reportMetrics.pickupRevenue)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">ค่าใช้จ่ายซ่อมบำรุงรวม:</span>
+                        <span className="text-muted-foreground">{tr("ค่าใช้จ่ายซ่อมบำรุงรวม:", "Total maintenance cost:")}</span>
                         <span className="font-semibold text-destructive">
                           - {thb(reportMetrics.maintCost)}
                         </span>
                       </div>
                       <div className="border-t pt-2 flex justify-between text-base font-bold">
-                        <span>กำไรสุทธิจากการดำเนินงาน:</span>
+                        <span>{tr("กำไรสุทธิจากการดำเนินงาน:", "Net operating profit:")}</span>
                         <span
                           className={reportMetrics.profit < 0 ? "text-destructive" : "text-success"}
                         >
@@ -1816,34 +1829,33 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-3 text-xs">
-                      <span className="text-muted-foreground">รายการชำระเงิน:</span>
+                      <span className="text-muted-foreground">{tr("รายการชำระเงิน:", "Payments:")}</span>
                       <span className="text-right font-medium">
-                        {reportMetrics.paidCount} รายการ
+                        {reportMetrics.paidCount} {tr("รายการ", "items")}
                       </span>
-                      <span className="text-muted-foreground">การจองใหม่ (ไม่รวมยกเลิก):</span>
+                      <span className="text-muted-foreground">{tr("การจองใหม่ (ไม่รวมยกเลิก):", "New bookings (excl. cancelled):")}</span>
                       <span className="text-right font-medium">
-                        {reportMetrics.bookingCount} รายการ
+                        {reportMetrics.bookingCount} {tr("รายการ", "items")}
                       </span>
-                      <span className="text-muted-foreground">รอดำเนินการ (สัญญา/ชำระเงิน):</span>
+                      <span className="text-muted-foreground">{tr("รอดำเนินการ (สัญญา/ชำระเงิน):", "Pending (contract/payment):")}</span>
                       <span className="text-right font-medium">
-                        {reportMetrics.pendingCount} รายการ
+                        {reportMetrics.pendingCount} {tr("รายการ", "items")}
                       </span>
-                      <span className="text-muted-foreground">เสร็จสิ้น / ยกเลิก:</span>
+                      <span className="text-muted-foreground">{tr("เสร็จสิ้น / ยกเลิก:", "Completed / cancelled:")}</span>
                       <span className="text-right font-medium">
                         {reportMetrics.completedCount} / {reportMetrics.cancelledCount}
                       </span>
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      รายได้ = เงินที่ชำระออนไลน์ (DEMO) ของการจองที่ยืนยันแล้ว กำลังเช่า
-                      หรือเสร็จสิ้น ตามวันที่ชำระ + ค่าเช่าส่วนที่เหลือที่เก็บ ณ วันรับรถ
-                      ตามวันรับรถ เมื่อผู้ดูแลเปลี่ยนสถานะเป็น "กำลังเช่า" หรือ "เสร็จสิ้น" +
-                      ค่าจองของการจองที่ถูกยกเลิก (ไม่คืนตามเงื่อนไขสัญญา) ไม่รวมเงินประกัน
-                      (คืนให้ลูกค้า) และการจองที่รอชำระ
+                      {tr(
+                        `รายได้ = เงินที่ชำระออนไลน์ (DEMO) ของการจองที่ยืนยันแล้ว กำลังเช่า หรือเสร็จสิ้น ตามวันที่ชำระ + ค่าเช่าส่วนที่เหลือที่เก็บ ณ วันรับรถ ตามวันรับรถ เมื่อผู้ดูแลเปลี่ยนสถานะเป็น "กำลังเช่า" หรือ "เสร็จสิ้น" + ค่าจองของการจองที่ถูกยกเลิก (ไม่คืนตามเงื่อนไขสัญญา) ไม่รวมเงินประกัน (คืนให้ลูกค้า) และการจองที่รอชำระ`,
+                        `Revenue = online payments (DEMO) of confirmed, in-progress or completed bookings by payment date + remaining rent collected at pickup, by pickup date, once staff set the status to "In progress" or "Completed" + booking fees kept from cancelled bookings (non-refundable under the contract). Excludes deposits (returned to customers) and unpaid bookings.`,
+                      )}
                     </p>
 
                     <div className="pt-4 border-t">
                       <p className="text-xs text-muted-foreground mb-3 font-medium">
-                        สัดส่วนประเภทยานพาหนะในระบบ
+                        {tr("สัดส่วนประเภทยานพาหนะในระบบ", "Fleet by category")}
                       </p>
                       <div className="h-44">
                         <ResponsiveContainer width="100%" height="100%">
@@ -1876,22 +1888,22 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <Card className="shadow-card border">
                   <CardHeader>
                     <CardTitle className="text-base font-semibold">
-                      ดัชนีชี้วัดประสิทธิภาพการดำเนินงาน (KPIs)
+                      {tr("ดัชนีชี้วัดประสิทธิภาพการดำเนินงาน (KPIs)", "Key performance indicators (KPIs)")}
                     </CardTitle>
-                    <CardDescription>วิเคราะห์การใช้งานกองยานพาหนะและความคุ้มค่า</CardDescription>
+                    <CardDescription>{tr("วิเคราะห์การใช้งานกองยานพาหนะและความคุ้มค่า", "Fleet usage and value")}</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4 text-sm">
                     <div className="rounded-xl bg-muted/40 p-4 space-y-2.5">
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">
-                          อัตราการใช้งานรถยนต์ (Utilization):
+                          {tr("อัตราการใช้งานรถยนต์ (Utilization):", "Utilisation:")}
                         </span>
                         <span className="font-bold text-foreground">
                           {metrics.utilizationRate}%
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">ค่าเฉลี่ยรายได้ต่อคัน:</span>
+                        <span className="text-muted-foreground">{tr("ค่าเฉลี่ยรายได้ต่อคัน:", "Average revenue per car:")}</span>
                         <span className="font-semibold text-foreground">
                           {metrics.totalCarsCount > 0
                             ? thb(metrics.totalRevenue / metrics.totalCarsCount)
@@ -1899,27 +1911,26 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">จำนวนทริปที่สำเร็จแล้ว:</span>
+                        <span className="text-muted-foreground">{tr("จำนวนทริปที่สำเร็จแล้ว:", "Completed trips:")}</span>
                         <span className="font-semibold text-foreground">
-                          {metrics.completedBookingsCount} ทริป
+                          {metrics.completedBookingsCount} {tr("ทริป", "trips")}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">รถที่พร้อมให้บริการทันที:</span>
+                        <span className="text-muted-foreground">{tr("รถที่พร้อมให้บริการทันที:", "Cars available now:")}</span>
                         <span className="font-semibold text-success">
-                          {metrics.availableCarsCount} คัน
+                          {metrics.availableCarsCount} {tr("คัน", "cars")}
                         </span>
                       </div>
                     </div>
 
                     <div className="p-4 border rounded-xl text-xs text-muted-foreground space-y-1.5">
-                      <p className="font-medium text-foreground">💡 ข้อแนะนำสำหรับการดำเนินงาน:</p>
+                      <p className="font-medium text-foreground">{tr("💡 ข้อแนะนำสำหรับการดำเนินงาน:", "💡 Operating tips:")}</p>
                       <p>
-                        • หากอัตรา Utilization สูงกว่า 80% ควรพิจารณาเพิ่มจำนวนรถในหมวดหมู่ยอดนิยม
-                        (Eco/Sedan)
+                        {tr("• หากอัตรา Utilization สูงกว่า 80% ควรพิจารณาเพิ่มจำนวนรถในหมวดหมู่ยอดนิยม (Eco/Sedan)", "• If utilisation is above 80%, consider adding cars in popular categories (Eco/Sedan)")}
                       </p>
                       <p>
-                        • ตรวจสอบรถยนต์ที่มีกำหนดซ่อมบำรุงสม่ำเสมอเพื่อลดความเสี่ยงต่ออุบัติเหตุ
+                        {tr("• ตรวจสอบรถยนต์ที่มีกำหนดซ่อมบำรุงสม่ำเสมอเพื่อลดความเสี่ยงต่ออุบัติเหตุ", "• Service cars on schedule to reduce accident risk")}
                       </p>
                     </div>
                   </CardContent>
@@ -1937,10 +1948,10 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {editingCar ? "แก้ไขข้อมูลรถยนต์" : "เพิ่มรถยนต์ใหม่เข้าสู่ระบบ"}
+              {editingCar ? tr("แก้ไขข้อมูลรถยนต์", "Edit car") : tr("เพิ่มรถยนต์ใหม่เข้าสู่ระบบ", "Add a new car")}
             </DialogTitle>
             <DialogDescription>
-              ระบุรายละเอียดของตัวรถ หมายเลขทะเบียน และอัตราค่าเช่าต่อวัน
+              {tr("ระบุรายละเอียดของตัวรถ หมายเลขทะเบียน และอัตราค่าเช่าต่อวัน", "Enter the car details, plate number and daily rate")}
             </DialogDescription>
           </DialogHeader>
 
@@ -1948,11 +1959,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="car-brand" className="text-xs">
-                  ยี่ห้อ (Brand) *
+                  {tr("ยี่ห้อ (Brand) *", "Brand *")}
                 </Label>
                 <Input
                   id="car-brand"
-                  placeholder="เช่น Toyota, Honda"
+                  placeholder={tr("เช่น Toyota, Honda", "e.g. Toyota, Honda")}
                   value={carForm.brand}
                   onChange={(e) => setCarForm({ ...carForm, brand: e.target.value })}
                   required
@@ -1960,11 +1971,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               </div>
               <div>
                 <Label htmlFor="car-model" className="text-xs">
-                  รุ่น (Model) *
+                  {tr("รุ่น (Model) *", "Model *")}
                 </Label>
                 <Input
                   id="car-model"
-                  placeholder="เช่น Yaris, Camry"
+                  placeholder={tr("เช่น Yaris, Camry", "e.g. Yaris, Camry")}
                   value={carForm.model}
                   onChange={(e) => setCarForm({ ...carForm, model: e.target.value })}
                   required
@@ -1975,7 +1986,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label htmlFor="car-year" className="text-xs">
-                  ปีรถ (Year)
+                  {tr("ปีรถ (Year)", "Year")}
                 </Label>
                 <Input
                   id="car-year"
@@ -1989,7 +2000,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               </div>
               <div>
                 <Label htmlFor="car-category" className="text-xs">
-                  หมวดหมู่
+                  {tr("หมวดหมู่", "Category")}
                 </Label>
                 <Select
                   value={carForm.category}
@@ -2009,11 +2020,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               </div>
               <div>
                 <Label htmlFor="car-plate" className="text-xs">
-                  หมายเลขทะเบียน *
+                  {tr("หมายเลขทะเบียน *", "Plate number *")}
                 </Label>
                 <Input
                   id="car-plate"
-                  placeholder="เช่น 1กข 1234"
+                  placeholder={tr("เช่น 1กข 1234", "e.g. 1กข 1234")}
                   value={carForm.plate_no}
                   onChange={(e) => setCarForm({ ...carForm, plate_no: e.target.value })}
                   required
@@ -2024,7 +2035,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label htmlFor="car-seats" className="text-xs">
-                  จำนวนที่นั่ง
+                  {tr("จำนวนที่นั่ง", "Seats")}
                 </Label>
                 <Input
                   id="car-seats"
@@ -2037,7 +2048,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               </div>
               <div>
                 <Label htmlFor="car-trans" className="text-xs">
-                  ระบบเกียร์
+                  {tr("ระบบเกียร์", "Transmission")}
                 </Label>
                 <Input
                   id="car-trans"
@@ -2047,7 +2058,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               </div>
               <div>
                 <Label htmlFor="car-fuel" className="text-xs">
-                  เชื้อเพลิง
+                  {tr("เชื้อเพลิง", "Fuel")}
                 </Label>
                 <Input
                   id="car-fuel"
@@ -2060,7 +2071,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label htmlFor="car-price" className="text-xs">
-                  ราคาต่อวัน (THB) *
+                  {tr("ราคาต่อวัน (THB) *", "Price per day (THB) *")}
                 </Label>
                 <Input
                   id="car-price"
@@ -2075,7 +2086,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               </div>
               <div>
                 <Label htmlFor="car-mileage" className="text-xs">
-                  เลขไมล์สะสม (กม.)
+                  {tr("เลขไมล์สะสม (กม.)", "Mileage (km)")}
                 </Label>
                 <Input
                   id="car-mileage"
@@ -2087,7 +2098,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               </div>
               <div>
                 <Label htmlFor="car-status-select" className="text-xs">
-                  สถานะเริ่มต้น
+                  {tr("สถานะเริ่มต้น", "Initial status")}
                 </Label>
                 <Select
                   value={carForm.status}
@@ -2111,7 +2122,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
             <div>
               <Label htmlFor="car-img" className="text-xs">
-                URL รูปภาพรถยนต์ (เว้นว่างไว้เพื่อใช้รูปมาตรฐาน)
+                {tr("URL รูปภาพรถยนต์ (เว้นว่างไว้เพื่อใช้รูปมาตรฐาน)", "Car photo URL (leave empty for a stock photo)")}
               </Label>
               <Input
                 id="car-img"
@@ -2123,12 +2134,12 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
             <div>
               <Label htmlFor="car-desc" className="text-xs">
-                คำอธิบายเพิ่มเติม
+                {tr("คำอธิบายเพิ่มเติม", "Description")}
               </Label>
               <Textarea
                 id="car-desc"
                 rows={2}
-                placeholder="รายละเอียดอุปกรณ์ ความสะดวกสบาย..."
+                placeholder={tr("รายละเอียดอุปกรณ์ ความสะดวกสบาย...", "Equipment and comfort details...")}
                 value={carForm.description}
                 onChange={(e) => setCarForm({ ...carForm, description: e.target.value })}
               />
@@ -2136,9 +2147,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCarModalOpen(false)}>
-                ยกเลิก
+                {tr("ยกเลิก", "Cancel")}
               </Button>
-              <Button type="submit">บันทึกข้อมูลรถยนต์</Button>
+              <Button type="submit">{tr("บันทึกข้อมูลรถยนต์", "Save car")}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -2150,9 +2161,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       <Dialog open={!!updatingBooking} onOpenChange={(open) => !open && setUpdatingBooking(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>ปรับปรุงสถานะการจอง</DialogTitle>
+            <DialogTitle>{tr("ปรับปรุงสถานะการจอง", "Update booking status")}</DialogTitle>
             <DialogDescription>
-              รหัสการจอง:{" "}
+              {tr("รหัสการจอง:", "Booking code:")}{" "}
               <span className="font-mono font-bold text-foreground">
                 {updatingBooking?.booking_code}
               </span>
@@ -2161,13 +2172,13 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
           <div className="space-y-4 py-2">
             <div>
-              <Label className="text-xs">เลือกสถานะใหม่</Label>
+              <Label className="text-xs">{tr("เลือกสถานะใหม่", "Choose a new status")}</Label>
               <Select
                 value={newBookingStatus}
                 onValueChange={(val) => setNewBookingStatus(val as Tables<"bookings">["status"])}
               >
-                <SelectTrigger className="mt-1.5" aria-label="เลือกสถานะใหม่">
-                  <SelectValue placeholder="เลือกสถานะ..." />
+                <SelectTrigger className="mt-1.5" aria-label={tr("เลือกสถานะใหม่", "Choose a new status")}>
+                  <SelectValue placeholder={tr("เลือกสถานะ...", "Choose a status...")} />
                 </SelectTrigger>
                 <SelectContent>
                   {(updatingBooking ? bookingMovesOn(updatingBooking, todayBkk()) : []).map((s) => (
@@ -2181,37 +2192,39 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
             <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground space-y-1">
               <p>
-                • การจองที่รอดำเนินการจะ <strong>ยืนยัน</strong>{" "}
-                ได้หลังลูกค้ายืนยันสัญญาและชำระค่าจองแล้วเท่านั้น
+                {tr("• การจองที่รอดำเนินการจะ", "• A pending booking is")} <strong>{tr("ยืนยัน", "confirmed")}</strong>{" "}
+                {tr("ได้หลังลูกค้ายืนยันสัญญาและชำระค่าจองแล้วเท่านั้น", "only after the customer confirms the contract and pays the booking fee")}
               </p>
               <p>
-                • เมื่อเปลี่ยนเป็น <strong>กำลังเช่า (Active)</strong> ระบบจะปรับสถานะรถคันนี้เป็น
-                "ถูกเช่า" อัตโนมัติ และลูกค้าจะเห็น QR สำหรับชำระยอดวันรับรถ (ค่าเช่า + เงินประกัน −
-                ค่าจอง) ทันที
+                {tr("• เมื่อเปลี่ยนเป็น", "• When changed to")} <strong>{tr("กำลังเช่า (Active)", "In progress (Active)")}</strong>{" "}
+                {tr(
+                  `ระบบจะปรับสถานะรถคันนี้เป็น "ถูกเช่า" อัตโนมัติ และลูกค้าจะเห็น QR สำหรับชำระยอดวันรับรถ (ค่าเช่า + เงินประกัน − ค่าจอง) ทันที`,
+                  `the car is set to "Rented" automatically and the customer sees the QR code to pay the pickup amount (rent + deposit − booking fee) right away.`,
+                )}
               </p>
               {updatingBooking && todayBkk() < updatingBooking.start_date && (
                 <p className="font-medium text-amber-700" data-testid="before-pickup-note">
-                  • ส่งมอบรถ (กำลังเช่า) และรับรถคืน (เสร็จสิ้น) ได้ตั้งแต่วันรับรถ{" "}
-                  {fmtDate(updatingBooking.start_date)} เป็นต้นไป
+                  {tr("• ส่งมอบรถ (กำลังเช่า) และรับรถคืน (เสร็จสิ้น) ได้ตั้งแต่วันรับรถ", "• Hand-over (in progress) and return (completed) are possible from the pickup day")}{" "}
+                  {fmtDate(updatingBooking.start_date)} {tr("เป็นต้นไป", "onwards")}
                 </p>
               )}
               <p>
-                • เมื่อเปลี่ยนเป็น <strong>เสร็จสิ้น (Completed)</strong> รถจะกลับสู่สถานะ "ว่าง"
-                พร้อมให้บริการต่อ
+                {tr("• เมื่อเปลี่ยนเป็น", "• When changed to")} <strong>{tr("เสร็จสิ้น (Completed)", "Completed")}</strong>{" "}
+                {tr(`รถจะกลับสู่สถานะ "ว่าง" พร้อมให้บริการต่อ`, `the car goes back to "Available" for the next rental.`)}
               </p>
             </div>
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setUpdatingBooking(null)}>
-              ยกเลิก
+              {tr("ยกเลิก", "Cancel")}
             </Button>
             <Button
               onClick={handleUpdateBookingStatus}
               disabled={!perms.updateBookingStatus || !newBookingStatus}
               variant={newBookingStatus === "cancelled" ? "destructive" : "default"}
             >
-              บันทึกสถานะ
+              {tr("บันทึกสถานะ", "Save status")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2223,26 +2236,26 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       <Dialog open={maintModalOpen} onOpenChange={setMaintModalOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>บันทึกตารางการซ่อมบำรุง</DialogTitle>
+            <DialogTitle>{tr("บันทึกตารางการซ่อมบำรุง", "Log maintenance")}</DialogTitle>
             <DialogDescription>
-              สร้างงานเช็คระยะ ตรวจสภาพ หรือซ่อมแซมสำหรับรถยนต์ในกองยานพาหนะ
+              {tr("สร้างงานเช็คระยะ ตรวจสภาพ หรือซ่อมแซมสำหรับรถยนต์ในกองยานพาหนะ", "Create a scheduled check, inspection or repair for a fleet car")}
             </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleSaveMaintenance} className="space-y-3.5 pt-2">
             <div>
-              <Label className="text-xs">เลือกรถยนต์ที่ต้องการซ่อมบำรุง *</Label>
+              <Label className="text-xs">{tr("เลือกรถยนต์ที่ต้องการซ่อมบำรุง *", "Car to service *")}</Label>
               <Select
                 value={maintForm.car_id}
                 onValueChange={(val) => setMaintForm({ ...maintForm, car_id: val })}
               >
                 <SelectTrigger className="mt-1">
-                  <SelectValue placeholder="ค้นหาและเลือกรถยนต์..." />
+                  <SelectValue placeholder={tr("ค้นหาและเลือกรถยนต์...", "Search and choose a car...")} />
                 </SelectTrigger>
                 <SelectContent>
                   {cars.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
-                      {c.brand} {c.model} (ทะเบียน {c.plate_no})
+                      {c.brand} {c.model} ({tr("ทะเบียน", "plate")} {c.plate_no})
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -2251,11 +2264,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
             <div>
               <Label htmlFor="maint-title" className="text-xs">
-                หัวข้องานซ่อมบำรุง *
+                {tr("หัวข้องานซ่อมบำรุง *", "Job title *")}
               </Label>
               <Input
                 id="maint-title"
-                placeholder="เช่น เปลี่ยนถ่ายน้ำมันเครื่อง 20,000 กม."
+                placeholder={tr("เช่น เปลี่ยนถ่ายน้ำมันเครื่อง 20,000 กม.", "e.g. 20,000 km oil change")}
                 value={maintForm.title}
                 onChange={(e) => setMaintForm({ ...maintForm, title: e.target.value })}
                 required
@@ -2265,7 +2278,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="maint-date" className="text-xs">
-                  วันที่นัดหมาย
+                  {tr("วันที่นัดหมาย", "Scheduled date")}
                 </Label>
                 <Input
                   id="maint-date"
@@ -2277,7 +2290,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
               </div>
               <div>
                 <Label htmlFor="maint-cost" className="text-xs">
-                  ค่าใช้จ่ายโดยประมาณ (THB)
+                  {tr("ค่าใช้จ่ายโดยประมาณ (THB)", "Estimated cost (THB)")}
                 </Label>
                 <Input
                   id="maint-cost"
@@ -2291,7 +2304,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             </div>
 
             <div>
-              <Label className="text-xs">สถานะงานซ่อมบำรุง</Label>
+              <Label className="text-xs">{tr("สถานะงานซ่อมบำรุง", "Job status")}</Label>
               <Select
                 value={maintForm.status}
                 onValueChange={(val) =>
@@ -2302,21 +2315,21 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="scheduled">นัดหมายแล้ว</SelectItem>
-                  <SelectItem value="in_progress">กำลังดำเนินการ (รถจะงดให้บริการ)</SelectItem>
-                  <SelectItem value="completed">เสร็จสิ้นเรียบร้อย</SelectItem>
+                  <SelectItem value="scheduled">{tr("นัดหมายแล้ว", "Scheduled")}</SelectItem>
+                  <SelectItem value="in_progress">{tr("กำลังดำเนินการ (รถจะงดให้บริการ)", "In progress (car unavailable)")}</SelectItem>
+                  <SelectItem value="completed">{tr("เสร็จสิ้นเรียบร้อย", "Completed")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div>
               <Label htmlFor="maint-desc" className="text-xs">
-                รายละเอียดการซ่อมเพิ่มเติม
+                {tr("รายละเอียดการซ่อมเพิ่มเติม", "Job details")}
               </Label>
               <Textarea
                 id="maint-desc"
                 rows={2}
-                placeholder="ศูนย์บริการ อะไหล่ที่เปลี่ยน..."
+                placeholder={tr("ศูนย์บริการ อะไหล่ที่เปลี่ยน...", "Service centre, parts replaced...")}
                 value={maintForm.description}
                 onChange={(e) => setMaintForm({ ...maintForm, description: e.target.value })}
               />
@@ -2324,9 +2337,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setMaintModalOpen(false)}>
-                ยกเลิก
+                {tr("ยกเลิก", "Cancel")}
               </Button>
-              <Button type="submit">บันทึกข้อมูลซ่อมบำรุง</Button>
+              <Button type="submit">{tr("บันทึกข้อมูลซ่อมบำรุง", "Save maintenance job")}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -2338,18 +2351,17 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       <Dialog open={!!earlyComplete} onOpenChange={(open) => !open && setEarlyComplete(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>ยังไม่ถึงวันนัดหมาย</DialogTitle>
+            <DialogTitle>{tr("ยังไม่ถึงวันนัดหมาย", "Not yet the scheduled date")}</DialogTitle>
             <DialogDescription>
-              งาน "{earlyComplete?.title}" ของ {earlyComplete?.cars?.brand}{" "}
-              {earlyComplete?.cars?.model} นัดไว้วันที่{" "}
-              {earlyComplete ? fmtDate(earlyComplete.scheduled_date) : ""}{" "}
-              ยืนยันว่าทำเสร็จแล้ววันนี้ ({fmtDate(todayBkk())}) ใช่ไหม?
-              ระบบจะบันทึกวันที่เสร็จเป็นวันนี้ และแสดงว่า "ก่อนวันนัด"
+              {tr(
+                `งาน "${earlyComplete?.title ?? ""}" ของ ${earlyComplete?.cars?.brand ?? ""} ${earlyComplete?.cars?.model ?? ""} นัดไว้วันที่ ${earlyComplete ? fmtDate(earlyComplete.scheduled_date) : ""} ยืนยันว่าทำเสร็จแล้ววันนี้ (${fmtDate(todayBkk())}) ใช่ไหม? ระบบจะบันทึกวันที่เสร็จเป็นวันนี้ และแสดงว่า "ก่อนวันนัด"`,
+                `The job "${earlyComplete?.title ?? ""}" for the ${earlyComplete?.cars?.brand ?? ""} ${earlyComplete?.cars?.model ?? ""} is scheduled for ${earlyComplete ? fmtDate(earlyComplete.scheduled_date) : ""}. Confirm it was done today (${fmtDate(todayBkk())})? Today will be saved as the completion date and the job shows as "early".`,
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setEarlyComplete(null)}>
-              ยังไม่เสร็จ
+              {tr("ยังไม่เสร็จ", "Not yet")}
             </Button>
             <Button
               onClick={() => {
@@ -2358,7 +2370,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 if (m) void handleMaintenanceStatus(m, "completed");
               }}
             >
-              ยืนยันว่าเสร็จแล้ววันนี้
+              {tr("ยืนยันว่าเสร็จแล้ววันนี้", "Confirm it is done today")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2367,18 +2379,17 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
       <Dialog open={!!manualConfirmFor} onOpenChange={(open) => !open && setManualConfirmFor(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>ยืนยันการจองด้วยตนเอง (เฉพาะเจ้าของระบบ)</DialogTitle>
+            <DialogTitle>{tr("ยืนยันการจองด้วยตนเอง (เฉพาะเจ้าของระบบ)", "Confirm booking manually (Owner only)")}</DialogTitle>
             <DialogDescription>
-              การจอง{" "}
+              {tr("การจอง", "Bookings")}{" "}
               <span className="font-mono font-bold text-foreground">
                 {manualConfirmFor?.booking_code}
               </span>{" "}
-              จะถูกยืนยันโดยไม่ผ่านขั้นตอนสัญญาและการชำระเงิน ระบบจะไม่สร้างรายการชำระเงิน
-              และบันทึกเหตุผลพร้อมชื่อผู้ทำรายการในบันทึกตรวจสอบ
+              {tr("จะถูกยืนยันโดยไม่ผ่านขั้นตอนสัญญาและการชำระเงิน ระบบจะไม่สร้างรายการชำระเงิน และบันทึกเหตุผลพร้อมชื่อผู้ทำรายการในบันทึกตรวจสอบ", "will be confirmed without the contract and payment steps. No payment is created; the reason and your name are recorded in the audit log.")}
             </DialogDescription>
           </DialogHeader>
           <Label htmlFor="manual-reason" className="text-xs">
-            เหตุผล (อย่างน้อย 10 ตัวอักษร)
+            {tr("เหตุผล (อย่างน้อย 10 ตัวอักษร)", "Reason (at least 10 characters)")}
           </Label>
           <Textarea
             id="manual-reason"
@@ -2388,14 +2399,14 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setManualConfirmFor(null)}>
-              ยกเลิก
+              {tr("ยกเลิก", "Cancel")}
             </Button>
             <Button
               variant="destructive"
               onClick={handleManualConfirm}
               disabled={confirmingManually}
             >
-              {confirmingManually ? "กำลังยืนยัน..." : "ยืนยันการจอง"}
+              {confirmingManually ? tr("กำลังยืนยัน...", "Confirming...") : tr("ยืนยันการจอง", "Confirm booking")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2408,35 +2419,36 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="text-destructive flex items-center gap-2">
-              <AlertCircle className="h-5 w-5" /> ยืนยันการลบรถยนต์ออกจากระบบ
+              <AlertCircle className="h-5 w-5" /> {tr("ยืนยันการลบรถยนต์ออกจากระบบ", "Delete this car?")}
             </DialogTitle>
             <DialogDescription>
-              คุณแน่ใจหรือไม่ว่าต้องการลบรถยนต์{" "}
+              {tr("คุณแน่ใจหรือไม่ว่าต้องการลบรถยนต์", "Are you sure you want to delete")}{" "}
               <strong className="text-foreground">
-                {carToDelete?.brand} {carToDelete?.model} (ทะเบียน {carToDelete?.plate_no})
+                {carToDelete?.brand} {carToDelete?.model} ({tr("ทะเบียน", "plate")} {carToDelete?.plate_no})
               </strong>{" "}
-              ออกจากระบบ?
+              {tr("ออกจากระบบ?", "from the system?")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="rounded-lg bg-destructive/10 p-3 text-xs text-destructive border border-destructive/20 space-y-1">
-            <p className="font-semibold">⚠️ ข้อกำหนดความปลอดภัยของระบบ:</p>
+            <p className="font-semibold">{tr("⚠️ ข้อกำหนดความปลอดภัยของระบบ:", "⚠️ Safety rule:")}</p>
             <p>
-              • หากรถยนต์คันนี้เคยมีประวัติการจองหรือสัญญาเช่าในระบบ ระบบจะไม่อนุญาตให้ลบ
-              เพื่อป้องกันข้อมูลสูญหาย
+              {tr("• หากรถยนต์คันนี้เคยมีประวัติการจองหรือสัญญาเช่าในระบบ ระบบจะไม่อนุญาตให้ลบ เพื่อป้องกันข้อมูลสูญหาย", "• If this car has any bookings or contracts, it cannot be deleted, to prevent data loss")}
             </p>
             <p>
-              • หากต้องการหยุดให้บริการรถคันนี้ กรุณาเปลี่ยนสถานะเป็น "งดให้บริการ" หรือ "ซ่อมบำรุง"
-              แทน
+              {tr(
+                `• หากต้องการหยุดให้บริการรถคันนี้ กรุณาเปลี่ยนสถานะเป็น "งดให้บริการ" หรือ "ซ่อมบำรุง" แทน`,
+                `• To take this car out of service, set its status to "Unavailable" or "Maintenance" instead.`,
+              )}
             </p>
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setCarToDelete(null)}>
-              ยกเลิก
+              {tr("ยกเลิก", "Cancel")}
             </Button>
             <Button variant="destructive" disabled={deletingCar} onClick={handleDeleteCar}>
-              {deletingCar ? "กำลังลบ..." : "ยืนยันการลบ"}
+              {deletingCar ? tr("กำลังลบ...", "Deleting...") : tr("ยืนยันการลบ", "Delete")}
             </Button>
           </DialogFooter>
         </DialogContent>

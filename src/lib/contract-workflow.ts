@@ -265,14 +265,26 @@ export function validateContractForm(
 ): string | null {
   const time = /^([01]\d|2[0-3]):[0-5]\d$/;
   if (!time.test(f.pickupTime) || !time.test(f.returnTime))
-    return "กรุณาระบุเวลารับ-คืนรถให้ถูกต้อง (HH:MM)";
+    return tr(
+      "กรุณาระบุเวลารับ-คืนรถให้ถูกต้อง (HH:MM)",
+      "Please enter valid pickup and return times (HH:MM)",
+    );
   if (!withinHours(f.pickupTime) || !withinHours(f.returnTime))
-    return `เวลารับรถและคืนรถต้องอยู่ระหว่าง ${OPENING_TIME}-${CLOSING_TIME} น.`;
-  if (startDate === endDate && f.returnTime <= f.pickupTime) return "เวลาคืนรถต้องหลังเวลารับรถ";
+    return tr(
+      `เวลารับรถและคืนรถต้องอยู่ระหว่าง ${OPENING_TIME}-${CLOSING_TIME} น.`,
+      `Pickup and return times must be between ${OPENING_TIME} and ${CLOSING_TIME}.`,
+    );
+  if (startDate === endDate && f.returnTime <= f.pickupTime)
+    return tr("เวลาคืนรถต้องหลังเวลารับรถ", "The return time must be after the pickup time");
   if (!Number.isFinite(f.deposit) || f.deposit < 0)
-    return "เงินประกันต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป";
-  if (!f.mileageAllowance.trim()) return "กรุณาระบุข้อกำหนดระยะทาง";
-  if (!f.latePenalty.trim()) return "กรุณาระบุค่าปรับส่งคืนล่าช้า";
+    return tr(
+      "เงินประกันต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป",
+      "The deposit must be a number of 0 or more",
+    );
+  if (!f.mileageAllowance.trim())
+    return tr("กรุณาระบุข้อกำหนดระยะทาง", "Please enter the mileage terms");
+  if (!f.latePenalty.trim())
+    return tr("กรุณาระบุค่าปรับส่งคืนล่าช้า", "Please enter the late return penalty");
   return null;
 }
 
@@ -294,7 +306,8 @@ export type RevisionRequest = { customerName: string; pickupTime: string; return
 
 /** Thai error message, or null when the request is valid. */
 export function revisionRequestError(r: RevisionRequest, sameDay: boolean): string | null {
-  if (r.customerName.trim().length < 2) return tr("กรุณากรอกชื่อลูกค้า", "Please enter the customer name");
+  if (r.customerName.trim().length < 2)
+    return tr("กรุณากรอกชื่อลูกค้า", "Please enter the customer name");
   if (!withinHours(r.pickupTime) || !withinHours(r.returnTime))
     return tr(
       `เวลารับรถและคืนรถต้องอยู่ระหว่าง ${OPENING_TIME}-${CLOSING_TIME} น.`,
@@ -334,5 +347,8 @@ export function parseRevisionReason(text: string | null | undefined): RevisionRe
 /** A reason for a revision request or a manual confirmation (same minimums as the database). */
 export const reasonError = (reason: string, min: number) =>
   reason.trim().length < min
-    ? tr(`กรุณาระบุเหตุผลอย่างน้อย ${min} ตัวอักษร`, `Please give a reason of at least ${min} characters`)
+    ? tr(
+        `กรุณาระบุเหตุผลอย่างน้อย ${min} ตัวอักษร`,
+        `Please give a reason of at least ${min} characters`,
+      )
     : null;

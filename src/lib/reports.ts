@@ -1,5 +1,6 @@
 import { BOOKING_FEE } from "@/lib/booking-fee";
 import { TZ } from "@/lib/format";
+import { tr } from "@/lib/i18n";
 
 export type ReportRange = "all" | "30d" | "90d" | "year";
 
@@ -49,7 +50,9 @@ export const validMaintenanceCost = (cost: Amount) => {
 
 /** Thai error message for a maintenance cost entered by an admin, or null when valid. */
 export const maintenanceCostError = (cost: number) =>
-  !Number.isFinite(cost) || cost < 0 ? "ค่าใช้จ่ายต้องเป็นตัวเลขตั้งแต่ 0 บาทขึ้นไป" : null;
+  !Number.isFinite(cost) || cost < 0
+    ? tr("ค่าใช้จ่ายต้องเป็นตัวเลขตั้งแต่ 0 บาทขึ้นไป", "The cost must be 0 THB or more")
+    : null;
 
 /** A plain YYYY-MM-DD date is a Bangkok calendar day; anything else is parsed as a timestamp. */
 export const toInstant = (d: string | Date): Date =>
