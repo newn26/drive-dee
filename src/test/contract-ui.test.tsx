@@ -460,6 +460,45 @@ describe("customer booking page", () => {
 });
 
 describe("G04 contract view and printing", () => {
+  it("summary shows email, address, ID, licence and creator", () => {
+    const v = versionRow({
+      customer_license_no: "TEST-0001",
+      ...({
+        customer_email: "a@example.test",
+        customer_address: "ที่อยู่ทดสอบ",
+        customer_id_card_no: "FAKE-ID-0001",
+        created_by_name: "ทดสอบ แอดมิน",
+      } as object),
+    });
+    renderWithQuery(
+      <ContractView contract={contractRow()} versions={[v]} events={[]} audience="customer" />,
+    );
+    for (const [label, value] of [
+      ["อีเมล", "a@example.test"],
+      ["ที่อยู่", "ที่อยู่ทดสอบ"],
+      ["เลขบัตรประชาชน/พาสปอร์ต", "FAKE-ID-0001"],
+      ["เลขที่ใบอนุญาตขับขี่", "TEST-0001"],
+      ["ผู้จัดทำสัญญา", "ทดสอบ แอดมิน"],
+    ]) {
+      expect(screen.getByText(label!)).toBeInTheDocument();
+      expect(screen.getByText(value!)).toBeInTheDocument();
+    }
+  });
+
+  it("summary of a pre-migration version shows no empty new rows", () => {
+    renderWithQuery(
+      <ContractView
+        contract={contractRow()}
+        versions={[versionRow()]}
+        events={[]}
+        audience="customer"
+      />,
+    );
+    expect(screen.getByText("ผู้เช่า")).toBeInTheDocument();
+    for (const label of ["อีเมล", "ที่อยู่", "เลขบัตรประชาชน/พาสปอร์ต", "ผู้จัดทำสัญญา"])
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
+  });
+
   it("shows a legacy contract's original text with a print button", () => {
     const legacy = versionRow({
       is_legacy: true,
@@ -612,6 +651,28 @@ describe("D08 admin contracts panel", () => {
     fireEvent.mouseDown(screen.getByRole("tab", { name: /สร้างสัญญา \(1\)/ }));
     expect(screen.getByText("BK261112TEST1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /สร้างสัญญา$/ })).toBeEnabled();
+  });
+
+  it("creating a contract always includes the licence and shows no licence checkbox", async () => {
+    mocks.tables = {};
+    renderWithQuery(
+      <AdminContractsPanel
+        perms={dashboardPermissions("admin")}
+        contracts={[]}
+        bookings={[panelBooking]}
+        profileMap={profiles}
+      />,
+    );
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /สร้างสัญญา \(1\)/ }));
+    fireEvent.click(screen.getByRole("button", { name: /สร้างสัญญา$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "สร้างฉบับร่าง" }));
+    expect(screen.queryByLabelText(/ระบุเลขใบอนุญาตขับขี่/)).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.rpc).toHaveBeenCalledWith(
+        "admin_create_contract",
+        expect.objectContaining({ _booking_id: "b-1", _include_license: true }),
+      ),
+    );
   });
 });
 

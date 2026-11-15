@@ -24,6 +24,8 @@ const WORKFLOW_MIGRATION_FILE = "0004_contract_approval_workflow.sql";
 /** The migration under test; CONTRACT_MIGRATION_SQL swaps in another file (mutation tests). */
 export const PROPOSED_MIGRATION =
   process.env["CONTRACT_MIGRATION_SQL"] ?? path.join(MIGRATIONS_DIR, WORKFLOW_MIGRATION_FILE);
+/** Proposed follow-up migration (not yet applied by Lovable): full customer details on contracts. */
+export const CUSTOMER_DETAILS_SQL = path.join(ROOT, "docs/database/contract-customer-details.sql");
 
 const SUPABASE_STUB = `
 create role anon nologin;
@@ -69,6 +71,8 @@ export type CreateOptions = {
   applyProposed?: boolean;
   /** Also apply migrations after 0004 (0005+). Default false: the 0004 suites test 0004 itself. */
   applyLater?: boolean;
+  /** SQL files applied, in order, after the proposed migration and any later migrations. */
+  extraSql?: string[];
 };
 
 export async function createTestDb(options: CreateOptions = {}): Promise<TestDb> {
@@ -131,6 +135,7 @@ export async function createTestDb(options: CreateOptions = {}): Promise<TestDb>
     if (options.applyLater)
       for (const f of later) await pg.exec(readFileSync(path.join(MIGRATIONS_DIR, f), "utf8"));
   }
+  for (const f of options.extraSql ?? []) await pg.exec(readFileSync(f, "utf8"));
   return db;
 }
 
@@ -142,6 +147,10 @@ let seq = 0;
 
 export type TestUser = { id: string; email: string };
 
+/**
+ * A customer with a fictional profile. Gets a fake driving licence (`TESTLIC…`) unless
+ * `licence: ""` asks for none: bookings need a licence once contract-customer-details.sql is applied.
+ */
 export async function createUser(
   db: TestDb,
   opts: { name?: string; phone?: string; licence?: string; email?: string; demo?: boolean } = {},
@@ -160,8 +169,9 @@ export async function createUser(
       JSON.stringify(opts.demo ? { demo: true } : {}),
     ],
   );
-  if (opts.licence)
-    await db.sql("update public.profiles set license_no = $2 where id = $1", [u!.id, opts.licence]);
+  const licence = opts.licence ?? `TESTLIC${String(seq).padStart(6, "0")}`;
+  if (licence)
+    await db.sql("update public.profiles set license_no = $2 where id = $1", [u!.id, licence]);
   return { id: u!.id, email };
 }
 

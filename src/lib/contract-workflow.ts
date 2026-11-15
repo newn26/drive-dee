@@ -237,7 +237,6 @@ export type ContractForm = {
   mileageAllowance: string;
   latePenalty: string;
   additionalConditions: string;
-  includeLicence: boolean;
 };
 
 export const DEFAULT_CONTRACT_FORM: ContractForm = {
@@ -247,7 +246,6 @@ export const DEFAULT_CONTRACT_FORM: ContractForm = {
   mileageAllowance: "ไม่จำกัดระยะทาง",
   latePenalty: "500 บาท / ชั่วโมง",
   additionalConditions: "",
-  includeLicence: false,
 };
 
 /** Thai error message, or null when the form is valid (the server checks again). */

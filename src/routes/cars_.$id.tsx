@@ -13,7 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { carImage, isStockCarImage } from "@/lib/car-images";
 import { categoryLabel, daysBetween, fmtDate, thb, todayBkk } from "@/lib/format";
-import { bookedCarIdsQuery, invalidateBookingData } from "@/lib/queries";
+import { bookedCarIdsQuery, hasLicence, invalidateBookingData, ownProfileQuery } from "@/lib/queries";
 import { adjustEndForStart, rentalDateError } from "@/lib/date-range";
 import { rentalCharges } from "@/lib/booking-fee";
 
@@ -50,6 +50,11 @@ function CarDetail() {
     },
   });
   const car = carQ.data;
+  // False while loading or on error: never let a booking through before the licence is known
+  const profileQ = useQuery({ ...ownProfileQuery(user?.id ?? ""), enabled: !!user });
+  const licenceReady = hasLicence(profileQ.data);
+  const needsLicence = !!user && !licenceReady;
+  const licenceMissing = !!user && profileQ.isSuccess && !licenceReady;
   const { data: reviews = [] } = useQuery({
     queryKey: ["reviews", id],
     queryFn: async () =>
@@ -95,6 +100,7 @@ function CarDetail() {
 
   const book = async () => {
     if (!user) return navigate({ to: "/auth" });
+    if (needsLicence) return toast.error("กรุณากรอกเลขใบอนุญาตขับขี่ในโปรไฟล์ก่อนจองรถ");
     if (dateError || days <= 0) return toast.error(dateError ?? "กรุณาเลือกวันที่ให้ถูกต้อง");
     if (bookedForDates) return toast.error("รถคันนี้ไม่ว่างในช่วงวันที่เลือก");
     setBusy(true);
@@ -197,11 +203,19 @@ function CarDetail() {
             รถคันนี้ไม่ว่างในช่วงวันที่เลือก กรุณาเลือกวันอื่น
           </p>
         )}
+        {licenceMissing && (
+          <p className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs" role="alert">
+            กรุณากรอกเลขใบอนุญาตขับขี่ในโปรไฟล์ก่อนจองรถ{" "}
+            <Link to="/profile" className="font-medium text-primary underline">
+              ไปที่หน้าโปรไฟล์
+            </Link>
+          </p>
+        )}
         {checkingDates && <p className="text-xs text-muted-foreground" role="status">กำลังตรวจสอบวันว่าง...</p>}
         <Button
           className="w-full"
           size="lg"
-          disabled={busy || (!!user && !!dateError) || bookedForDates || car.status === "maintenance" || car.status === "unavailable"}
+          disabled={busy || needsLicence || (!!user && !!dateError) || bookedForDates || car.status === "maintenance" || car.status === "unavailable"}
           onClick={book}
         >
           {user ? "จองรถคันนี้" : "เข้าสู่ระบบเพื่อจอง"}

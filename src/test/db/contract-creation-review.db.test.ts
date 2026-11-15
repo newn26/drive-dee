@@ -45,7 +45,7 @@ beforeAll(async () => {
     phone: "000-000-0001",
     licence: "TEST-0001",
   });
-  bob = await createUser(db, { name: "ทดสอบ ลูกค้าบี", phone: "000-000-0002" });
+  bob = await createUser(db, { name: "ทดสอบ ลูกค้าบี", phone: "000-000-0002", licence: "" });
   await db.sql("update public.profiles set id_card_no = 'FAKE-ID-0000' where id = $1", [alice.id]);
   cars = await allCarIds(db);
 }, 60000);

@@ -16,7 +16,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -108,7 +107,6 @@ function formFromVersion(v: ContractVersionRow | undefined): ContractForm {
     mileageAllowance: v.mileage_allowance ?? DEFAULT_CONTRACT_FORM.mileageAllowance,
     latePenalty: v.late_penalty ?? DEFAULT_CONTRACT_FORM.latePenalty,
     additionalConditions: v.additional_conditions ?? "",
-    includeLicence: !!v.customer_license_no,
   };
 }
 
@@ -210,17 +208,6 @@ export function ContractFormFields({
             className="mt-1"
           />
         </div>
-      </div>
-      <div className="flex items-start gap-2">
-        <Checkbox
-          id="cf-licence"
-          checked={form.includeLicence}
-          disabled={disabled}
-          onCheckedChange={(c) => set("includeLicence", !!c)}
-        />
-        <Label htmlFor="cf-licence" className="cursor-pointer text-xs leading-tight">
-          ระบุเลขใบอนุญาตขับขี่ของลูกค้าในสัญญา (เฉพาะเมื่อจำเป็น · ไม่มีการใส่เลขบัตรประชาชน)
-        </Label>
       </div>
     </div>
   );

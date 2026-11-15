@@ -198,11 +198,20 @@ sequenceDiagram
 | 5. Customer pays (DEMO)     | `pay_booking`              | Booking owner       | `payments` row (`paid`, `DEMO-…` reference); contract `paid`                                                  |
 | 6. Booking confirmed        | (inside `pay_booking`)     | —                   | Booking `pending → confirmed`                                                                                 |
 
-Contract snapshot fields: customer full name and phone, driving licence number **only** if
-the admin ticks "include licence", car, plate, pickup location, pickup/return time, rental
-days and price, deposit, mileage allowance, late-return penalty and optional additional
-conditions. The national ID number is never copied into contracts. The deposit is shown in the
+Contract snapshot fields: customer full name and phone, driving licence number (always; the
+app no longer offers an "include licence" option and a customer without one gets no contract),
+car, plate, pickup location, pickup/return time, rental days and price, deposit, mileage
+allowance, late-return penalty and optional additional conditions. The deposit is shown in the
 contract as payable at pickup; it is **not** part of the online (DEMO) payment.
+
+Booking needs a driving licence number in the profile (the car page disables the book button;
+demo customers get a fake `DEMO-` number).
+
+**Pending migration** (`docs/database/contract-customer-details-lovable-prompt.md`, not yet
+applied): each version will also snapshot the customer's email, address and ID card / passport
+number and the name of the admin who created it ("ผู้จัดทำสัญญา"), freeze those once sent, and
+the database will refuse bookings without a licence. Until then the national ID number is not
+copied into contracts.
 
 Customers never see unsent drafts: RLS shows a customer their contract only once it has been
 sent, only sent versions, and only customer-facing events.
