@@ -8,9 +8,8 @@
 -- Plain DROP (no CASCADE): if anything did depend on the table, this fails instead of
 -- silently dropping it too. Re-runnable.
 --
--- The reviews_moderate admin permission is left in admin_permission_list() and existing
--- admin_members rows: removing it would mean changing the admin functions and data, and
--- it no longer grants anything.
+-- The reviews_moderate admin permission is removed separately by
+-- drop-reviews-permission.sql.
 -- =====================================================================
 
 drop table if exists public.reviews;

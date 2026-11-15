@@ -169,7 +169,6 @@ Each non-Owner admin has a subset of these permissions. The Owner implicitly has
 | `contracts_approve` | Approve or return legacy contracts left in `pending_admin_review` (no new contract reaches that status since 0007) |
 | `bookings_manage`   | Change booking status                                                                                              |
 | `fleet_manage`      | Add, edit, delete cars; create, edit, delete maintenance jobs                                                      |
-| `reviews_moderate`  | No longer offered: the review feature was removed (the permission still exists in the database)                    |
 
 All active admins can read the dashboard, contracts, bookings, maintenance and reports.
 A **suspended** or **revoked** admin is not treated as an admin anywhere: `has_role()` returns
@@ -349,7 +348,7 @@ flowchart LR
 ### Permission management
 
 `owner_set_admin_permissions` replaces a non-Owner admin's permission set. The list is
-validated against the five known permissions and must not be empty. The Owner's own
+validated against the four known permissions and must not be empty. The Owner's own
 permissions cannot be changed.
 
 ### Suspension and revocation
@@ -450,16 +449,17 @@ These files in `docs/database/` are **also applied to production**. They were ru
 with the database query tool and are **not yet recorded as Drizzle migrations**; each is
 re-runnable, and the live function bodies were checked against the files:
 
-| File                     | Adds                                                                                              |
-| ------------------------ | ------------------------------------------------------------------------------------------------- |
-| `revision-limits.sql`    | Max 2 customer change requests; `admin_apply_requested_name`                                      |
-| `pickup-day-status.sql`  | Hand-over / return only from the pickup day                                                       |
-| `pickup-payment.sql`     | `payments.kind`, `payments.deposit`, one paid payment per kind, `pay_pickup`                      |
-| `pickup-refund.sql`      | Pickup payment refunded when cancelled before hand-over (superseded in practice by the next file) |
-| `pickup-at-handover.sql` | `pay_pickup` only once the booking is `active`                                                    |
-| `input-validation.sql`   | Car CHECK constraints, profile field formats, "nothing changed" revision check                    |
-| `booking-documents.sql`  | ID card + licence required to book; `booking_receipt_details` for the receipt                     |
-| `drop-reviews.sql`       | Drops the unused `reviews` table                                                                  |
+| File                          | Adds                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------- |
+| `revision-limits.sql`         | Max 2 customer change requests; `admin_apply_requested_name`                                      |
+| `pickup-day-status.sql`       | Hand-over / return only from the pickup day                                                       |
+| `pickup-payment.sql`          | `payments.kind`, `payments.deposit`, one paid payment per kind, `pay_pickup`                      |
+| `pickup-refund.sql`           | Pickup payment refunded when cancelled before hand-over (superseded in practice by the next file) |
+| `pickup-at-handover.sql`      | `pay_pickup` only once the booking is `active`                                                    |
+| `input-validation.sql`        | Car CHECK constraints, profile field formats, "nothing changed" revision check                    |
+| `booking-documents.sql`       | ID card + licence required to book; `booking_receipt_details` for the receipt                     |
+| `drop-reviews.sql`            | Drops the unused `reviews` table                                                                  |
+| `drop-reviews-permission.sql` | Removes the `reviews_moderate` admin permission (list, rows, default, CHECKs)                     |
 
 ```mermaid
 erDiagram
@@ -612,7 +612,7 @@ src/test/                 Unit/UI tests; src/test/db/ holds database tests (PGli
 
 ## 13. Testing and quality checks
 
-38 test files, 354 tests (Vitest).
+39 test files, 359 tests (Vitest).
 
 - **Unit and UI tests** (`src/test/*.test.ts(x)`, jsdom): roles and dashboard permissions,
   protected routes, contract status rules and UI, contract terms, payment window and countdown,
@@ -663,7 +663,7 @@ clients.
   recorded or shown only.
 - **ID card and licence numbers are checked for format only**, not verified against any
   official source.
-- **Eight `docs/database/*.sql` files are live but not Drizzle migrations** (see
+- **Nine `docs/database/*.sql` files are live but not Drizzle migrations** (see
   [Database architecture](#9-database-architecture)); a fresh database built from
   `drizzle/migrations/` alone would miss them.
 - **No email notifications.** Invitation links must be copied and delivered by the Owner;

@@ -163,7 +163,6 @@ const member = (over: Record<string, unknown> = {}) => ({
     "contracts_approve",
     "bookings_manage",
     "fleet_manage",
-    "reviews_moderate",
   ],
   ...over,
 });
