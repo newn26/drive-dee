@@ -76,8 +76,10 @@ import {
   OPENING_TIME,
   customerRevisionCount,
   MAX_CUSTOMER_REVISIONS,
+  REVISION_UNCHANGED_MESSAGE,
   revisionReasonText,
   revisionRequestError,
+  revisionUnchanged,
   type RevisionRequest,
   refundStatusLabel,
 } from "@/lib/contract-workflow";
@@ -122,6 +124,9 @@ function BookingDetailsPage() {
     pickupTime: "10:00",
     returnTime: "18:00",
   });
+  // What the sent version says; a request must change at least one of these
+  const [revisionOriginal, setRevisionOriginal] = useState<RevisionRequest | null>(null);
+  const revisionIsUnchanged = !!revisionOriginal && revisionUnchanged(revisionOriginal, revision);
   const [sendingRevision, setSendingRevision] = useState(false);
 
   // Credit Card Form State
@@ -325,17 +330,21 @@ function BookingDetailsPage() {
   // Prefill the request with what the sent version says now
   const openRevision = () => {
     const v = versions.find((x) => x.version === contract?.sent_version);
-    setRevision({
+    const current = {
       customerName: v?.customer_name ?? "",
       pickupTime: bangkokTime(v?.pickup_at, "10:00"),
       returnTime: bangkokTime(v?.return_at, "18:00"),
-    });
+    };
+    setRevision(current);
+    setRevisionOriginal(current);
     setRevisionOpen(true);
   };
 
   const handleRequestRevision = async () => {
     if (!contract || contract.sent_version === null || !booking || !user) return;
-    const problem = revisionRequestError(revision, booking.start_date === booking.end_date);
+    const problem = revisionIsUnchanged
+      ? REVISION_UNCHANGED_MESSAGE
+      : revisionRequestError(revision, booking.start_date === booking.end_date);
     if (problem) {
       toast.error(problem);
       return;
@@ -604,7 +613,10 @@ function BookingDetailsPage() {
               <li>ผู้ดูแลยืนยันการจองและส่งฉบับร่างสัญญาให้คุณ</li>
               <li>คุณตรวจสอบสัญญา ขอแก้ไขได้ แล้วกดยืนยัน</li>
               <li>ชำระค่าจอง {thb(BOOKING_FEE)} ด้วย QR หรือบัตร ภายใน 15 นาทีหลังยืนยัน (DEMO)</li>
-              <li>วันรับรถ เมื่อผู้ดูแลยืนยันว่าคุณมารับรถ QR สำหรับชำระค่าเช่า + เงินประกัน (หักค่าจองแล้ว) จะขึ้นที่หน้านี้</li>
+              <li>
+                วันรับรถ เมื่อผู้ดูแลยืนยันว่าคุณมารับรถ QR สำหรับชำระค่าเช่า + เงินประกัน
+                (หักค่าจองแล้ว) จะขึ้นที่หน้านี้
+              </li>
               <li>คืนรถ รับเงินประกันคืน</li>
             </ol>
           </div>
@@ -1107,12 +1119,24 @@ function BookingDetailsPage() {
             <p className="text-xs text-muted-foreground">
               รับและคืนรถได้ระหว่าง {OPENING_TIME}-{CLOSING_TIME} น.
             </p>
+            {revisionIsUnchanged && (
+              <p
+                className="text-xs text-amber-700 dark:text-amber-400"
+                data-testid="revision-unchanged"
+              >
+                ยังไม่ได้แก้ไขข้อมูลใด เปลี่ยนชื่อหรือเวลาที่ต้องการก่อนส่งคำขอ
+                (การขอแก้ไขแต่ละครั้งนับเป็น 1 สิทธิ์)
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRevisionOpen(false)}>
               ยกเลิก
             </Button>
-            <Button onClick={handleRequestRevision} disabled={sendingRevision}>
+            <Button
+              onClick={handleRequestRevision}
+              disabled={sendingRevision || revisionIsUnchanged}
+            >
               {sendingRevision ? "กำลังส่ง..." : "ส่งคำขอแก้ไข"}
             </Button>
           </DialogFooter>

@@ -294,6 +294,16 @@ export function revisionRequestError(r: RevisionRequest, sameDay: boolean): stri
   return null;
 }
 
+/** True when the request asks for nothing new (same name and times as the sent version). */
+export const revisionUnchanged = (original: RevisionRequest, r: RevisionRequest) =>
+  r.customerName.trim() === original.customerName.trim() &&
+  r.pickupTime.slice(0, 5) === original.pickupTime.slice(0, 5) &&
+  r.returnTime.slice(0, 5) === original.returnTime.slice(0, 5);
+
+/** Shown (and returned by customer_request_revision) when nothing was changed. */
+export const REVISION_UNCHANGED_MESSAGE =
+  "ยังไม่ได้แก้ไขข้อมูลใด กรุณาเปลี่ยนชื่อหรือเวลาที่ต้องการก่อนส่งคำขอ";
+
 /** The reason text sent to the admin (customer_request_revision needs at least 5 characters). */
 export const revisionReasonText = (r: RevisionRequest) =>
   [
