@@ -105,6 +105,7 @@ import {
 import { AdminManagementPanel } from "@/components/admin/admin-management-panel";
 import { adminBookingMoves, reasonError } from "@/lib/contract-workflow";
 import { ownerManualConfirm } from "@/lib/contract-api";
+import { validateCarPrice } from "@/lib/form-validation";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
@@ -391,6 +392,11 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     e.preventDefault();
     if (!carForm.brand || !carForm.model || !carForm.plate_no) {
       toast.error("กรุณากรอกยี่ห้อ รุ่น และทะเบียนรถให้ครบถ้วน");
+      return;
+    }
+    const priceError = validateCarPrice(carForm.price_per_day);
+    if (priceError) {
+      toast.error(priceError);
       return;
     }
 
@@ -1707,6 +1713,8 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                 <Input
                   id="car-price"
                   type="number"
+                  min={0.01}
+                  step={0.01}
                   value={carForm.price_per_day}
                   onChange={(e) => setCarForm({ ...carForm, price_per_day: Number(e.target.value) })}
                   required

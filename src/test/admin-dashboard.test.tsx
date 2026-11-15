@@ -11,11 +11,17 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   tables: {} as Record<string, unknown[]>,
   auth: {} as Record<string, unknown>,
+  writes: [] as { table: string; op: string; row: unknown }[],
 }));
 
-const builder = (rows: unknown[] = []) => {
+const builder = (rows: unknown[] = [], table = "") => {
   const q: Record<string, unknown> = {};
-  for (const m of ["select", "eq", "order", "in", "limit", "update", "delete"]) q[m] = () => q;
+  for (const m of ["select", "eq", "order", "in", "limit", "delete"]) q[m] = () => q;
+  for (const op of ["insert", "update"])
+    q[op] = (row: unknown) => {
+      mocks.writes.push({ table, op, row });
+      return q;
+    };
   q["maybeSingle"] = () => Promise.resolve({ data: rows[0] ?? null, error: null });
   q["then"] = (resolve: (v: unknown) => unknown) =>
     Promise.resolve({ data: rows, error: null }).then(resolve);
@@ -24,7 +30,7 @@ const builder = (rows: unknown[] = []) => {
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
-    from: (t: string) => builder(mocks.tables[t]),
+    from: (t: string) => builder(mocks.tables[t], t),
     rpc: () => Promise.resolve({ data: 0, error: null }),
     auth: { getUser: vi.fn(), signOut: vi.fn() },
   },
@@ -45,6 +51,8 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
   };
 });
 
+import { toast } from "sonner";
+
 import { AdminDashboard } from "@/routes/admin";
 
 beforeAll(() => {
@@ -55,7 +63,10 @@ beforeAll(() => {
     disconnect() {}
   } as unknown as typeof ResizeObserver;
 });
-afterEach(() => vi.clearAllMocks());
+afterEach(() => {
+  vi.clearAllMocks();
+  mocks.writes = [];
+});
 
 const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
 const CAR = {
@@ -234,5 +245,29 @@ describe("admin dashboard", () => {
     const buttons = screen.getAllByRole("button", { name: "เปลี่ยนสถานะ" });
     expect(buttons.length).toBe(2);
     for (const b of buttons) expect(b).toBeDisabled();
+  });
+});
+
+describe("admin car form price (B1)", () => {
+  async function submitNewCar(price: string) {
+    renderDashboard({ ...admin, adminMember: member() });
+    fireEvent.click((await screen.findAllByRole("button", { name: /เพิ่มรถยนต์ใหม่/ }))[0]!);
+    fireEvent.change(await screen.findByLabelText(/ยี่ห้อ/), { target: { value: "Honda" } });
+    fireEvent.change(screen.getByLabelText(/รุ่น \(Model\)/), { target: { value: "City" } });
+    fireEvent.change(screen.getByLabelText(/หมายเลขทะเบียน/), { target: { value: "9กก 9999" } });
+    fireEvent.change(screen.getByLabelText(/ราคาต่อวัน/), { target: { value: price } });
+    fireEvent.submit(screen.getByLabelText(/ราคาต่อวัน/).closest("form")!);
+  }
+
+  it.each(["-100", "0", ""])("does not save a car priced %j", async (price) => {
+    await submitNewCar(price);
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(mocks.writes.filter((w) => w.table === "cars")).toEqual([]);
+  });
+
+  it("saves a car with a positive price", async () => {
+    await submitNewCar("1200");
+    await vi.waitFor(() => expect(mocks.writes.some((w) => w.table === "cars")).toBe(true));
+    expect(mocks.writes.find((w) => w.table === "cars")!.row).toMatchObject({ price_per_day: 1200 });
   });
 });

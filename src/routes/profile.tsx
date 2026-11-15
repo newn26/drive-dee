@@ -28,6 +28,7 @@ import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import type { Tables } from "@/integrations/supabase/types";
+import { stripSeparators, validateProfile, type ProfileErrors } from "@/lib/form-validation";
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
@@ -54,6 +55,7 @@ function ProfilePage() {
   const [address, setAddress] = useState("");
   const [licenseNo, setLicenseNo] = useState("");
   const [idCardNo, setIdCardNo] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<ProfileErrors>({});
 
   // Form states for password change
   const [newPassword, setNewPassword] = useState("");
@@ -100,8 +102,11 @@ function ProfilePage() {
     e.preventDefault();
     if (!user) return;
 
-    if (!fullName.trim()) {
-      toast.error("กรุณาระบุชื่อ-นามสกุล");
+    const errors = validateProfile({ fullName, phone, idCardNo, licenseNo });
+    setFieldErrors(errors);
+    const firstError = Object.values(errors)[0];
+    if (firstError) {
+      toast.error(firstError);
       return;
     }
 
@@ -112,10 +117,10 @@ function ProfilePage() {
         .upsert({
           id: user.id,
           full_name: fullName.trim(),
-          phone: phone.trim(),
+          phone: stripSeparators(phone),
           address: address.trim(),
           license_no: licenseNo.trim(),
-          id_card_no: idCardNo.trim(),
+          id_card_no: stripSeparators(idCardNo).toUpperCase(),
           updated_at: new Date().toISOString(),
         });
 
@@ -245,11 +250,16 @@ function ProfilePage() {
                     <Label htmlFor="prof-name" className="text-xs">ชื่อ-นามสกุล *</Label>
                     <Input
                       id="prof-name"
+                      aria-invalid={!!fieldErrors.fullName}
+                      aria-describedby={fieldErrors.fullName ? "prof-name-error" : undefined}
                       placeholder="นายสมชาย มั่นคง"
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       required
                     />
+                    {fieldErrors.fullName && (
+                      <p id="prof-name-error" className="text-xs text-destructive">{fieldErrors.fullName}</p>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">
@@ -273,6 +283,10 @@ function ProfilePage() {
                     <div className="relative">
                       <Input
                         id="prof-phone"
+                        aria-invalid={!!fieldErrors.phone}
+                        aria-describedby={fieldErrors.phone ? "prof-phone-error" : undefined}
+                        type="tel"
+                        inputMode="tel"
                         placeholder="0812345678"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
@@ -280,6 +294,9 @@ function ProfilePage() {
                       />
                       <Phone className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
                     </div>
+                    {fieldErrors.phone && (
+                      <p id="prof-phone-error" className="text-xs text-destructive">{fieldErrors.phone}</p>
+                    )}
                   </div>
 
                   <div className="space-y-1.5">
@@ -287,6 +304,8 @@ function ProfilePage() {
                     <div className="relative">
                       <Input
                         id="prof-idcard"
+                        aria-invalid={!!fieldErrors.idCardNo}
+                        aria-describedby={fieldErrors.idCardNo ? "prof-idcard-error" : undefined}
                         placeholder="1100000000000"
                         value={idCardNo}
                         onChange={(e) => setIdCardNo(e.target.value)}
@@ -294,6 +313,9 @@ function ProfilePage() {
                       />
                       <CreditCard className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
                     </div>
+                    {fieldErrors.idCardNo && (
+                      <p id="prof-idcard-error" className="text-xs text-destructive">{fieldErrors.idCardNo}</p>
+                    )}
                   </div>
                 </div>
 
@@ -308,13 +330,19 @@ function ProfilePage() {
                   <div className="relative">
                     <Input
                       id="prof-license"
+                      aria-invalid={!!fieldErrors.licenseNo}
+                      aria-describedby={fieldErrors.licenseNo ? "prof-license-error" : undefined}
                       placeholder="เช่น 12345678"
                       value={licenseNo}
                       onChange={(e) => setLicenseNo(e.target.value)}
+                      required
                       className="font-mono"
                     />
                     <FileText className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
                   </div>
+                  {fieldErrors.licenseNo && (
+                    <p id="prof-license-error" className="text-xs text-destructive">{fieldErrors.licenseNo}</p>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     ผู้เช่าต้องแสดงใบอนุญาตขับขี่ตัวจริงที่ยังไม่หมดอายุ ณ วันรับรถยนต์
                   </p>
