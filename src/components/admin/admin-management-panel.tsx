@@ -44,33 +44,41 @@ import {
   type AdminMemberRow,
   type AdminPermission,
 } from "@/lib/contract-api";
+import { bilingual, tr, trError } from "@/lib/i18n";
 
-const auditLabel: Record<string, string> = {
-  admin_role_granted: "ให้สิทธิ์ผู้ดูแล (นอกแอป)",
-  owner_bootstrapped: "ตั้งเจ้าของระบบ",
-  invite_created: "สร้างคำเชิญ",
-  invite_revoked: "ยกเลิกคำเชิญ",
-  invite_accepted: "รับคำเชิญ",
-  permissions_changed: "เปลี่ยนสิทธิ์",
-  admin_suspended: "ระงับผู้ดูแล",
-  admin_reactivated: "คืนสิทธิ์ผู้ดูแล",
-  admin_revoked: "เพิกถอนผู้ดูแล",
-  booking_manual_confirm: "ยืนยันการจองด้วยตนเอง",
-};
+const auditLabel: Record<string, string> = bilingual({
+  admin_role_granted: ["ให้สิทธิ์ผู้ดูแล (นอกแอป)", "Admin role granted (outside the app)"],
+  owner_bootstrapped: ["ตั้งเจ้าของระบบ", "Owner set"],
+  invite_created: ["สร้างคำเชิญ", "Invitation created"],
+  invite_revoked: ["ยกเลิกคำเชิญ", "Invitation revoked"],
+  invite_accepted: ["รับคำเชิญ", "Invitation accepted"],
+  permissions_changed: ["เปลี่ยนสิทธิ์", "Permissions changed"],
+  admin_suspended: ["ระงับผู้ดูแล", "Admin suspended"],
+  admin_reactivated: ["คืนสิทธิ์ผู้ดูแล", "Admin reactivated"],
+  admin_revoked: ["เพิกถอนผู้ดูแล", "Admin revoked"],
+  booking_manual_confirm: ["ยืนยันการจองด้วยตนเอง", "Booking confirmed manually"],
+});
 
-const memberStatusLabel: Record<AdminMemberRow["status"], string> = {
-  active: "ใช้งาน",
-  suspended: "ระงับชั่วคราว",
-  revoked: "เพิกถอนแล้ว",
-};
+const memberStatusLabel: Record<AdminMemberRow["status"], string> = bilingual({
+  active: ["ใช้งาน", "Active"],
+  suspended: ["ระงับชั่วคราว", "Suspended"],
+  revoked: ["เพิกถอนแล้ว", "Revoked"],
+});
 
 /** Not yet an admin: the invited person still has to open the link and press "accept". */
-const PENDING = "รอผู้รับกดยอมรับ";
+const PENDING = "pending";
+
+const invitationStateLabel: Record<string, string> = bilingual({
+  accepted: ["รับแล้ว", "Accepted"],
+  revoked: ["ยกเลิกแล้ว", "Revoked"],
+  expired: ["หมดอายุ", "Expired"],
+  pending: ["รอผู้รับกดยอมรับ", "Waiting for the invitee to accept"],
+});
 
 function invitationState(i: AdminInvitationRow, now: number = Date.now()) {
-  if (i.accepted_at) return "รับแล้ว";
-  if (i.revoked_at) return "ยกเลิกแล้ว";
-  if (new Date(i.expires_at).getTime() <= now) return "หมดอายุ";
+  if (i.accepted_at) return "accepted";
+  if (i.revoked_at) return "revoked";
+  if (new Date(i.expires_at).getTime() <= now) return "expired";
   return PENDING;
 }
 
@@ -139,7 +147,7 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
       toast.success(success);
       after?.();
     } catch (err: unknown) {
-      toast.error((err as Error).message || "ดำเนินการไม่สำเร็จ");
+      toast.error(trError((err as Error).message) || tr("ดำเนินการไม่สำเร็จ", "The action failed"));
     } finally {
       await refresh();
       setBusy(false);
@@ -148,8 +156,11 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
 
   const handleInvite = () => {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(inviteEmail.trim()))
-      return void toast.error("อีเมลไม่ถูกต้อง");
-    if (invitePerms.length === 0) return void toast.error("กรุณาเลือกสิทธิ์อย่างน้อย 1 รายการ");
+      return void toast.error(tr("อีเมลไม่ถูกต้อง", "Invalid email"));
+    if (invitePerms.length === 0)
+      return void toast.error(
+        tr("กรุณาเลือกสิทธิ์อย่างน้อย 1 รายการ", "Please choose at least one permission"),
+      );
     void run(
       async () => {
         const inv = await createAdminInvitation(inviteEmail, invitePerms);
@@ -159,35 +170,42 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
           expires: inv.invite_expires_at,
         });
       },
-      "สร้างคำเชิญแล้ว",
+      tr("สร้างคำเชิญแล้ว", "Invitation created"),
       () => setInviteEmail(""),
     );
   };
 
   if (members.isError)
-    return <LoadError title="โหลดรายชื่อผู้ดูแลไม่สำเร็จ" onRetry={() => void members.refetch()} />;
+    return (
+      <LoadError
+        title={tr("โหลดรายชื่อผู้ดูแลไม่สำเร็จ", "Could not load the admins")}
+        onRetry={() => void members.refetch()}
+      />
+    );
 
   return (
     <div className="space-y-6">
       <Card className="border shadow-card">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-xl">
-            <KeyRound className="h-5 w-5 text-primary" /> ผู้ดูแลระบบ
+            <KeyRound className="h-5 w-5 text-primary" /> {tr("ผู้ดูแลระบบ", "Admins")}
           </CardTitle>
           <CardDescription>
-            เฉพาะเจ้าของระบบ (Owner) เท่านั้นที่เชิญ เปลี่ยนสิทธิ์ ระงับ หรือเพิกถอนผู้ดูแลได้
-            ทุกการกระทำถูกบันทึกในบันทึกตรวจสอบ
+            {tr(
+              "เฉพาะเจ้าของระบบ (Owner) เท่านั้นที่เชิญ เปลี่ยนสิทธิ์ ระงับ หรือเพิกถอนผู้ดูแลได้ ทุกการกระทำถูกบันทึกในบันทึกตรวจสอบ",
+              "Only the Owner can invite, change permissions, suspend or revoke admins. Every action is recorded in the audit log.",
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>อีเมล</TableHead>
-                <TableHead>บทบาท</TableHead>
-                <TableHead>สถานะ</TableHead>
-                <TableHead>สิทธิ์</TableHead>
-                <TableHead className="text-right">จัดการ</TableHead>
+                <TableHead>{tr("อีเมล", "Email")}</TableHead>
+                <TableHead>{tr("บทบาท", "Role")}</TableHead>
+                <TableHead>{tr("สถานะ", "Status")}</TableHead>
+                <TableHead>{tr("สิทธิ์", "Permissions")}</TableHead>
+                <TableHead className="text-right">{tr("จัดการ", "Actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -195,7 +213,7 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
                 <TableRow key={m.user_id}>
                   <TableCell className="text-xs">{m.email || "-"}</TableCell>
                   <TableCell className="text-xs">
-                    {m.is_owner ? <Badge>Owner</Badge> : "ผู้ดูแล"}
+                    {m.is_owner ? <Badge>Owner</Badge> : tr("ผู้ดูแล", "Admin")}
                   </TableCell>
                   <TableCell className="text-xs">
                     {memberStatusLabel[m.status]}
@@ -207,7 +225,7 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
                   </TableCell>
                   <TableCell className="text-[11px] text-muted-foreground">
                     {m.is_owner
-                      ? "ทั้งหมด"
+                      ? tr("ทั้งหมด", "All")
                       : m.permissions.map((p) => adminPermissionLabel[p] ?? p).join(", ")}
                   </TableCell>
                   <TableCell className="text-right">
@@ -222,7 +240,7 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
                             setPermsDraft([...m.permissions]);
                           }}
                         >
-                          สิทธิ์
+                          {tr("สิทธิ์", "Permissions")}
                         </Button>
                         <Button
                           variant="outline"
@@ -232,7 +250,9 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
                             setStatusFor({ m, to: m.status === "active" ? "suspended" : "active" })
                           }
                         >
-                          {m.status === "active" ? "ระงับ" : "คืนสิทธิ์"}
+                          {m.status === "active"
+                            ? tr("ระงับ", "Suspend")
+                            : tr("คืนสิทธิ์", "Reactivate")}
                         </Button>
                         <Button
                           variant="destructive"
@@ -240,7 +260,7 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
                           className="h-7 text-xs"
                           onClick={() => setStatusFor({ m, to: "revoked" })}
                         >
-                          เพิกถอน
+                          {tr("เพิกถอน", "Revoke")}
                         </Button>
                       </div>
                     )}
@@ -255,19 +275,23 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
       <Card className="border shadow-card">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
-            <UserPlus className="h-5 w-5 text-primary" /> เชิญผู้ดูแลใหม่
+            <UserPlus className="h-5 w-5 text-primary" />{" "}
+            {tr("เชิญผู้ดูแลใหม่", "Invite a new admin")}
           </CardTitle>
           <CardDescription>
-            ระบบไม่ส่งอีเมลคำเชิญให้ — หลังสร้างลิงก์ กรุณาคัดลอกแล้วส่งให้ผู้รับด้วยตนเอง
-            (ลิงก์แสดงเพียงครั้งเดียว ใช้ได้ครั้งเดียว ภายใน 72 ชั่วโมง และเฉพาะบัญชีที่ใช้อีเมลนี้)
-            ผู้รับต้องเปิดลิงก์ เข้าสู่ระบบหรือสมัครด้วยอีเมลนี้ แล้วกด “ยอมรับคำเชิญ”
-            อีเมลยืนยันตอนสมัครสมาชิกเป็นแค่การยืนยันบัญชี ยังไม่ทำให้เป็นผู้ดูแล
+            {tr(
+              "ระบบไม่ส่งอีเมลคำเชิญให้ — หลังสร้างลิงก์ กรุณาคัดลอกแล้วส่งให้ผู้รับด้วยตนเอง (ลิงก์แสดงเพียงครั้งเดียว ใช้ได้ครั้งเดียว ภายใน 72 ชั่วโมง และเฉพาะบัญชีที่ใช้อีเมลนี้) ผู้รับต้องเปิดลิงก์ เข้าสู่ระบบหรือสมัครด้วยอีเมลนี้ แล้วกด “ยอมรับคำเชิญ” อีเมลยืนยันตอนสมัครสมาชิกเป็นแค่การยืนยันบัญชี ยังไม่ทำให้เป็นผู้ดูแล",
+              "No invitation email is sent. After creating the link, copy it and send it to the invitee yourself (the link is shown once, works once, within 72 hours, and only for the account with this email). The invitee must open the link, sign in or sign up with this email, and press “Accept invitation”. The sign-up confirmation email only confirms the account; it does not make them an admin.",
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
             <Label htmlFor="invite-email" className="text-xs">
-              อีเมลของผู้ที่จะเชิญ (ต้องสมัครบัญชีด้วยอีเมลนี้)
+              {tr(
+                "อีเมลของผู้ที่จะเชิญ (ต้องสมัครบัญชีด้วยอีเมลนี้)",
+                "Invitee's email (they must sign up with this email)",
+              )}
             </Label>
             <Input
               id="invite-email"
@@ -279,7 +303,7 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
           </div>
           <PermissionPicker value={invitePerms} onChange={setInvitePerms} idPrefix="invite" />
           <Button onClick={handleInvite} disabled={busy}>
-            สร้างลิงก์คำเชิญ
+            {tr("สร้างลิงก์คำเชิญ", "Create invitation link")}
           </Button>
           {createdLink && (
             <div
@@ -287,13 +311,15 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
               role="status"
             >
               <p className="flex items-center gap-1 font-semibold">
-                <ShieldAlert className="h-4 w-4" /> ลิงก์สำหรับ {createdLink.email} (หมดอายุ{" "}
-                {fmtDateTime(createdLink.expires)})
+                <ShieldAlert className="h-4 w-4" /> {tr("ลิงก์สำหรับ", "Link for")}{" "}
+                {createdLink.email} (หมดอายุ {fmtDateTime(createdLink.expires)})
               </p>
               <p className="break-all font-mono">{createdLink.link}</p>
               <p>
-                คัดลอกลิงก์นี้ส่งให้ผู้รับตอนนี้ (ระบบไม่ส่งอีเมลให้ และลิงก์จะไม่แสดงอีก)
-                ใครได้ลิงก์ไปก็ใช้ไม่ได้หากไม่ได้เข้าสู่ระบบด้วยอีเมลนี้
+                {tr(
+                  "คัดลอกลิงก์นี้ส่งให้ผู้รับตอนนี้ (ระบบไม่ส่งอีเมลให้ และลิงก์จะไม่แสดงอีก) ใครได้ลิงก์ไปก็ใช้ไม่ได้หากไม่ได้เข้าสู่ระบบด้วยอีเมลนี้",
+                  "Copy this link and send it to the invitee now (no email is sent and the link will not be shown again). Nobody can use it without signing in with this email.",
+                )}
               </p>
               <Button
                 size="sm"
@@ -301,10 +327,10 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
                 className="h-7 bg-white text-xs"
                 onClick={() => {
                   void navigator.clipboard?.writeText(createdLink.link);
-                  toast.success("คัดลอกลิงก์แล้ว");
+                  toast.success(tr("คัดลอกลิงก์แล้ว", "Link copied"));
                 }}
               >
-                <Copy className="mr-1 h-3.5 w-3.5" /> คัดลอกลิงก์
+                <Copy className="mr-1 h-3.5 w-3.5" /> {tr("คัดลอกลิงก์", "Copy link")}
               </Button>
             </div>
           )}
@@ -312,11 +338,11 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>อีเมล</TableHead>
-                <TableHead>สิทธิ์</TableHead>
-                <TableHead>หมดอายุ</TableHead>
-                <TableHead>สถานะ</TableHead>
-                <TableHead className="text-right">จัดการ</TableHead>
+                <TableHead>{tr("อีเมล", "Email")}</TableHead>
+                <TableHead>{tr("สิทธิ์", "Permissions")}</TableHead>
+                <TableHead>{tr("หมดอายุ", "Expires")}</TableHead>
+                <TableHead>{tr("สถานะ", "Status")}</TableHead>
+                <TableHead className="text-right">{tr("จัดการ", "Actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -327,7 +353,9 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
                     {i.permissions.map((p) => adminPermissionLabel[p] ?? p).join(", ")}
                   </TableCell>
                   <TableCell className="text-xs">{fmtDateTime(i.expires_at)}</TableCell>
-                  <TableCell className="text-xs">{invitationState(i)}</TableCell>
+                  <TableCell className="text-xs">
+                    {invitationStateLabel[invitationState(i)]}
+                  </TableCell>
                   <TableCell className="text-right">
                     {invitationState(i) === PENDING && (
                       <Button
@@ -336,10 +364,13 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
                         className="h-7 text-xs"
                         disabled={busy}
                         onClick={() =>
-                          void run(() => revokeAdminInvitation(i.id), "ยกเลิกคำเชิญแล้ว")
+                          void run(
+                            () => revokeAdminInvitation(i.id),
+                            tr("ยกเลิกคำเชิญแล้ว", "Invitation revoked"),
+                          )
                         }
                       >
-                        ยกเลิก
+                        {tr("ยกเลิก", "Revoke")}
                       </Button>
                     )}
                   </TableCell>
@@ -352,17 +383,22 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
 
       <Card className="border shadow-card">
         <CardHeader>
-          <CardTitle className="text-lg">บันทึกตรวจสอบ (Audit log)</CardTitle>
-          <CardDescription>แก้ไขหรือลบไม่ได้ · แสดง 100 รายการล่าสุด</CardDescription>
+          <CardTitle className="text-lg">{tr("บันทึกตรวจสอบ (Audit log)", "Audit log")}</CardTitle>
+          <CardDescription>
+            {tr(
+              "แก้ไขหรือลบไม่ได้ · แสดง 100 รายการล่าสุด",
+              "Cannot be edited or deleted · latest 100 entries",
+            )}
+          </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>เวลา</TableHead>
-                <TableHead>การกระทำ</TableHead>
-                <TableHead>เป้าหมาย</TableHead>
-                <TableHead>รายละเอียด</TableHead>
+                <TableHead>{tr("เวลา", "Time")}</TableHead>
+                <TableHead>{tr("การกระทำ", "Action")}</TableHead>
+                <TableHead>{tr("เป้าหมาย", "Target")}</TableHead>
+                <TableHead>{tr("รายละเอียด", "Details")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -389,15 +425,20 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
       <Dialog open={!!permsFor} onOpenChange={(o) => !o && setPermsFor(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>สิทธิ์ของ {permsFor?.email}</DialogTitle>
+            <DialogTitle>
+              {tr("สิทธิ์ของ", "Permissions for")} {permsFor?.email}
+            </DialogTitle>
             <DialogDescription>
-              ทุกผู้ดูแลที่ใช้งานอยู่ดูข้อมูลได้ สิทธิ์ด้านล่างควบคุมการแก้ไข
+              {tr(
+                "ทุกผู้ดูแลที่ใช้งานอยู่ดูข้อมูลได้ สิทธิ์ด้านล่างควบคุมการแก้ไข",
+                "Every active admin can view data; the permissions below control editing.",
+              )}
             </DialogDescription>
           </DialogHeader>
           <PermissionPicker value={permsDraft} onChange={setPermsDraft} idPrefix="edit" />
           <DialogFooter>
             <Button variant="outline" onClick={() => setPermsFor(null)}>
-              ยกเลิก
+              {tr("ยกเลิก", "Revoke")}
             </Button>
             <Button
               disabled={busy || permsDraft.length === 0}
@@ -405,12 +446,12 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
                 permsFor &&
                 void run(
                   () => setAdminPermissions(permsFor.user_id, permsDraft),
-                  "บันทึกสิทธิ์แล้ว",
+                  tr("บันทึกสิทธิ์แล้ว", "Permissions saved"),
                   () => setPermsFor(null),
                 )
               }
             >
-              บันทึกสิทธิ์
+              {tr("บันทึกสิทธิ์", "Save permissions")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -421,29 +462,38 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
           <DialogHeader>
             <DialogTitle>
               {statusFor?.to === "revoked"
-                ? "เพิกถอน"
+                ? tr("เพิกถอน", "Revoke")
                 : statusFor?.to === "suspended"
-                  ? "ระงับ"
-                  : "คืนสิทธิ์"}{" "}
+                  ? tr("ระงับ", "Suspend")
+                  : tr("คืนสิทธิ์", "Reactivate")}{" "}
               {statusFor?.m.email}
             </DialogTitle>
             <DialogDescription>
               {statusFor?.to === "revoked"
-                ? "การเพิกถอนถาวร: บัญชีนี้จะกลับมาเป็นผู้ดูแลได้ด้วยคำเชิญใหม่เท่านั้น"
+                ? tr(
+                    "การเพิกถอนถาวร: บัญชีนี้จะกลับมาเป็นผู้ดูแลได้ด้วยคำเชิญใหม่เท่านั้น",
+                    "Revoking is permanent: this account can become an admin again only with a new invitation.",
+                  )
                 : statusFor?.to === "suspended"
-                  ? "ผู้ดูแลที่ถูกระงับจะใช้สิทธิ์ผู้ดูแลไม่ได้ทันทีจนกว่าจะคืนสิทธิ์"
-                  : "ผู้ดูแลจะกลับมาใช้สิทธิ์เดิมได้"}
+                  ? tr(
+                      "ผู้ดูแลที่ถูกระงับจะใช้สิทธิ์ผู้ดูแลไม่ได้ทันทีจนกว่าจะคืนสิทธิ์",
+                      "A suspended admin loses admin access immediately until reactivated.",
+                    )
+                  : tr(
+                      "ผู้ดูแลจะกลับมาใช้สิทธิ์เดิมได้",
+                      "The admin gets their previous access back.",
+                    )}
             </DialogDescription>
           </DialogHeader>
           <Textarea
             value={statusReason}
             onChange={(e) => setStatusReason(e.target.value)}
-            placeholder="เหตุผล (อย่างน้อย 5 ตัวอักษร)"
-            aria-label="เหตุผล"
+            placeholder={tr("เหตุผล (อย่างน้อย 5 ตัวอักษร)", "Reason (at least 5 characters)")}
+            aria-label={tr("เหตุผล", "Reason")}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setStatusFor(null)}>
-              ยกเลิก
+              {tr("ยกเลิก", "Revoke")}
             </Button>
             <Button
               variant={statusFor?.to === "active" ? "default" : "destructive"}
@@ -454,7 +504,7 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
                 if (problem) return void toast.error(problem);
                 void run(
                   () => setAdminStatus(statusFor.m.user_id, statusFor.to, statusReason),
-                  "บันทึกแล้ว",
+                  tr("บันทึกแล้ว", "Saved"),
                   () => {
                     setStatusFor(null);
                     setStatusReason("");
@@ -462,7 +512,7 @@ export function AdminManagementPanel({ ownerId }: { ownerId: string }) {
                 );
               }}
             >
-              ยืนยัน
+              {tr("ยืนยัน", "Confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,4 +1,5 @@
 import { thb } from "@/lib/format";
+import { tr } from "@/lib/i18n";
 
 /** Heading of the admin-managed clause block appended to a contract's terms. */
 export const ADMIN_CLAUSES_MARKER = "[ข้อกำหนดเพิ่มเติมจากผู้ดูแลระบบ]";
@@ -48,11 +49,16 @@ export function splitContractTerms(terms: string): { base: string; clauses: Admi
 
 /** Thai error message, or null when the inputs are valid. */
 export function validateContractEdit(base: string, clauses: AdminClauses): string | null {
-  if (!base.trim()) return "กรุณาระบุข้อความสัญญา";
+  if (!base.trim()) return tr("กรุณาระบุข้อความสัญญา", "Please enter the contract text");
   if (!Number.isFinite(clauses.securityDeposit) || clauses.securityDeposit < 0)
-    return "เงินประกันต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป";
-  if (!clauses.mileageAllowance.trim()) return "กรุณาระบุข้อกำหนดระยะทาง";
-  if (!clauses.latePenalty.trim()) return "กรุณาระบุค่าปรับส่งคืนล่าช้า";
+    return tr(
+      "เงินประกันต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป",
+      "The deposit must be a number of 0 or more",
+    );
+  if (!clauses.mileageAllowance.trim())
+    return tr("กรุณาระบุข้อกำหนดระยะทาง", "Please enter the mileage terms");
+  if (!clauses.latePenalty.trim())
+    return tr("กรุณาระบุค่าปรับส่งคืนล่าช้า", "Please enter the late return penalty");
   return null;
 }
 

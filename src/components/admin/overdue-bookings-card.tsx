@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { fmtDate } from "@/lib/format";
 import { overdueHandovers, overdueReturns, type FleetBooking } from "@/lib/fleet";
+import { tr } from "@/lib/i18n";
 
 export type OverdueBooking = FleetBooking & {
   booking_code: string;
@@ -50,7 +51,7 @@ export function OverdueBookingsCard<B extends OverdueBooking>({
         disabled={!canUpdate}
         onClick={() => onUpdate(b)}
       >
-        เปลี่ยนสถานะ
+        {tr("เปลี่ยนสถานะ", "Change status")}
       </Button>
     </li>
   );
@@ -67,27 +68,43 @@ export function OverdueBookingsCard<B extends OverdueBooking>({
           ) : (
             <CheckCircle2 className="h-4 w-4 text-success" />
           )}
-          <CardTitle className="text-base">ต้องดำเนินการวันนี้ ({total})</CardTitle>
+          <CardTitle className="text-base">
+            {tr("ต้องดำเนินการวันนี้ (", "Action needed today (")}
+            {total})
+          </CardTitle>
         </div>
         <CardDescription>
-          การจองที่ถึงวันรับรถแล้วแต่ยังไม่ได้บันทึกส่งมอบ หรือเลยวันคืนรถแล้วแต่ยังไม่ได้รับคืน
-          (สถานะรถและรายได้ ณ วันรับรถจะถูกต้องเมื่อบันทึกแล้ว)
+          {tr(
+            "การจองที่ถึงวันรับรถแล้วแต่ยังไม่ได้บันทึกส่งมอบ หรือเลยวันคืนรถแล้วแต่ยังไม่ได้รับคืน (สถานะรถและรายได้ ณ วันรับรถจะถูกต้องเมื่อบันทึกแล้ว)",
+            "Bookings past their pickup day with no hand-over recorded, or past their return day with no return recorded (car status and pickup revenue are correct once recorded)",
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {total === 0 && <p className="text-sm text-muted-foreground">ไม่มีรายการค้าง</p>}
+        {total === 0 && (
+          <p className="text-sm text-muted-foreground">
+            {tr("ไม่มีรายการค้าง", "Nothing overdue")}
+          </p>
+        )}
         {handovers.length > 0 && (
           <div>
             <p className="mb-1.5 text-xs font-semibold">
-              ถึงวันรับรถแล้ว ยังไม่ส่งมอบ ({handovers.length})
+              {tr("ถึงวันรับรถแล้ว ยังไม่ส่งมอบ (", "Pickup due, not handed over (")}
+              {handovers.length})
             </p>
             <ul className="space-y-1.5">
               {handovers.map((b) =>
                 row(
                   b,
                   b.end_date < today
-                    ? `ช่วงเช่า ${fmtDate(b.start_date)} — ${fmtDate(b.end_date)} สิ้นสุดแล้ว: บันทึกว่าเสร็จสิ้น หรือยกเลิก`
-                    : `รับรถ ${fmtDate(b.start_date)}: บันทึก "กำลังเช่า" เมื่อส่งมอบรถ หรือยกเลิกถ้าลูกค้าไม่มารับ`,
+                    ? tr(
+                        `ช่วงเช่า ${fmtDate(b.start_date)} — ${fmtDate(b.end_date)} สิ้นสุดแล้ว: บันทึกว่าเสร็จสิ้น หรือยกเลิก`,
+                        `Rental ${fmtDate(b.start_date)} — ${fmtDate(b.end_date)} has ended: mark it completed or cancel it`,
+                      )
+                    : tr(
+                        `รับรถ ${fmtDate(b.start_date)}: บันทึก "กำลังเช่า" เมื่อส่งมอบรถ หรือยกเลิกถ้าลูกค้าไม่มารับ`,
+                        `Pickup ${fmtDate(b.start_date)}: set "In progress" at hand-over, or cancel if the customer does not come`,
+                      ),
                 ),
               )}
             </ul>
@@ -96,11 +113,18 @@ export function OverdueBookingsCard<B extends OverdueBooking>({
         {returns.length > 0 && (
           <div>
             <p className="mb-1.5 text-xs font-semibold">
-              เลยวันคืนรถแล้ว ยังไม่รับคืน ({returns.length})
+              {tr("เลยวันคืนรถแล้ว ยังไม่รับคืน (", "Return overdue, not returned (")}
+              {returns.length})
             </p>
             <ul className="space-y-1.5">
               {returns.map((b) =>
-                row(b, `กำหนดคืน ${fmtDate(b.end_date)}: บันทึก "เสร็จสิ้น" เมื่อรับรถคืน`),
+                row(
+                  b,
+                  tr(
+                    `กำหนดคืน ${fmtDate(b.end_date)}: บันทึก "เสร็จสิ้น" เมื่อรับรถคืน`,
+                    `Due back ${fmtDate(b.end_date)}: set "Completed" when the car is returned`,
+                  ),
+                ),
               )}
             </ul>
           </div>

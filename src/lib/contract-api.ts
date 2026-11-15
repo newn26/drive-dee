@@ -8,6 +8,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Database, Tables } from "@/integrations/supabase/types";
 import { bangkokTimestamp, type ContractForm, type ContractStatus } from "@/lib/contract-workflow";
+import { bilingual, tr } from "@/lib/i18n";
 
 const db = supabase;
 
@@ -23,10 +24,7 @@ export type ContractEventRow = Omit<Tables<"contract_events">, "actor_role"> & {
 };
 
 export type AdminPermission =
-  | "contracts_manage"
-  | "contracts_approve"
-  | "bookings_manage"
-  | "fleet_manage";
+  "contracts_manage" | "contracts_approve" | "bookings_manage" | "fleet_manage";
 
 /** Permissions the Owner can grant; same as admin_permission_list() in the database. */
 export const ADMIN_PERMISSIONS: readonly AdminPermission[] = [
@@ -36,12 +34,15 @@ export const ADMIN_PERMISSIONS: readonly AdminPermission[] = [
   "fleet_manage",
 ];
 
-export const adminPermissionLabel: Record<AdminPermission, string> = {
-  contracts_manage: "สร้าง/แก้ไข/ส่งสัญญา",
-  contracts_approve: "อนุมัติสัญญาที่ค้างจากระบบเดิม (การจองใหม่ไม่ต้องอนุมัติ)",
-  bookings_manage: "จัดการสถานะการจอง",
-  fleet_manage: "จัดการรถและงานซ่อมบำรุง",
-};
+export const adminPermissionLabel: Record<AdminPermission, string> = bilingual({
+  contracts_manage: ["สร้าง/แก้ไข/ส่งสัญญา", "Create, edit and send contracts"],
+  contracts_approve: [
+    "อนุมัติสัญญาที่ค้างจากระบบเดิม (การจองใหม่ไม่ต้องอนุมัติ)",
+    "Approve legacy contracts (new bookings need no approval)",
+  ],
+  bookings_manage: ["จัดการสถานะการจอง", "Manage booking status"],
+  fleet_manage: ["จัดการรถและงานซ่อมบำรุง", "Manage cars and maintenance"],
+});
 
 export type AdminMemberRow = Omit<Tables<"admin_members">, "status" | "permissions"> & {
   status: "active" | "suspended" | "revoked";
@@ -235,7 +236,7 @@ export async function createAdminInvitation(
     _permissions: permissions,
   });
   const first = rows[0];
-  if (!first) throw new Error("สร้างคำเชิญไม่สำเร็จ");
+  if (!first) throw new Error(tr("สร้างคำเชิญไม่สำเร็จ", "Could not create the invitation"));
   return first;
 }
 

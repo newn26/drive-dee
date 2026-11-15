@@ -66,6 +66,7 @@ import {
   type ContractVersionRow,
 } from "@/lib/contract-api";
 import type { DashboardPermissions } from "@/lib/roles";
+import { tr, trError } from "@/lib/i18n";
 
 /** A booking as the admin dashboard loads it (with its car). */
 export type PanelBooking = {
@@ -89,14 +90,54 @@ export type ContractPanelView = "create" | ContractStatus;
 type View = ContractPanelView;
 
 const VIEWS: { value: View; label: string }[] = [
-  { value: "create", label: "สร้างสัญญา" },
-  { value: "draft", label: contractStatusLabel.draft },
-  { value: "pending_customer", label: contractStatusLabel.pending_customer },
-  { value: "pending_admin_review", label: contractStatusLabel.pending_admin_review },
-  { value: "revision_requested", label: contractStatusLabel.revision_requested },
-  { value: "approved", label: contractStatusLabel.approved },
-  { value: "paid", label: contractStatusLabel.paid },
-  { value: "cancelled", label: contractStatusLabel.cancelled },
+  {
+    value: "create",
+    get label() {
+      return tr("สร้างสัญญา", "Create contract");
+    },
+  },
+  {
+    value: "draft",
+    get label() {
+      return contractStatusLabel.draft;
+    },
+  },
+  {
+    value: "pending_customer",
+    get label() {
+      return contractStatusLabel.pending_customer;
+    },
+  },
+  {
+    value: "pending_admin_review",
+    get label() {
+      return contractStatusLabel.pending_admin_review;
+    },
+  },
+  {
+    value: "revision_requested",
+    get label() {
+      return contractStatusLabel.revision_requested;
+    },
+  },
+  {
+    value: "approved",
+    get label() {
+      return contractStatusLabel.approved;
+    },
+  },
+  {
+    value: "paid",
+    get label() {
+      return contractStatusLabel.paid;
+    },
+  },
+  {
+    value: "cancelled",
+    get label() {
+      return contractStatusLabel.cancelled;
+    },
+  },
 ];
 
 function formFromVersion(v: ContractVersionRow | undefined): ContractForm {
@@ -129,13 +170,18 @@ export function ContractFormFields({
   return (
     <div className="space-y-3">
       <div className="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
-        ค่าเช่ารวม <strong className="text-foreground">{thb(booking.total_amount)}</strong> (
-        {booking.days} วัน) และวันที่รับ-คืนรถ มาจากการจองโดยตรง แก้ไขในสัญญาไม่ได้
+        {tr("ค่าเช่ารวม", "Total rent")}{" "}
+        <strong className="text-foreground">{thb(booking.total_amount)}</strong>{" "}
+        {tr(
+          `(${booking.days} วัน) และวันที่รับ-คืนรถ มาจากการจองโดยตรง แก้ไขในสัญญาไม่ได้`,
+          `(${booking.days} days) and the pickup/return dates come from the booking and cannot be changed in the contract`,
+        )}
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <Label htmlFor="cf-pickup" className="text-xs">
-            เวลารับรถ ({fmtDate(booking.start_date)})
+            {tr("เวลารับรถ (", "Pickup time (")}
+            {fmtDate(booking.start_date)})
           </Label>
           <Input
             id="cf-pickup"
@@ -148,7 +194,8 @@ export function ContractFormFields({
         </div>
         <div>
           <Label htmlFor="cf-return" className="text-xs">
-            เวลาคืนรถ ({fmtDate(booking.end_date)})
+            {tr("เวลาคืนรถ (", "Return time (")}
+            {fmtDate(booking.end_date)})
           </Label>
           <Input
             id="cf-return"
@@ -161,7 +208,10 @@ export function ContractFormFields({
         </div>
         <div>
           <Label htmlFor="cf-deposit" className="text-xs">
-            เงินประกัน (บาท, เท่ากับค่าเช่า ชำระ ณ วันรับรถ)
+            {tr(
+              "เงินประกัน (บาท, เท่ากับค่าเช่า ชำระ ณ วันรับรถ)",
+              "Deposit (THB, equal to the rent, paid on the pickup day)",
+            )}
           </Label>
           {/* The database sets deposit = rent (docs/database/booking-fee-flow.sql) */}
           <Input
@@ -175,7 +225,7 @@ export function ContractFormFields({
         </div>
         <div>
           <Label htmlFor="cf-mileage" className="text-xs">
-            ข้อกำหนดระยะทาง
+            {tr("ข้อกำหนดระยะทาง", "Mileage")}
           </Label>
           <Input
             id="cf-mileage"
@@ -187,7 +237,7 @@ export function ContractFormFields({
         </div>
         <div className="sm:col-span-2">
           <Label htmlFor="cf-late" className="text-xs">
-            ค่าปรับส่งคืนรถล่าช้า
+            {tr("ค่าปรับส่งคืนรถล่าช้า", "Late return penalty")}
           </Label>
           <Input
             id="cf-late"
@@ -199,7 +249,7 @@ export function ContractFormFields({
         </div>
         <div className="sm:col-span-2">
           <Label htmlFor="cf-extra" className="text-xs">
-            เงื่อนไขเพิ่มเติม (ไม่บังคับ)
+            {tr("เงื่อนไขเพิ่มเติม (ไม่บังคับ)", "Additional conditions (optional)")}
           </Label>
           <Textarea
             id="cf-extra"
@@ -219,7 +269,10 @@ export function ContractFormFields({
           onCheckedChange={(c) => set("includeLicence", !!c)}
         />
         <Label htmlFor="cf-licence" className="cursor-pointer text-xs leading-tight">
-          ระบุเลขใบอนุญาตขับขี่ของลูกค้าในสัญญา (เฉพาะเมื่อจำเป็น · ไม่มีการใส่เลขบัตรประชาชน)
+          {tr(
+            "ระบุเลขใบอนุญาตขับขี่ของลูกค้าในสัญญา (เฉพาะเมื่อจำเป็น · ไม่มีการใส่เลขบัตรประชาชน)",
+            "Include the customer's driving licence number in the contract (only when needed · the ID card number is never included)",
+          )}
         </Label>
       </div>
     </div>
@@ -255,7 +308,7 @@ export function ContractWorkQueue({
   const tiles: { view: ContractPanelView; label: string; n: number; urgent?: boolean }[] = [
     {
       view: "create",
-      label: "การจองรอสร้างสัญญา",
+      label: tr("การจองรอสร้างสัญญา", "Bookings awaiting a contract"),
       n: bookingsAwaitingContract(bookings, contracts).length,
       urgent: true,
     },
@@ -284,8 +337,13 @@ export function ContractWorkQueue({
   return (
     <Card className="border shadow-card" data-testid="contract-work-queue">
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">งานสัญญาเช่า</CardTitle>
-        <CardDescription>กดเพื่อเปิดรายการในแท็บสัญญาเช่าดิจิทัล</CardDescription>
+        <CardTitle className="text-base">{tr("งานสัญญาเช่า", "Contract work queue")}</CardTitle>
+        <CardDescription>
+          {tr(
+            "กดเพื่อเปิดรายการในแท็บสัญญาเช่าดิจิทัล",
+            "Click to open the list in the Contracts tab",
+          )}
+        </CardDescription>
       </CardHeader>
       <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {tiles
@@ -301,8 +359,8 @@ export function ContractWorkQueue({
               }`}
             >
               <span className="block text-2xl font-bold" aria-busy={loading}>
-              {loading ? "…" : t.n}
-            </span>
+                {loading ? "…" : t.n}
+              </span>
               <span className="text-xs">{t.label}</span>
             </button>
           ))}
@@ -388,7 +446,7 @@ export function AdminContractsPanel({
       toast.success(success);
       after?.();
     } catch (err: unknown) {
-      toast.error((err as Error).message || "ดำเนินการไม่สำเร็จ");
+      toast.error(trError((err as Error).message) || tr("ดำเนินการไม่สำเร็จ", "The action failed"));
     } finally {
       await refresh();
       setBusy(false);
@@ -409,7 +467,10 @@ export function AdminContractsPanel({
         );
         setOpenId(id);
       },
-      "สร้างสัญญาฉบับร่างแล้ว ตรวจสอบแล้วกดส่งให้ลูกค้า",
+      tr(
+        "สร้างสัญญาฉบับร่างแล้ว ตรวจสอบแล้วกดส่งให้ลูกค้า",
+        "Draft contract created. Check it, then send it to the customer.",
+      ),
       () => {
         setCreateFor(null);
         setView("draft");
@@ -426,8 +487,11 @@ export function AdminContractsPanel({
     void run(
       () => updateContract(open.id, form, b.start_date, b.end_date),
       newVersion
-        ? `สร้างฉบับที่ ${open.current_version + 1} แล้ว (ฉบับเดิมเก็บไว้ไม่เปลี่ยนแปลง)`
-        : "บันทึกฉบับร่างแล้ว",
+        ? tr(
+            `สร้างฉบับที่ ${open.current_version + 1} แล้ว (ฉบับเดิมเก็บไว้ไม่เปลี่ยนแปลง)`,
+            `Version ${open.current_version + 1} created (the previous version is kept unchanged)`,
+          )
+        : tr("บันทึกฉบับร่างแล้ว", "Draft saved"),
     );
   };
 
@@ -456,7 +520,10 @@ export function AdminContractsPanel({
         await updateContract(open.id, next, b.start_date, b.end_date);
         await sendContract(open.id);
       },
-      `ยืนยันการแก้ไขแล้ว ส่งฉบับที่ ${open.current_version + 1} ให้ลูกค้ายืนยัน`,
+      tr(
+        `ยืนยันการแก้ไขแล้ว ส่งฉบับที่ ${open.current_version + 1} ให้ลูกค้ายืนยัน`,
+        `Changes confirmed. Version ${open.current_version + 1} sent to the customer to confirm.`,
+      ),
     );
   };
 
@@ -466,7 +533,7 @@ export function AdminContractsPanel({
     if (problem) return void toast.error(problem);
     void run(
       () => adminRequestRevision(open.id, open.current_version, revisionReason),
-      "ส่งคำขอแก้ไขแล้ว",
+      tr("ส่งคำขอแก้ไขแล้ว", "Change request sent"),
       () => {
         setRevisionOpen(false);
         setRevisionReason("");
@@ -477,7 +544,7 @@ export function AdminContractsPanel({
   const holdLabel = (b: PanelBooking | null) => {
     if (!b || b.status !== "pending") return "-";
     const s = holdSecondsLeft(b, now);
-    return s === 0 ? "หมดเวลา" : formatCountdown(s);
+    return s === 0 ? tr("หมดเวลา", "Expired") : formatCountdown(s);
   };
 
   const listed = contracts.filter(
@@ -490,10 +557,12 @@ export function AdminContractsPanel({
   return (
     <Card className="border shadow-card">
       <CardHeader>
-        <CardTitle className="text-xl">สัญญาเช่าดิจิทัล</CardTitle>
+        <CardTitle className="text-xl">{tr("สัญญาเช่าดิจิทัล", "Contracts")}</CardTitle>
         <CardDescription>
-          ยืนยันการจองโดยสร้างสัญญา → ส่งฉบับร่างให้ลูกค้า → ลูกค้าขอแก้ไขหรือยืนยัน →
-          ลูกค้าชำระค่าจอง 1,000 บาท (DEMO) ภายใน 15 นาที
+          {tr(
+            "ยืนยันการจองโดยสร้างสัญญา → ส่งฉบับร่างให้ลูกค้า → ลูกค้าขอแก้ไขหรือยืนยัน → ลูกค้าชำระค่าจอง 1,000 บาท (DEMO) ภายใน 15 นาที",
+            "Confirm a booking by creating a contract → send the draft to the customer → the customer asks for changes or confirms → the customer pays the 1,000 THB booking fee (DEMO) within 15 minutes",
+          )}
         </CardDescription>
         <Tabs value={view} onValueChange={(v) => setView(v as View)} className="mt-3">
           <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4 [&>button]:whitespace-normal">
@@ -511,7 +580,10 @@ export function AdminContractsPanel({
         </Tabs>
         <div className="relative mt-3 max-w-sm">
           <Input
-            placeholder="ค้นหาเลขที่สัญญา รหัสการจอง หรือชื่อลูกค้า..."
+            placeholder={tr(
+              "ค้นหาเลขที่สัญญา รหัสการจอง หรือชื่อลูกค้า...",
+              "Search contract no., booking code or customer...",
+            )}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -525,12 +597,12 @@ export function AdminContractsPanel({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>รหัสการจอง</TableHead>
-                <TableHead>ลูกค้า</TableHead>
-                <TableHead>รถยนต์</TableHead>
-                <TableHead>วันที่เช่า</TableHead>
-                <TableHead>เวลาที่เหลือ</TableHead>
-                <TableHead className="text-right">จัดการ</TableHead>
+                <TableHead>{tr("รหัสการจอง", "Booking code")}</TableHead>
+                <TableHead>{tr("ลูกค้า", "Customer")}</TableHead>
+                <TableHead>{tr("รถยนต์", "Car")}</TableHead>
+                <TableHead>{tr("วันที่เช่า", "Rental dates")}</TableHead>
+                <TableHead>{tr("เวลาที่เหลือ", "Time left")}</TableHead>
+                <TableHead className="text-right">{tr("จัดการ", "Actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -540,7 +612,7 @@ export function AdminContractsPanel({
                   <TableRow key={b.id}>
                     <TableCell className="font-mono text-xs font-bold">{b.booking_code}</TableCell>
                     <TableCell className="text-xs">
-                      {profileMap[b.user_id]?.full_name || "ลูกค้าสมาชิก"}
+                      {profileMap[b.user_id]?.full_name || tr("ลูกค้าสมาชิก", "Member")}
                     </TableCell>
                     <TableCell className="text-xs">
                       {b.cars?.brand} {b.cars?.model} ({b.cars?.plate_no})
@@ -559,7 +631,8 @@ export function AdminContractsPanel({
                           setCreateFor(b);
                         }}
                       >
-                        <FilePlus2 className="mr-1 h-3.5 w-3.5" /> สร้างสัญญา
+                        <FilePlus2 className="mr-1 h-3.5 w-3.5" />{" "}
+                        {tr("สร้างสัญญา", "Create contract")}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -567,7 +640,7 @@ export function AdminContractsPanel({
               {creatable.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                    ไม่มีการจองที่รอสร้างสัญญา
+                    {tr("ไม่มีการจองที่รอสร้างสัญญา", "No bookings awaiting a contract")}
                   </TableCell>
                 </TableRow>
               )}
@@ -577,15 +650,15 @@ export function AdminContractsPanel({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>เลขที่สัญญา</TableHead>
-                <TableHead>รหัสการจอง</TableHead>
-                <TableHead>ลูกค้า</TableHead>
-                <TableHead>รถยนต์</TableHead>
-                <TableHead>ฉบับ</TableHead>
-                <TableHead>สถานะ</TableHead>
-                <TableHead>เวลาที่เหลือ</TableHead>
-                <TableHead>อัปเดตล่าสุด</TableHead>
-                <TableHead className="text-right">จัดการ</TableHead>
+                <TableHead>{tr("เลขที่สัญญา", "Contract no.")}</TableHead>
+                <TableHead>{tr("รหัสการจอง", "Booking code")}</TableHead>
+                <TableHead>{tr("ลูกค้า", "Customer")}</TableHead>
+                <TableHead>{tr("รถยนต์", "Car")}</TableHead>
+                <TableHead>{tr("ฉบับ", "Version")}</TableHead>
+                <TableHead>{tr("สถานะ", "Status")}</TableHead>
+                <TableHead>{tr("เวลาที่เหลือ", "Time left")}</TableHead>
+                <TableHead>{tr("อัปเดตล่าสุด", "Last updated")}</TableHead>
+                <TableHead className="text-right">{tr("จัดการ", "Actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -596,7 +669,7 @@ export function AdminContractsPanel({
                     {c.bookings?.booking_code ?? "-"}
                   </TableCell>
                   <TableCell className="text-xs">
-                    {profileMap[c.user_id]?.full_name || "ลูกค้าสมาชิก"}
+                    {profileMap[c.user_id]?.full_name || tr("ลูกค้าสมาชิก", "Member")}
                   </TableCell>
                   <TableCell className="text-xs">
                     {c.bookings?.cars?.brand} {c.bookings?.cars?.model}
@@ -616,7 +689,7 @@ export function AdminContractsPanel({
                       className="h-7 text-xs"
                       onClick={() => setOpenId(c.id)}
                     >
-                      เปิดสัญญา
+                      {tr("เปิดสัญญา", "Open")}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -624,7 +697,7 @@ export function AdminContractsPanel({
               {listed.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">
-                    ไม่มีสัญญาในสถานะนี้
+                    {tr("ไม่มีสัญญาในสถานะนี้", "No contracts with this status")}
                   </TableCell>
                 </TableRow>
               )}
@@ -637,21 +710,26 @@ export function AdminContractsPanel({
       <Dialog open={!!createFor} onOpenChange={(o) => !o && setCreateFor(null)}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>สร้างสัญญาเช่า (ฉบับร่าง)</DialogTitle>
+            <DialogTitle>{tr("สร้างสัญญาเช่า (ฉบับร่าง)", "Create contract (draft)")}</DialogTitle>
             <DialogDescription>
-              การจอง{" "}
+              {tr("การจอง", "Booking")}{" "}
               <span className="font-mono font-bold text-foreground">{createFor?.booking_code}</span>{" "}
-              · {createFor && (profileMap[createFor.user_id]?.full_name || "ลูกค้าสมาชิก")} ·
-              ลูกค้าจะยังไม่เห็นจนกว่าคุณจะกดส่ง
+              ·{" "}
+              {createFor &&
+                (profileMap[createFor.user_id]?.full_name || tr("ลูกค้าสมาชิก", "Member"))}{" "}
+              {tr(
+                "· ลูกค้าจะยังไม่เห็นจนกว่าคุณจะกดส่ง",
+                "· the customer will not see it until you send it",
+              )}
             </DialogDescription>
           </DialogHeader>
           {createFor && <ContractFormFields form={form} onChange={setForm} booking={createFor} />}
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateFor(null)}>
-              ยกเลิก
+              {tr("ยกเลิก", "Cancel")}
             </Button>
             <Button onClick={handleCreate} disabled={busy}>
-              {busy ? "กำลังสร้าง..." : "สร้างฉบับร่าง"}
+              {busy ? tr("กำลังสร้าง...", "Creating...") : tr("สร้างฉบับร่าง", "Create draft")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -661,11 +739,13 @@ export function AdminContractsPanel({
       <Dialog open={!!open} onOpenChange={(o) => !o && setOpenId(null)}>
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>สัญญา {open?.contract_no}</DialogTitle>
+            <DialogTitle>
+              {tr("สัญญา", "Contract")} {open?.contract_no}
+            </DialogTitle>
             <DialogDescription>
-              การจอง {open?.bookings?.booking_code ?? "-"} ·{" "}
-              {open && (profileMap[open.user_id]?.full_name || "ลูกค้าสมาชิก")} · เวลาที่เหลือ{" "}
-              {holdLabel(open?.bookings ?? null)}
+              {tr("การจอง", "Booking")} {open?.bookings?.booking_code ?? "-"} ·{" "}
+              {open && (profileMap[open.user_id]?.full_name || tr("ลูกค้าสมาชิก", "Member"))}{" "}
+              {tr("· เวลาที่เหลือ", "· time left")} {holdLabel(open?.bookings ?? null)}
             </DialogDescription>
           </DialogHeader>
 
@@ -678,26 +758,37 @@ export function AdminContractsPanel({
               className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"
               data-testid="customer-request"
             >
-              <p className="font-semibold">ลูกค้าขอแก้ไขฉบับที่ {open.current_version}</p>
+              <p className="font-semibold">
+                {tr("ลูกค้าขอแก้ไขฉบับที่", "Customer requested changes to version")}{" "}
+                {open.current_version}
+              </p>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="h-8 text-amber-900">รายการ</TableHead>
-                    <TableHead className="h-8 text-amber-900">ฉบับปัจจุบัน</TableHead>
-                    <TableHead className="h-8 text-amber-900">ลูกค้าขอ</TableHead>
+                    <TableHead className="h-8 text-amber-900">{tr("รายการ", "items")}</TableHead>
+                    <TableHead className="h-8 text-amber-900">
+                      {tr("ฉบับปัจจุบัน", "Current version")}
+                    </TableHead>
+                    <TableHead className="h-8 text-amber-900">
+                      {tr("ลูกค้าขอ", "Customer asked for")}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {(
                     [
-                      ["ชื่อลูกค้า", currentVersion?.customer_name ?? "-", requested.customerName],
                       [
-                        "เวลารับรถ",
+                        tr("ชื่อลูกค้า", "Customer name"),
+                        currentVersion?.customer_name ?? "-",
+                        requested.customerName,
+                      ],
+                      [
+                        tr("เวลารับรถ", "Pickup time"),
                         bangkokTime(currentVersion?.pickup_at, "-"),
                         requested.pickupTime,
                       ],
                       [
-                        "เวลาคืนรถ",
+                        tr("เวลาคืนรถ", "Return time"),
                         bangkokTime(currentVersion?.return_at, "-"),
                         requested.returnTime,
                       ],
@@ -710,19 +801,26 @@ export function AdminContractsPanel({
                         className={`py-1.5 ${now !== want ? "font-semibold text-amber-950" : ""}`}
                       >
                         {want}
-                        {now !== want && " (เปลี่ยน)"}
+                        {now !== want && tr(" (เปลี่ยน)", " (changed)")}
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
               <p className="text-xs">
-                กดยืนยันแล้ว ระบบสร้างฉบับที่ {open.current_version + 1}{" "}
-                ตามที่ลูกค้าขอ (รวมถึงเปลี่ยนชื่อในโปรไฟล์ลูกค้าถ้าขอเปลี่ยนชื่อ)
-                และส่งให้ลูกค้าทันที ถ้าไม่ต้องการใช้ชื่อหรือเวลาที่ขอ ให้แก้ไขสัญญาเองด้านล่างแทน
+                {tr(
+                  "กดยืนยันแล้ว ระบบสร้างฉบับที่",
+                  "When you confirm, the system creates version",
+                )}{" "}
+                {open.current_version + 1}{" "}
+                {tr(
+                  "ตามที่ลูกค้าขอ (รวมถึงเปลี่ยนชื่อในโปรไฟล์ลูกค้าถ้าขอเปลี่ยนชื่อ) และส่งให้ลูกค้าทันที ถ้าไม่ต้องการใช้ชื่อหรือเวลาที่ขอ ให้แก้ไขสัญญาเองด้านล่างแทน",
+                  "as the customer asked (including the profile name if they asked to change it) and sends it to them right away. If you do not want the requested name or times, edit the contract yourself below instead.",
+                )}
               </p>
               <Button size="sm" disabled={busy} onClick={handleApplyRequest}>
-                <CheckCheck className="mr-1 h-4 w-4" /> ยืนยันการแก้ไขและส่งให้ลูกค้า
+                <CheckCheck className="mr-1 h-4 w-4" />{" "}
+                {tr("ยืนยันการแก้ไขและส่งให้ลูกค้า", "Confirm changes and send to customer")}
               </Button>
             </div>
           )}
@@ -733,10 +831,15 @@ export function AdminContractsPanel({
             currentVersion?.accepted_at && (
               <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
                 <p className="font-semibold">
-                  ลูกค้ายอมรับฉบับที่ {open.current_version} เมื่อ{" "}
-                  {fmtDateTime(currentVersion.accepted_at)}
+                  {tr("ลูกค้ายอมรับฉบับที่", "Customer confirmed version")} {open.current_version}{" "}
+                  {tr("เมื่อ", "on")} {fmtDateTime(currentVersion.accepted_at)}
                 </p>
-                <p className="text-xs">เมื่ออนุมัติ ลูกค้าจะชำระเงินได้ภายใน 15 นาที</p>
+                <p className="text-xs">
+                  {tr(
+                    "เมื่ออนุมัติ ลูกค้าจะชำระเงินได้ภายใน 15 นาที",
+                    "Once approved, the customer can pay within 15 minutes",
+                  )}
+                </p>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
@@ -744,11 +847,15 @@ export function AdminContractsPanel({
                     onClick={() =>
                       void run(
                         () => approveContract(open.id, open.current_version),
-                        `อนุมัติฉบับที่ ${open.current_version} แล้ว`,
+                        tr(
+                          `อนุมัติฉบับที่ ${open.current_version} แล้ว`,
+                          `Version ${open.current_version} approved`,
+                        ),
                       )
                     }
                   >
-                    <ShieldCheck className="mr-1 h-4 w-4" /> อนุมัติฉบับที่ {open.current_version}
+                    <ShieldCheck className="mr-1 h-4 w-4" />{" "}
+                    {tr("อนุมัติฉบับที่", "Approve version")} {open.current_version}
                   </Button>
                   <Button
                     size="sm"
@@ -756,7 +863,8 @@ export function AdminContractsPanel({
                     disabled={busy}
                     onClick={() => setRevisionOpen(true)}
                   >
-                    <MessageSquareWarning className="mr-1 h-4 w-4" /> ขอแก้ไข
+                    <MessageSquareWarning className="mr-1 h-4 w-4" />{" "}
+                    {tr("ขอแก้ไข", "Request changes")}
                   </Button>
                 </div>
               </div>
@@ -768,13 +876,24 @@ export function AdminContractsPanel({
             currentVersion &&
             !currentVersion.sent_at && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm">
-                <span>ฉบับที่ {open.current_version} ยังเป็นฉบับร่าง ลูกค้ายังไม่เห็น</span>
+                <span>
+                  {tr("ฉบับที่", "Version")} {open.current_version}{" "}
+                  {tr(
+                    "ยังเป็นฉบับร่าง ลูกค้ายังไม่เห็น",
+                    "Still a draft; the customer cannot see it yet",
+                  )}
+                </span>
                 <Button
                   size="sm"
                   disabled={busy}
-                  onClick={() => void run(() => sendContract(open.id), "ส่งสัญญาให้ลูกค้าแล้ว")}
+                  onClick={() =>
+                    void run(
+                      () => sendContract(open.id),
+                      tr("ส่งสัญญาให้ลูกค้าแล้ว", "Contract sent to the customer"),
+                    )
+                  }
                 >
-                  <Send className="mr-1 h-4 w-4" /> ส่งให้ลูกค้าตรวจสอบ
+                  <Send className="mr-1 h-4 w-4" /> {tr("ส่งให้ลูกค้าตรวจสอบ", "Send to customer")}
                 </Button>
               </div>
             )}
@@ -789,21 +908,34 @@ export function AdminContractsPanel({
               >
                 <summary className="cursor-pointer text-sm font-semibold">
                   {currentVersion?.sent_at
-                    ? `แก้ไขสัญญา (สร้างฉบับที่ ${open.current_version + 1} · ลูกค้าต้องยอมรับใหม่)`
-                    : `แก้ไขฉบับร่าง (ฉบับที่ ${open.current_version})`}
+                    ? tr(
+                        `แก้ไขสัญญา (สร้างฉบับที่ ${open.current_version + 1} · ลูกค้าต้องยอมรับใหม่)`,
+                        `Edit contract (creates version ${open.current_version + 1} · the customer must confirm again)`,
+                      )
+                    : tr(
+                        `แก้ไขฉบับร่าง (ฉบับที่ ${open.current_version})`,
+                        `Edit draft (version ${open.current_version})`,
+                      )}
                 </summary>
                 <div className="mt-3 space-y-3">
                   <ContractFormFields form={form} onChange={setForm} booking={open.bookings} />
                   <Button size="sm" onClick={handleSave} disabled={busy}>
                     <Save className="mr-1 h-4 w-4" />
-                    {currentVersion?.sent_at ? "สร้างฉบับใหม่" : "บันทึกฉบับร่าง"}
+                    {currentVersion?.sent_at
+                      ? tr("สร้างฉบับใหม่", "Create new version")
+                      : tr("บันทึกฉบับร่าง", "Save draft")}
                   </Button>
                 </div>
               </details>
             )}
 
           {open && !perms.editContracts && !perms.approveContracts && (
-            <Badge variant="outline">ดูได้อย่างเดียว (ไม่มีสิทธิ์จัดการสัญญา)</Badge>
+            <Badge variant="outline">
+              {tr(
+                "ดูได้อย่างเดียว (ไม่มีสิทธิ์จัดการสัญญา)",
+                "View only (no permission to manage contracts)",
+              )}
+            </Badge>
           )}
         </DialogContent>
       </Dialog>
@@ -811,23 +943,28 @@ export function AdminContractsPanel({
       <Dialog open={revisionOpen} onOpenChange={setRevisionOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>ขอแก้ไขสัญญาฉบับที่ {open?.current_version}</DialogTitle>
+            <DialogTitle>
+              {tr("ขอแก้ไขสัญญาฉบับที่", "Request changes to version")} {open?.current_version}
+            </DialogTitle>
             <DialogDescription>
-              ระบุเหตุผล จากนั้นสร้างฉบับใหม่ ลูกค้าต้องยอมรับฉบับใหม่อีกครั้ง
+              {tr(
+                "ระบุเหตุผล จากนั้นสร้างฉบับใหม่ ลูกค้าต้องยอมรับฉบับใหม่อีกครั้ง",
+                "Give a reason, then create a new version. The customer must confirm the new version again.",
+              )}
             </DialogDescription>
           </DialogHeader>
           <Textarea
             value={revisionReason}
             onChange={(e) => setRevisionReason(e.target.value)}
             maxLength={1000}
-            aria-label="เหตุผลที่ขอแก้ไข"
+            aria-label={tr("เหตุผลที่ขอแก้ไข", "Reason for changes")}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setRevisionOpen(false)}>
-              ยกเลิก
+              {tr("ยกเลิก", "Cancel")}
             </Button>
             <Button onClick={handleRevision} disabled={busy}>
-              ส่งคำขอแก้ไข
+              {tr("ส่งคำขอแก้ไข", "Send change request")}
             </Button>
           </DialogFooter>
         </DialogContent>

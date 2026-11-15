@@ -1,15 +1,14 @@
 /**
- * Thai / English switch for the customer pages.
+ * Thai / English switch for the whole site (customer and admin pages).
  *
  * Text is written as pairs next to where it is used: `tr("ไทย", "English")`. Thai is the
  * default (and what the server renders); the visitor's choice is kept in localStorage.
- * Admin pages always stay Thai. When the language changes, the page below the provider is
+ * When the language changes, the page below the provider is
  * remounted so every `tr()` call and date/money formatter picks up the new language.
  *
  * The contract text itself is rendered by the database and stays Thai (it is the signed
- * document). Database error messages are translated with `trError()` where customers see them.
+ * document). Database error messages are translated with `trError()` where they are shown.
  */
-import { useRouterState } from "@tanstack/react-router";
 import { createContext, Fragment, useContext, useEffect, useState, type ReactNode } from "react";
 
 export type Lang = "th" | "en";
@@ -41,17 +40,13 @@ export function bilingual<K extends string>(
   return out;
 }
 
-/** Paths that always stay Thai (the admin side). */
-export const isThaiOnlyPath = (pathname: string): boolean =>
-  /^\/(admin|admin-invite|demo-admin)(\/|$)/.test(pathname);
-
 type LanguageContext = {
-  /** Language currently shown (Thai on admin pages whatever the choice). */
+  /** Language currently shown. */
   lang: Lang;
-  /** The visitor's choice. */
+  /** The visitor's choice (same as lang). */
   chosen: Lang;
   setLang: (lang: Lang) => void;
-  /** False on admin pages, where the switch is hidden. */
+  /** Whether the switch is shown (always, now that the admin pages are translated too). */
   switchable: boolean;
 };
 
@@ -66,9 +61,8 @@ export const useLanguage = () => useContext(Ctx);
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [chosen, setChosen] = useState<Lang>("th");
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const switchable = !isThaiOnlyPath(pathname);
-  const lang: Lang = switchable ? chosen : "th";
+  const switchable = true;
+  const lang: Lang = chosen;
 
   // The server always renders Thai; read the saved choice only in the browser, after mount
   useEffect(() => {
@@ -184,6 +178,72 @@ const DB_ERRORS: [RegExp, string | ((m: RegExpExecArray) => string)][] = [
   ],
   [/^ไม่สามารถ(ยอมรับ|ยืนยัน)สัญญาฉบับนี้ได้$/, "This contract version cannot be confirmed."],
   [/^สัญญาฉบับปัจจุบันยังไม่ได้รับการ/, "The current contract version has not been confirmed yet."],
+  // Admin side
+  [
+    /^ส่งมอบรถหรือรับรถคืนได้ตั้งแต่วันรับรถ \((.+)\) เป็นต้นไป$/,
+    (m) => `Hand-over and return are possible from the pickup day (${m[1]}) onwards.`,
+  ],
+  [/^ไม่มีสิทธิ์ดำเนินการนี้ \((.+)\)$/, (m) => `You do not have permission to do this (${m[1]}).`],
+  [/^การจองนี้มีสัญญาอยู่แล้ว$/, "This booking already has a contract."],
+  [
+    /^การจองนี้ไม่อยู่ในขั้นตอนทำสัญญา \(สถานะ: (.+)\)$/,
+    (m) => `This booking is not at the contract stage (status: ${m[1]}).`,
+  ],
+  [/^ส่งได้เฉพาะสัญญาฉบับร่าง$/, "Only a draft contract can be sent."],
+  [/^ไม่พบฉบับร่างที่จะส่ง$/, "No draft to send."],
+  [
+    /^ฉบับร่างนี้ถูกส่งให้ลูกค้าแล้ว กรุณาสร้างฉบับใหม่$/,
+    "This draft was already sent. Please create a new version.",
+  ],
+  [
+    /^สัญญาฉบับที่ส่งให้ลูกค้าแล้วแก้ไขไม่ได้ กรุณาสร้างฉบับใหม่$/,
+    "A sent contract version cannot be edited. Please create a new version.",
+  ],
+  [
+    /^สัญญาที่ชำระเงิน(แล้ว)?หรือยกเลิกแล้วแก้ไข(ข้อความ)?ไม่ได้$/,
+    "A paid or cancelled contract cannot be edited.",
+  ],
+  [/^สัญญานี้ไม่มีคำขอแก้ไขจากลูกค้า$/, "This contract has no change request from the customer."],
+  [/^ชื่อไม่ตรงกับที่ลูกค้าขอแก้ไข$/, "The name does not match the customer's request."],
+  [/^ชื่อลูกค้าไม่ถูกต้อง$/, "Invalid customer name."],
+  [
+    /^ลูกค้ายังไม่ได้กรอกเลขใบอนุญาตขับขี่$/,
+    "The customer has not entered a driving licence number.",
+  ],
+  [/^โปรไฟล์ลูกค้ายังไม่มีชื่อ-นามสกุล$/, "The customer's profile has no full name."],
+  [/^กรุณาระบุวันและเวลารับ-คืนรถ$/, "Please enter the pickup and return date and time."],
+  [
+    /^(วันรับรถ|วันคืนรถ)ต้องตรงกับวันที่จอง \((.+)\)$/,
+    (m) =>
+      `The ${m[1] === "วันรับรถ" ? "pickup" : "return"} date must match the booking (${m[2]}).`,
+  ],
+  [/^เวลาคืนรถต้องหลังเวลารับรถ$/, "The return time must be after the pickup time."],
+  [/^กรุณาระบุข้อกำหนดระยะทาง$/, "Please enter the mileage terms."],
+  [/^กรุณาระบุค่าปรับส่งคืนล่าช้า$/, "Please enter the late return penalty."],
+  [/^เงินประกันต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป$/, "The deposit must be a number of 0 or more."],
+  [
+    /^อนุมัติได้เฉพาะสัญญาที่ลูกค้ายอมรับแล้ว$/,
+    "Only a contract the customer has confirmed can be approved.",
+  ],
+  [
+    /^ขอแก้ไขได้เฉพาะสัญญาที่รอผู้ดูแลตรวจสอบ$/,
+    "Changes can only be requested while the contract waits for staff review.",
+  ],
+  [
+    /^ยืนยันด้วยตนเองได้เฉพาะการจองที่รอดำเนินการ$/,
+    "Only a pending booking can be confirmed manually.",
+  ],
+  [/^อีเมลไม่ถูกต้อง$/, "Invalid email."],
+  [/^อีเมลนี้เป็นผู้ดูแลระบบอยู่แล้ว$/, "This email is already an admin."],
+  [/^กรุณาเลือกสิทธิ์อย่างน้อย 1 รายการ$/, "Please choose at least one permission."],
+  [/^มีสิทธิ์ที่ไม่รู้จัก$/, "Unknown permission."],
+  [/^ไม่พบผู้ดูแลระบบ$/, "Admin not found."],
+  [/^เปลี่ยนสถานะบัญชีของตนเองไม่ได้$/, "You cannot change your own status."],
+  [/^บัญชีสาธิตเป็นผู้ดูแลระบบไม่ได้$/, "A demo account cannot be an admin."],
+  [
+    /^เปลี่ยนสถานะ(สัญญา)?จาก (.+) เป็น (.+) ไม่ได้$/,
+    (m) => `Cannot change the status from ${m[2]} to ${m[3]}.`,
+  ],
   [
     /^ยืนยันการจองได้หลังผู้ดูแลอนุมัติสัญญาและลูกค้าชำระเงินแล้วเท่านั้น$/,
     "A booking is confirmed only after the contract is confirmed and paid.",
