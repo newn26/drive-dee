@@ -498,7 +498,9 @@ export type Database = {
           amount: number
           booking_id: string
           card_last4: string | null
+          deposit: number
           id: string
+          kind: string
           method: Database["public"]["Enums"]["payment_method"]
           paid_at: string
           reference: string
@@ -510,7 +512,9 @@ export type Database = {
           amount: number
           booking_id: string
           card_last4?: string | null
+          deposit?: number
           id?: string
+          kind?: string
           method: Database["public"]["Enums"]["payment_method"]
           paid_at?: string
           reference?: string
@@ -522,7 +526,9 @@ export type Database = {
           amount?: number
           booking_id?: string
           card_last4?: string | null
+          deposit?: number
           id?: string
+          kind?: string
           method?: Database["public"]["Enums"]["payment_method"]
           paid_at?: string
           reference?: string
@@ -573,54 +579,6 @@ export type Database = {
         }
         Relationships: []
       }
-      reviews: {
-        Row: {
-          booking_id: string
-          car_id: string
-          comment: string | null
-          created_at: string
-          id: string
-          rating: number
-          reviewer_name: string
-          user_id: string
-        }
-        Insert: {
-          booking_id: string
-          car_id: string
-          comment?: string | null
-          created_at?: string
-          id?: string
-          rating: number
-          reviewer_name?: string
-          user_id: string
-        }
-        Update: {
-          booking_id?: string
-          car_id?: string
-          comment?: string | null
-          created_at?: string
-          id?: string
-          rating?: number
-          reviewer_name?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "reviews_booking_id_fkey"
-            columns: ["booking_id"]
-            isOneToOne: true
-            referencedRelation: "bookings"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "reviews_car_id_fkey"
-            columns: ["car_id"]
-            isOneToOne: false
-            referencedRelation: "cars"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       user_roles: {
         Row: {
           id: string
@@ -645,6 +603,10 @@ export type Database = {
     }
     Functions: {
       accept_admin_invitation: { Args: { _token: string }; Returns: undefined }
+      admin_apply_requested_name: {
+        Args: { _contract_id: string; _name: string }
+        Returns: undefined
+      }
       admin_approve_contract: {
         Args: { _contract_id: string; _version: number }
         Returns: undefined
@@ -700,6 +662,20 @@ export type Database = {
         Returns: boolean
       }
       booking_fee: { Args: never; Returns: number }
+      booking_receipt_details: {
+        Args: { _booking_id: string }
+        Returns: {
+          contract_created_at: string
+          contract_created_by_name: string
+          contract_no: string
+          customer_address: string
+          customer_email: string
+          customer_id_card_no: string
+          customer_license_no: string
+          customer_name: string
+          customer_phone: string
+        }[]
+      }
       bootstrap_owner: { Args: { _email: string }; Returns: undefined }
       contract_hold_until: {
         Args: { _span: string; _start_date: string }
@@ -726,6 +702,7 @@ export type Database = {
         Returns: boolean
       }
       is_owner: { Args: { _user_id: string }; Returns: boolean }
+      is_valid_thai_id: { Args: { _id: string }; Returns: boolean }
       log_admin_audit: {
         Args: {
           _action: string
@@ -746,6 +723,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      max_customer_revisions: { Args: never; Returns: number }
       owner_create_admin_invitation: {
         Args: { _email: string; _permissions: string[] }
         Returns: {
@@ -771,6 +749,14 @@ export type Database = {
         Returns: undefined
       }
       pay_booking: {
+        Args: {
+          _booking_id: string
+          _card_last4?: string
+          _method: Database["public"]["Enums"]["payment_method"]
+        }
+        Returns: string
+      }
+      pay_pickup: {
         Args: {
           _booking_id: string
           _card_last4?: string
