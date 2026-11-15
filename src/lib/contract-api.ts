@@ -18,6 +18,18 @@ export type ContractRow = Omit<Tables<"contracts">, "status" | "revision_request
 
 export type ContractVersionRow = Tables<"contract_versions">;
 
+/**
+ * Snapshot columns added by docs/database/contract-customer-details.sql. Optional until Lovable
+ * applies that migration and regenerates the Supabase types; then this can become the plain row.
+ */
+export type ContractVersionDetails = ContractVersionRow &
+  Partial<
+    Record<
+      "customer_email" | "customer_address" | "customer_id_card_no" | "created_by_name",
+      string | null
+    >
+  >;
+
 export type ContractEventRow = Omit<Tables<"contract_events">, "actor_role"> & {
   actor_role: "owner" | "admin" | "customer" | "system";
 };
@@ -147,7 +159,8 @@ function contractArgs(f: ContractForm, startDate: string, endDate: string) {
     _mileage_allowance: f.mileageAllowance.trim(),
     _late_penalty: f.latePenalty.trim(),
     _additional_conditions: f.additionalConditions.trim(),
-    _include_license: f.includeLicence,
+    // Always: no driving licence, no contract (the database refuses a missing one)
+    _include_license: true,
   };
 }
 

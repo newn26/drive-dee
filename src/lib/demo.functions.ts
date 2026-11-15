@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { demoLicenceNo } from "@/lib/demo-licence";
 
 export const DEMO_EMAIL_DOMAIN = "demo.siamwheels.invalid";
 
@@ -18,13 +19,19 @@ export const createDemoAccount = createServerFn({ method: "POST" }).handler(asyn
   const pick = (a: string[]) => a[(bytes[0] ?? 0) % a.length] ?? a[0]!;
   const full_name = `[DEMO] คุณ${pick(FIRST)} ${pick(LAST)}`;
 
-  const { error } = await supabaseAdmin.auth.admin.createUser({
+  const { data, error } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
     app_metadata: { demo: true },
     user_metadata: { full_name, phone: "" },
   });
-  if (error) throw new Error("ไม่สามารถสร้างบัญชีทดลองได้");
+  if (error || !data.user) throw new Error("ไม่สามารถสร้างบัญชีทดลองได้");
+  // Bookings need a licence: give the demo customer an obviously fake one
+  const { error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .update({ license_no: demoLicenceNo(crypto.getRandomValues(new Uint8Array(8))) })
+    .eq("id", data.user.id);
+  if (profileError) throw new Error("ไม่สามารถสร้างบัญชีทดลองได้");
   return { email, password };
 });

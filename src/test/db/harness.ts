@@ -23,6 +23,8 @@ const WORKFLOW_MIGRATION_FILE = "0004_contract_approval_workflow.sql";
 /** The migration under test; CONTRACT_MIGRATION_SQL swaps in another file (mutation tests). */
 export const PROPOSED_MIGRATION =
   process.env["CONTRACT_MIGRATION_SQL"] ?? path.join(MIGRATIONS_DIR, WORKFLOW_MIGRATION_FILE);
+/** Proposed follow-up migration (not yet applied by Lovable): full customer details on contracts. */
+export const CUSTOMER_DETAILS_SQL = path.join(ROOT, "docs/database/contract-customer-details.sql");
 
 const SUPABASE_STUB = `
 create role anon nologin;
@@ -66,6 +68,8 @@ export type CreateOptions = {
   beforeProposed?: (db: TestDb) => Promise<void>;
   /** Default true. */
   applyProposed?: boolean;
+  /** SQL files applied, in order, after the proposed migration and any later migrations. */
+  extraSql?: string[];
 };
 
 export async function createTestDb(options: CreateOptions = {}): Promise<TestDb> {
@@ -127,6 +131,7 @@ export async function createTestDb(options: CreateOptions = {}): Promise<TestDb>
     await pg.exec(readFileSync(PROPOSED_MIGRATION, "utf8"));
     for (const f of later) await pg.exec(readFileSync(path.join(MIGRATIONS_DIR, f), "utf8"));
   }
+  for (const f of options.extraSql ?? []) await pg.exec(readFileSync(f, "utf8"));
   return db;
 }
 

@@ -3,6 +3,28 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { cancelExpiredBookings } from "@/lib/payment-window";
 
+/**
+ * The signed-in user's full profile row. Same key and shape as the profile page and dashboard
+ * use, so all three share one cache entry (and saving the profile refreshes it).
+ */
+export const ownProfileQuery = (userId: string) =>
+  queryOptions({
+    queryKey: ["profile", userId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", userId)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+/** Bookings need a driving licence number in the profile (the database checks this too). */
+export const hasLicence = (profile: Pick<Tables<"profiles">, "license_no"> | null | undefined) =>
+  !!profile?.license_no?.trim();
+
 export const carsQuery = () =>
   queryOptions({
     queryKey: ["cars"],

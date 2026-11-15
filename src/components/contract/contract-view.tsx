@@ -5,7 +5,12 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/status-badge";
 import { fmtDateTime, thb } from "@/lib/format";
 import { actorRoleLabel, contractEventLabel, customerContractLabel } from "@/lib/contract-workflow";
-import type { ContractEventRow, ContractRow, ContractVersionRow } from "@/lib/contract-api";
+import type {
+  ContractEventRow,
+  ContractRow,
+  ContractVersionDetails,
+  ContractVersionRow,
+} from "@/lib/contract-api";
 
 const bkkDateTime = (iso: string | null) => (iso ? fmtDateTime(iso) : "-");
 
@@ -18,11 +23,16 @@ export function ContractSummary({ v }: { v: ContractVersionRow }) {
       </p>
     );
   }
+  const d = v as ContractVersionDetails;
+  /** A row only when the value is filled in (older versions do not have the newer fields). */
+  const optional = (label: string, value: string | null | undefined): [string, string][] =>
+    value?.trim() ? [[label, value]] : [];
   const rows: [string, string][] = [
     ["ผู้เช่า", `${v.customer_name ?? "-"}${v.customer_phone ? ` · โทร ${v.customer_phone}` : ""}`],
-    ...(v.customer_license_no
-      ? ([["เลขที่ใบอนุญาตขับขี่", v.customer_license_no]] as [string, string][])
-      : []),
+    ...optional("อีเมล", d.customer_email),
+    ...optional("ที่อยู่", d.customer_address),
+    ...optional("เลขบัตรประชาชน/พาสปอร์ต", d.customer_id_card_no),
+    ...optional("เลขที่ใบอนุญาตขับขี่", v.customer_license_no),
     ["รถยนต์", `${v.car_label ?? "-"} · ทะเบียน ${v.car_plate_no ?? "-"}`],
     ["สถานที่รับรถ", v.pickup_location ?? "-"],
     ["รับรถ", bkkDateTime(v.pickup_at)],
@@ -31,6 +41,7 @@ export function ContractSummary({ v }: { v: ContractVersionRow }) {
     ["เงินประกันความเสียหาย", `${thb(v.deposit)} — ชำระ ณ วันรับรถ ไม่รวมในการชำระเงินออนไลน์`],
     ["ข้อกำหนดระยะทาง", v.mileage_allowance ?? "-"],
     ["ค่าปรับส่งคืนรถล่าช้า", v.late_penalty ?? "-"],
+    ...optional("ผู้จัดทำสัญญา", d.created_by_name),
   ];
   return (
     <dl className="grid gap-x-4 gap-y-2 rounded-lg border bg-card p-3 text-sm sm:grid-cols-[max-content_1fr]">
