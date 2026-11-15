@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Fuel, Gauge, Settings2, Star, Users } from "lucide-react";
+import { Fuel, Gauge, Settings2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,9 +22,9 @@ export const Route = createFileRoute("/cars_/$id")({
   head: () => ({
     meta: [
       { title: "รายละเอียดรถเช่า — Drive Dee" },
-      { name: "description", content: "ดูรายละเอียด รีวิว และจองรถเช่าออนไลน์" },
+      { name: "description", content: "ดูรายละเอียดและจองรถเช่าออนไลน์" },
       { property: "og:title", content: "รายละเอียดรถเช่า — Drive Dee" },
-      { property: "og:description", content: "ดูรายละเอียด รีวิว และจองรถเช่าออนไลน์" },
+      { property: "og:description", content: "ดูรายละเอียดและจองรถเช่าออนไลน์" },
     ],
   }),
   component: CarDetail,
@@ -51,12 +51,6 @@ function CarDetail() {
     },
   });
   const car = carQ.data;
-  const { data: reviews = [] } = useQuery({
-    queryKey: ["reviews", id],
-    queryFn: async () =>
-      (await supabase.from("reviews").select("*").eq("car_id", id).order("created_at", { ascending: false })).data ?? [],
-  });
-
   // Booking needs an ID card / passport and a driver's licence in the profile (the DB checks too)
   const profileQ = useQuery({
     queryKey: ["profile", user?.id],
@@ -104,7 +98,6 @@ function CarDetail() {
   }
   const days = datesValid ? daysBetween(start, end) : 0;
   const charges = rentalCharges(car.price_per_day * days);
-  const avg = reviews.length ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
 
   const book = async () => {
     if (!user) return navigate({ to: "/auth" });
@@ -156,24 +149,6 @@ function CarDetail() {
             ))}
           </div>
           <p className="mt-4 leading-relaxed">{car.description}</p>
-        </div>
-        <div>
-          <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold">
-            รีวิวจากลูกค้า <span className="flex items-center gap-1 text-base font-normal text-muted-foreground"><Star className="h-4 w-4 fill-accent text-accent" />{avg.toFixed(1)} ({reviews.length})</span>
-          </h2>
-          {reviews.length === 0 && <p className="text-sm text-muted-foreground">ยังไม่มีรีวิว</p>}
-          <div className="space-y-3">
-            {reviews.map((r) => (
-              <div key={r.id} className="rounded-xl border bg-card p-4">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">{r.reviewer_name}</span>
-                  <span className="text-xs text-muted-foreground">{fmtDate(r.created_at)}</span>
-                </div>
-                <div className="my-1 flex">{Array.from({ length: 5 }).map((_, i) => <Star key={i} className={`h-4 w-4 ${i < r.rating ? "fill-accent text-accent" : "text-border"}`} />)}</div>
-                <p className="text-sm">{r.comment}</p>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
 

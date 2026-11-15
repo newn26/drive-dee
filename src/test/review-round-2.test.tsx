@@ -1,6 +1,6 @@
 /**
  * Fixes from the second live walkthrough: pickup-day status moves, kept booking fees in revenue,
- * stock car photos labelled, review stars named, work queue placeholder while loading.
+ * stock car photos labelled, work queue placeholder while loading.
  */
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";

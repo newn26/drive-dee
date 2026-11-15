@@ -11,8 +11,6 @@ import {
   CreditCard,
   FileCheck2,
   MapPin,
-  MessageSquarePlus,
-  Star,
   XCircle,
 } from "lucide-react";
 
@@ -32,8 +30,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/status-badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -42,14 +38,12 @@ import { categoryLabel, fmtDate, thb } from "@/lib/format";
 import { BOOKING_FEE, rentalCharges } from "@/lib/booking-fee";
 import {
   bookingContract,
-  bookingReview,
   customerBookingsQuery,
   invalidateBookingData,
   workflowContract,
   type CustomerBooking,
   cancellationMoney,
 } from "@/lib/queries";
-import { reviewerDisplayName } from "@/lib/reviewer-name";
 
 export const Route = createFileRoute("/bookings")({
   head: () => ({
@@ -62,7 +56,7 @@ export const Route = createFileRoute("/bookings")({
   component: BookingsHistoryPage,
 });
 
-type BookingWithCarAndReview = CustomerBooking;
+type BookingWithCar = CustomerBooking;
 
 function BookingsHistoryPage() {
   const { user, loading: authLoading } = useAuth();
@@ -73,19 +67,13 @@ function BookingsHistoryPage() {
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
 
-  // Review modal state
   // Ticks the payment countdown shown on unpaid bookings
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
-  const [reviewBooking, setReviewBooking] = useState<BookingWithCarAndReview | null>(null);
-  const [reviewRating, setReviewRating] = useState<number>(5);
-  const [reviewComment, setReviewComment] = useState("");
-  const [submittingReview, setSubmittingReview] = useState(false);
-
-  // Fetch all customer bookings with car and review
+  // Fetch all customer bookings with car and contract
   const {
     data: bookings = [],
     isLoading: bookingsLoading,
@@ -121,48 +109,10 @@ function BookingsHistoryPage() {
     }
   };
 
-  // Handle review submission
-  const handleSubmitReview = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!reviewBooking || !user) return;
-
-    setSubmittingReview(true);
-    try {
-      const { error } = await supabase
-        .from("reviews")
-        .insert({
-          booking_id: reviewBooking.id,
-          car_id: reviewBooking.car_id,
-          user_id: user.id,
-          // Reviews are public: store a short display name, never the full sign-up name
-          reviewer_name: reviewerDisplayName(user.user_metadata?.["full_name"]),
-          rating: reviewRating,
-          comment: reviewComment.trim(),
-        });
-
-      if (error) throw error;
-
-      toast.success("ขอบคุณสำหรับความคิดเห็นและการให้คะแนน");
-      setReviewBooking(null);
-      setReviewComment("");
-      setReviewRating(5);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["customer-bookings", user.id] }),
-        queryClient.invalidateQueries({ queryKey: ["ratings"] }),
-        queryClient.invalidateQueries({ queryKey: ["reviews", reviewBooking.car_id] }),
-      ]);
-    } catch (err: unknown) {
-      const error = err as Error;
-      toast.error(error.message || "ไม่สามารถบันทึกรีวิวได้");
-    } finally {
-      setSubmittingReview(false);
-    }
-  };
-
   const cancellingBooking = bookings.find((b) => b.id === cancellingId);
 
   // Each booking's place in the contract workflow
-  const stageOf = (b: BookingWithCarAndReview): CustomerStage =>
+  const stageOf = (b: BookingWithCar): CustomerStage =>
     customerStage(b, workflowContract(bookingContract(b)));
   const TABS: { value: string; label: string; stages: CustomerStage[] }[] = [
     { value: "contract", label: "รอสัญญา", stages: ["awaiting_contract"] },
@@ -217,7 +167,7 @@ function BookingsHistoryPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">การจองของฉัน</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            ติดตามสถานะการจอง ชำระเงิน ตรวจสอบสัญญาเช่าดิจิทัล และเขียนรีวิว
+            ติดตามสถานะการจอง ชำระเงิน และตรวจสอบสัญญาเช่าดิจิทัล
           </p>
         </div>
         <Button asChild>
@@ -259,9 +209,7 @@ function BookingsHistoryPage() {
         <div className="space-y-4">
           {filteredBookings.map((b) => {
             const car = b.cars;
-            const review = bookingReview(b);
             const canCancel = b.status === "pending" || b.status === "confirmed";
-            const canReview = b.status === "completed" && !review;
             const stage = stageOf(b);
             const secondsLeft = holdSecondsLeft(b, now);
 
@@ -318,13 +266,6 @@ function BookingsHistoryPage() {
                       </p>
                     )}
 
-                    {/* Review Badge if already reviewed */}
-                    {review && (
-                      <div className="flex items-center gap-1 text-xs text-accent">
-                        <Star className="h-3.5 w-3.5 fill-accent text-accent" />
-                        <span>ให้คะแนนแล้ว {review.rating} ดาว: "{review.comment}"</span>
-                      </div>
-                    )}
                   </div>
 
                   {/* Price & Actions (3 Cols) */}
@@ -370,17 +311,6 @@ function BookingsHistoryPage() {
                           <Link to="/bookings/$id" params={{ id: b.id }}>
                             <FileCheck2 className="h-3.5 w-3.5" /> ดูสัญญาเช่า
                           </Link>
-                        </Button>
-                      )}
-
-                      {canReview && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="w-full gap-1.5"
-                          onClick={() => setReviewBooking(b)}
-                        >
-                          <MessageSquarePlus className="h-3.5 w-3.5" /> เขียนรีวิว
                         </Button>
                       )}
 
@@ -451,62 +381,6 @@ function BookingsHistoryPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Review Modal Dialog */}
-      <Dialog open={!!reviewBooking} onOpenChange={(open) => !open && setReviewBooking(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>เขียนรีวิวประสบการณ์การเช่ารถ</DialogTitle>
-            <DialogDescription>
-              ให้คะแนนความพึงพอใจสำหรับ {reviewBooking?.cars?.brand} {reviewBooking?.cars?.model}
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={handleSubmitReview} className="space-y-4 pt-2">
-            <div>
-              <Label className="text-xs">คะแนนความพึงพอใจ (1-5 ดาว)</Label>
-              <div className="flex gap-2 mt-2" role="radiogroup" aria-label="คะแนนความพึงพอใจ">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button
-                    key={star}
-                    type="button"
-                    role="radio"
-                    aria-checked={star === reviewRating}
-                    aria-label={`${star} ดาว`}
-                    onClick={() => setReviewRating(star)}
-                    className="p-1 hover:scale-110 transition"
-                  >
-                    <Star
-                      aria-hidden
-                      className={`h-7 w-7 ${star <= reviewRating ? "fill-accent text-accent" : "text-muted-foreground/30"}`}
-                    />
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="rev-comment" className="text-xs">ความคิดเห็นของคุณ</Label>
-              <Textarea
-                id="rev-comment"
-                rows={3}
-                placeholder="บอกเล่าความประทับใจ สภาพรถยนต์ หรือการให้บริการ..."
-                value={reviewComment}
-                onChange={(e) => setReviewComment(e.target.value)}
-                required
-              />
-            </div>
-
-            <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => setReviewBooking(null)}>
-                ยกเลิก
-              </Button>
-              <Button type="submit" disabled={submittingReview}>
-                {submittingReview ? "กำลังบันทึก..." : "ส่งความคิดเห็น"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

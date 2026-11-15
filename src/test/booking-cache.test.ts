@@ -17,7 +17,7 @@ vi.mock("@/integrations/supabase/client", () => {
       from: () => ({
         select: (cols: string) => {
           mocks.select(cols);
-          return chain({ data: [{ id: "b1", reviews: [] }], error: null });
+          return chain({ data: [{ id: "b1" }], error: null });
         },
       }),
       rpc: mocks.rpc,
@@ -29,7 +29,6 @@ import {
   BOOKING_RELATED_QUERY_KEYS,
   CUSTOMER_BOOKINGS_SELECT,
   bookedCarIdsQuery,
-  bookingReview,
   customerBookingsQuery,
   invalidateBookingData,
 } from "@/lib/queries";
@@ -53,10 +52,10 @@ const cars = [
 describe("Customer bookings cache", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("uses one key and one select (with reviews) for every page", async () => {
+  it("uses one key and one select for every page", async () => {
     const opts = customerBookingsQuery("user-1");
     expect(opts.queryKey).toEqual(["customer-bookings", "user-1"]);
-    expect(CUSTOMER_BOOKINGS_SELECT).toContain("reviews(*)");
+    expect(CUSTOMER_BOOKINGS_SELECT).not.toContain("reviews");
     await new QueryClient().fetchQuery(opts);
     expect(mocks.select).toHaveBeenCalledWith(CUSTOMER_BOOKINGS_SELECT);
   });
@@ -68,14 +67,6 @@ describe("Customer bookings cache", () => {
       // no page-specific booking select that could disagree with the shared one
       expect(src).not.toMatch(/\.select\("\*, cars\(\*\)/);
     }
-  });
-
-  it("reads the review whether PostgREST returns an object or an array", () => {
-    const review = { id: "r1" } as never;
-    expect(bookingReview({ reviews: review })).toBe(review);
-    expect(bookingReview({ reviews: [review] })).toBe(review);
-    expect(bookingReview({ reviews: [] })).toBeNull();
-    expect(bookingReview({ reviews: null })).toBeNull();
   });
 
   it("invalidates every booking-related cache, including availability", async () => {

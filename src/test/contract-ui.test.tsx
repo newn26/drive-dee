@@ -628,13 +628,11 @@ describe("G02 booking history", () => {
           booking_code: "BK261101LEGACY",
           status: "confirmed",
           hold_expires_at: null,
-          reviews: null,
           contracts: { id: "ct-old", status: "paid", current_version: 1, sent_version: 1 },
         },
         // new workflow: contract sent, waiting for the customer
         {
           ...BOOKING,
-          reviews: null,
           contracts: [
             { id: "ct-1", status: "pending_customer", current_version: 1, sent_version: 1 },
           ],
@@ -689,12 +687,10 @@ describe("booking-fee wording", () => {
           booking_code: "BK261114PAID1",
           status: "confirmed",
           hold_expires_at: null,
-          reviews: null,
           contracts: { id: "ct-p", status: "paid", current_version: 1, sent_version: 1 },
         },
         {
           ...BOOKING,
-          reviews: null,
           contracts: [
             { id: "ct-1", status: "pending_customer", current_version: 1, sent_version: 1 },
           ],
@@ -738,7 +734,6 @@ describe("booking-fee wording", () => {
           booking_code: "BK261114PAID2",
           status: "confirmed",
           hold_expires_at: null,
-          reviews: null,
           contracts: { id: "ct-p", status: "paid", current_version: 1, sent_version: 1 },
           payments: [paid("booking_fee", 1000), paid("pickup", 4940)],
         },
@@ -852,8 +847,8 @@ describe("revision rules (name applied by the admin, at most 2 requests)", () =>
   });
 });
 
-describe("7. review stars are named for screen readers", () => {
-  it("each star is a radio with its number of stars", async () => {
+describe("7. reviews were removed", () => {
+  it("a completed booking has no review button", async () => {
     const { Route: BookingsRoute } = await import("@/routes/bookings");
     const Page = (BookingsRoute as unknown as { component: ComponentType }).component;
     mocks.tables = {
@@ -862,17 +857,12 @@ describe("7. review stars are named for screen readers", () => {
           ...BOOKING,
           status: "completed",
           hold_expires_at: null,
-          reviews: null,
           contracts: { id: "ct-1", status: "paid", current_version: 1, sent_version: 1 },
         },
       ],
     };
     renderWithQuery(<Page />);
-    fireEvent.click(await screen.findByRole("button", { name: "เขียนรีวิว" }));
-    expect(await screen.findByRole("radiogroup", { name: "คะแนนความพึงพอใจ" })).toBeInTheDocument();
-    const four = screen.getByRole("radio", { name: "4 ดาว" });
-    fireEvent.click(four);
-    expect(four).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("radio", { name: "5 ดาว" })).toHaveAttribute("aria-checked", "false");
+    expect(await screen.findByRole("link", { name: /ดูสัญญาเช่า/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "เขียนรีวิว" })).toBeNull();
   });
 });

@@ -20,7 +20,6 @@ import {
   Fuel,
   LayoutDashboard,
   Lock,
-  MessageSquareWarning,
   Plus,
   RefreshCw,
   Search,
@@ -100,8 +99,6 @@ import type { Tables } from "@/integrations/supabase/types";
 import { invalidateBookingData } from "@/lib/queries";
 import { cancelExpiredBookings } from "@/lib/payment-window";
 import { syncCarStatus } from "@/lib/car-status";
-import { adminReviewsQuery } from "@/lib/admin-reviews";
-import { AdminReviewsPanel } from "@/components/admin/reviews-panel";
 import { AdminCustomersPanel } from "@/components/admin/customers-panel";
 import { buildCustomerRows } from "@/lib/customers";
 import { DEMO_ADMIN_SIGN_IN_ENABLED, dashboardPermissions } from "@/lib/roles";
@@ -155,7 +152,6 @@ type AdminTab =
   | "customers"
   | "contracts"
   | "maintenance"
-  | "reviews"
   | "reports"
   | "admins";
 
@@ -362,11 +358,6 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
     enabled: perms.viewDashboard,
   });
   const roles = rolesQ.data ?? [];
-
-  const { data: reviewsForCount = [] } = useQuery({
-    ...adminReviewsQuery(),
-    enabled: perms.moderateReviews,
-  });
 
   // A failed load must not look like "no data", so failures are listed in a banner with a retry
   const failedQueries = [
@@ -893,7 +884,7 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
             <p className="font-semibold">โหมดสาธิต (Demo Admin)</p>
             <p className="mt-0.5">
               เพิ่ม/แก้ไขรถ เปลี่ยนสถานะการจอง และบันทึกงานซ่อมบำรุงได้ ดูสัญญาเช่าและรายงานได้
-              แต่ลบข้อมูล แก้ไขสัญญา จัดการรีวิว หรือเปลี่ยนสิทธิ์ผู้ใช้ไม่ได้
+              แต่ลบข้อมูล แก้ไขสัญญา หรือเปลี่ยนสิทธิ์ผู้ใช้ไม่ได้
             </p>
           </div>
         </div>
@@ -981,16 +972,9 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
                   icon: Wrench,
                   count: maintenanceRecords.length,
                 },
-                {
-                  id: "reviews",
-                  label: "รีวิวจากลูกค้า",
-                  icon: MessageSquareWarning,
-                  count: reviewsForCount.length,
-                },
                 { id: "reports", label: "รายงานและสถิติ", icon: BarChart3, count: null },
                 { id: "admins", label: "ผู้ดูแลระบบ (Owner)", icon: KeyRound, count: null },
               ]
-                .filter((item) => item.id !== "reviews" || perms.moderateReviews)
                 .filter((item) => item.id !== "admins" || perms.manageAdmins)
                 .map((item) => (
                   <button
@@ -1727,9 +1711,6 @@ export function AdminDashboard({ mode }: { mode: DashboardMode }) {
 
           {/* TAB: CUSTOMERS (view only) */}
           {activeTab === "customers" && <AdminCustomersPanel rows={customerRows} />}
-
-          {/* TAB: CUSTOMER REVIEWS (moderation) */}
-          {activeTab === "reviews" && <AdminReviewsPanel isAdmin={perms.moderateReviews} />}
 
           {/* TAB: ADMIN MANAGEMENT (Owner only; the database enforces it) */}
           {activeTab === "admins" && perms.manageAdmins && user && (

@@ -29,12 +29,13 @@ export type AdminPermission =
   | "fleet_manage"
   | "reviews_moderate";
 
+/** Permissions the Owner can grant. reviews_moderate still exists in the database but the
+ * review feature was removed from the app, so it is no longer offered. */
 export const ADMIN_PERMISSIONS: readonly AdminPermission[] = [
   "contracts_manage",
   "contracts_approve",
   "bookings_manage",
   "fleet_manage",
-  "reviews_moderate",
 ];
 
 export const adminPermissionLabel: Record<AdminPermission, string> = {

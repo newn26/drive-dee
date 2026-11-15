@@ -80,7 +80,7 @@ files in [`docs/database/`](docs/database/) listed in
   car page shows what is missing with a link to the profile, and the database refuses the
   booking otherwise.
 - Car search by date range, category and price; only cars free for the chosen dates are shown.
-- Car detail page with specifications, reviews and a booking form with five pickup points
+- Car detail page with specifications and a booking form with five pickup points
   (Bangkok Sukhumvit, Suvarnabhumi Airport, Don Mueang Airport, Chiang Mai, Phuket), showing
   the booking fee and the amount due at pickup.
 - Booking with a server-generated booking code and a price calculated by the database.
@@ -93,7 +93,6 @@ files in [`docs/database/`](docs/database/) listed in
   address), booking code, contract number, the admin who created the contract, and both
   payments.
 - Booking history with stage filters, and cancellation of pending or confirmed bookings.
-- One review (1–5 stars and a comment) per confirmed, active or completed booking.
 - **Demo Customer** mode: a one-click account with a fictional name and fictional
   `DEMO…` ID card and licence numbers, so it can book straight away.
 
@@ -115,7 +114,6 @@ Admins land on `/admin` after signing in.
   have sane bounds.
 - **Maintenance**: schedule and track jobs with costs (no negative costs, no completion date
   before the scheduled date).
-- **Reviews**: delete inappropriate reviews.
 - **Reports**: date-range filters (30 days, 90 days, this year, all time), monthly revenue
   chart split into online fees and pickup payments, CSV export (UTF-8 with BOM so Thai text
   opens in Excel). Revenue comes from recorded payments and excludes the refundable deposit;
@@ -155,7 +153,7 @@ Roles are stored in `user_roles` (`app_role` enum: `admin`, `customer`). Adminis
 | Role                    | How it is assigned                                                     | Access                                                                    |
 | ----------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | Visitor                 | Not signed in                                                          | Home page, car search, car details                                        |
-| **Customer**            | Every new sign-up (trigger `handle_new_user`)                          | Own profile, bookings, contracts, payments and reviews                    |
+| **Customer**            | Every new sign-up (trigger `handle_new_user`)                          | Own profile, bookings, contracts and payments                             |
 | Demo Customer           | "Demo Customer" button on `/auth`                                      | Same as Customer with fictional data; can never become an administrator   |
 | **Admin**               | Accepting an Owner's invitation (or the one-time SQL setup, see below) | `/admin`, limited to the permissions in their `admin_members` row         |
 | **Owner / Super Admin** | One-time `bootstrap_owner` SQL step on an existing admin               | Everything an admin can do, plus admin management and manual confirmation |
@@ -171,7 +169,7 @@ Each non-Owner admin has a subset of these permissions. The Owner implicitly has
 | `contracts_approve` | Approve or return legacy contracts left in `pending_admin_review` (no new contract reaches that status since 0007) |
 | `bookings_manage`   | Change booking status                                                                                              |
 | `fleet_manage`      | Add, edit, delete cars; create, edit, delete maintenance jobs                                                      |
-| `reviews_moderate`  | Delete reviews                                                                                                     |
+| `reviews_moderate`  | No longer offered: the review feature was removed (the permission still exists in the database)                    |
 
 All active admins can read the dashboard, contracts, bookings, maintenance and reports.
 A **suspended** or **revoked** admin is not treated as an admin anywhere: `has_role()` returns
@@ -445,8 +443,8 @@ stateDiagram-v2
 ## 9. Database architecture
 
 Schema `public`, created by `drizzle/migrations/0000`–`0007`, all applied to production
-(0005 and 0006 cancel each other out). Other tables: `profiles`, `cars`, `reviews`,
-`maintenance`.
+(0005 and 0006 cancel each other out). Other tables: `profiles`, `cars`, `maintenance`, and `reviews`
+(left in the database but no longer used: the review feature was removed).
 
 These files in `docs/database/` are **also applied to production**. They were run directly
 with the database query tool and are **not yet recorded as Drizzle migrations**; each is
@@ -515,7 +513,7 @@ made Owner), and existing pending bookings kept a 15-minute hold. A rollback scr
   `payments`, `user_roles`, `admin_members`, `admin_invitations` or `admin_audit_log`. Writes
   go through `security definer` functions that check identity and permissions themselves.
 - **Fine-grained admin permissions** are enforced in RLS (`has_admin_permission`) for cars,
-  maintenance and reviews, and in each workflow function for contracts and bookings.
+  maintenance, and in each workflow function for contracts and bookings.
 - **Admin role grants** are blocked for signed-in users unless they come from
   `accept_admin_invitation` (`guard_admin_role_grant`). Demo accounts can never be admins
   (`prevent_demo_admin` and checks in invitation functions).
@@ -572,7 +570,7 @@ Project layout:
 drizzle/migrations/       SQL migrations (managed by Lovable; do not edit)
 docs/database/            Proposed / directly applied SQL, workflow plan, owner procedures
 src/routes/               One file per page (see src/routes/README.md)
-src/components/admin/     Contracts panel, admin management panel, reviews panel
+src/components/admin/     Contracts panel, admin management panel, customers panel
 src/components/contract/  Contract view (versions, events, print)
 src/lib/                  Domain logic: contract workflow/API, roles, payment window,
                           demo payment, availability, reports, formatting
@@ -613,11 +611,11 @@ src/test/                 Unit/UI tests; src/test/db/ holds database tests (PGli
 
 ## 13. Testing and quality checks
 
-39 test files, 366 tests (Vitest).
+37 test files, 351 tests (Vitest).
 
 - **Unit and UI tests** (`src/test/*.test.ts(x)`, jsdom): roles and dashboard permissions,
   protected routes, contract status rules and UI, contract terms, payment window and countdown,
-  DEMO payment helpers, availability and dates, car status, reports and CSV, review moderation,
+  DEMO payment helpers, availability and dates, car status, reports and CSV,
   password reset, prototype notice, error states.
 - **Database tests** (`src/test/db/*.db.test.ts`): boot an **in-memory PostgreSQL (PGlite)**
   with Supabase stubs, apply migrations 0000–0004 (or 0000–0007 with `applyLater: true`),

@@ -13,22 +13,6 @@ export const carsQuery = () =>
     },
   });
 
-export const ratingsQuery = () =>
-  queryOptions({
-    queryKey: ["ratings"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("reviews").select("car_id, rating");
-      if (error) throw error;
-      const map: Record<string, { avg: number; count: number }> = {};
-      for (const r of data) {
-        const m = (map[r.car_id] ??= { avg: 0, count: 0 });
-        m.avg = (m.avg * m.count + r.rating) / (m.count + 1);
-        m.count++;
-      }
-      return map;
-    },
-  });
-
 /** The contract fields the booking lists need (RLS hides unsent drafts from customers). */
 export type BookingContract = {
   id: string;
@@ -37,7 +21,7 @@ export type BookingContract = {
   sent_version?: number | null;
 };
 
-/** A customer's booking with its car, (at most one) review and (at most one) contract. */
+/** A customer's booking with its car and (at most one) contract. */
 /** kind/deposit come from docs/database/pickup-payment.sql (not in the generated types yet). */
 export type CustomerPayment = Tables<"payments"> & {
   kind?: string | null;
@@ -46,7 +30,6 @@ export type CustomerPayment = Tables<"payments"> & {
 
 export type CustomerBooking = Tables<"bookings"> & {
   cars: Tables<"cars"> | null;
-  reviews: Tables<"reviews"> | Tables<"reviews">[] | null;
   contracts?: BookingContract | BookingContract[] | null;
   payments?: CustomerPayment[] | null;
 };
@@ -63,9 +46,6 @@ export function cancellationMoney(b: Pick<CustomerBooking, "status" | "payments"
   return { kept, refunded };
 }
 
-/** The review attached to a booking, whether PostgREST returned it as an object or an array. */
-export const bookingReview = (b: Pick<CustomerBooking, "reviews">): Tables<"reviews"> | null =>
-  Array.isArray(b.reviews) ? (b.reviews[0] ?? null) : (b.reviews ?? null);
 
 /** The contract attached to a booking, whether PostgREST returned it as an object or an array. */
 export const bookingContract = (b: Pick<CustomerBooking, "contracts">): BookingContract | null =>
@@ -81,12 +61,12 @@ export const workflowContract = (c: BookingContract | null) =>
       }
     : null;
 
-export const CUSTOMER_BOOKINGS_SELECT = "*, cars(*), reviews(*), contracts(*), payments(*)";
+export const CUSTOMER_BOOKINGS_SELECT = "*, cars(*), contracts(*), payments(*)";
 
 /**
  * One query (one key, one data shape) shared by /dashboard and /bookings.
  * Both pages used the same key with different selects, so one page could show
- * the other page's cached rows (without reviews).
+ * the other page's cached rows.
  */
 export const customerBookingsQuery = (userId: string) =>
   queryOptions({
