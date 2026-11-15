@@ -443,8 +443,8 @@ stateDiagram-v2
 ## 9. Database architecture
 
 Schema `public`, created by `drizzle/migrations/0000`–`0007`, all applied to production
-(0005 and 0006 cancel each other out). Other tables: `profiles`, `cars`, `maintenance`, and `reviews`
-(left in the database but no longer used: the review feature was removed).
+(0005 and 0006 cancel each other out). Other tables: `profiles`, `cars`, `maintenance`. (`reviews` was dropped by
+`docs/database/drop-reviews.sql` when the review feature was removed.)
 
 These files in `docs/database/` are **also applied to production**. They were run directly
 with the database query tool and are **not yet recorded as Drizzle migrations**; each is
@@ -459,6 +459,7 @@ re-runnable, and the live function bodies were checked against the files:
 | `pickup-at-handover.sql` | `pay_pickup` only once the booking is `active`                                                    |
 | `input-validation.sql`   | Car CHECK constraints, profile field formats, "nothing changed" revision check                    |
 | `booking-documents.sql`  | ID card + licence required to book; `booking_receipt_details` for the receipt                     |
+| `drop-reviews.sql`       | Drops the unused `reviews` table                                                                  |
 
 ```mermaid
 erDiagram
@@ -611,7 +612,7 @@ src/test/                 Unit/UI tests; src/test/db/ holds database tests (PGli
 
 ## 13. Testing and quality checks
 
-37 test files, 351 tests (Vitest).
+38 test files, 354 tests (Vitest).
 
 - **Unit and UI tests** (`src/test/*.test.ts(x)`, jsdom): roles and dashboard permissions,
   protected routes, contract status rules and UI, contract terms, payment window and countdown,
@@ -662,7 +663,7 @@ clients.
   recorded or shown only.
 - **ID card and licence numbers are checked for format only**, not verified against any
   official source.
-- **Seven `docs/database/*.sql` files are live but not Drizzle migrations** (see
+- **Eight `docs/database/*.sql` files are live but not Drizzle migrations** (see
   [Database architecture](#9-database-architecture)); a fresh database built from
   `drizzle/migrations/` alone would miss them.
 - **No email notifications.** Invitation links must be copied and delivered by the Owner;
