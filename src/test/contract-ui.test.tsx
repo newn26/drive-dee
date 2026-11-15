@@ -322,6 +322,25 @@ describe("customer booking page", () => {
     );
   });
 
+  it("B5 a request that changes nothing cannot be sent (it would use up a request)", async () => {
+    setup({ contract: contractRow(), versions: [versionRow()] });
+    await screen.findByText(/ชำระ ณ วันรับรถ ไม่รวมในการชำระเงินออนไลน์/);
+    fireEvent.click(screen.getByRole("button", { name: /ขอแก้ไขสัญญา/ }));
+    await screen.findByLabelText("ชื่อลูกค้า");
+    expect(screen.getByTestId("revision-unchanged")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ส่งคำขอแก้ไข" })).toBeDisabled();
+
+    // changing a field and changing it back is still "nothing changed"
+    fireEvent.change(screen.getByLabelText(/เวลาคืนรถ/), { target: { value: "17:00" } });
+    expect(screen.getByRole("button", { name: "ส่งคำขอแก้ไข" })).toBeEnabled();
+    fireEvent.change(screen.getByLabelText(/เวลาคืนรถ/), { target: { value: "18:00" } });
+    fireEvent.change(screen.getByLabelText("ชื่อลูกค้า"), {
+      target: { value: " ทดสอบ ลูกค้าเอ " },
+    });
+    expect(screen.getByRole("button", { name: "ส่งคำขอแก้ไข" })).toBeDisabled();
+    expect(mocks.rpc).not.toHaveBeenCalledWith("customer_request_revision", expect.anything());
+  });
+
   it("A01 accepting sends the exact version shown", async () => {
     setup({ contract: contractRow(), versions: [versionRow()] });
     fireEvent.click(await screen.findByRole("checkbox"));

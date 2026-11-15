@@ -17,7 +17,14 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { LoadError } from "@/components/load-error";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,12 +34,31 @@ import { supabase } from "@/integrations/supabase/client";
 import { ChangePasswordCard } from "@/components/change-password-card";
 import { useAuth } from "@/hooks/use-auth";
 import type { Tables } from "@/integrations/supabase/types";
+import {
+  type ProfileErrors,
+  normalizeIdCard,
+  normalizeLicense,
+  normalizePhone,
+  profileErrors,
+} from "@/lib/profile-validation";
+
+function FieldError({ id, message }: { id: string; message?: string | undefined }) {
+  if (!message) return null;
+  return (
+    <p id={id} role="alert" className="text-xs text-destructive">
+      {message}
+    </p>
+  );
+}
 
 export const Route = createFileRoute("/profile")({
   head: () => ({
     meta: [
       { title: "โปรไฟล์และข้อมูลผู้ขับขี่ — Drive Dee" },
-      { name: "description", content: "จัดการข้อมูลส่วนตัว ข้อมูลใบอนุญาตขับขี่ และความปลอดภัยของบัญชีผู้ใช้งาน" },
+      {
+        name: "description",
+        content: "จัดการข้อมูลส่วนตัว ข้อมูลใบอนุญาตขับขี่ และความปลอดภัยของบัญชีผู้ใช้งาน",
+      },
       { property: "og:title", content: "โปรไฟล์ของฉัน — Drive Dee" },
     ],
   }),
@@ -52,7 +78,7 @@ function ProfilePage() {
   const [address, setAddress] = useState("");
   const [licenseNo, setLicenseNo] = useState("");
   const [idCardNo, setIdCardNo] = useState("");
-
+  const [errors, setErrors] = useState<ProfileErrors>({});
 
   // Fetch current user profile
   const {
@@ -95,24 +121,24 @@ function ProfilePage() {
     e.preventDefault();
     if (!user) return;
 
-    if (!fullName.trim()) {
-      toast.error("กรุณาระบุชื่อ-นามสกุล");
+    const problems = profileErrors({ fullName, phone, idCardNo, licenseNo });
+    setErrors(problems);
+    if (Object.keys(problems).length > 0) {
+      toast.error("กรุณาตรวจสอบข้อมูลที่กรอกให้ถูกต้อง");
       return;
     }
 
     setSavingProfile(true);
     try {
-      const { error } = await supabase
-        .from("profiles")
-        .upsert({
-          id: user.id,
-          full_name: fullName.trim(),
-          phone: phone.trim(),
-          address: address.trim(),
-          license_no: licenseNo.trim(),
-          id_card_no: idCardNo.trim(),
-          updated_at: new Date().toISOString(),
-        });
+      const { error } = await supabase.from("profiles").upsert({
+        id: user.id,
+        full_name: fullName.trim(),
+        phone: normalizePhone(phone),
+        address: address.trim(),
+        license_no: normalizeLicense(licenseNo),
+        id_card_no: normalizeIdCard(idCardNo),
+        updated_at: new Date().toISOString(),
+      });
 
       if (error) throw error;
 
@@ -142,7 +168,9 @@ function ProfilePage() {
       <div className="mx-auto max-w-md px-4 py-20 text-center">
         <AlertCircle className="mx-auto h-12 w-12 text-warning" />
         <h2 className="mt-4 text-2xl font-semibold">กรุณาเข้าสู่ระบบ</h2>
-        <p className="mt-2 text-sm text-muted-foreground">คุณต้องเข้าสู่ระบบก่อนจึงจะสามารถจัดการข้อมูลโปรไฟล์ได้</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          คุณต้องเข้าสู่ระบบก่อนจึงจะสามารถจัดการข้อมูลโปรไฟล์ได้
+        </p>
         <Button className="mt-6 w-full" onClick={() => navigate({ to: "/auth" })}>
           เข้าสู่ระบบ / สมัครสมาชิก
         </Button>
@@ -161,7 +189,8 @@ function ProfilePage() {
     <div className="mx-auto max-w-5xl px-4 py-10">
       {isDemo && (
         <div className="mb-6 rounded-lg border border-dashed border-accent bg-accent/10 p-4 text-sm">
-          <strong>บัญชีทดลอง (DEMO):</strong> ข้อมูลในบัญชีนี้เป็นข้อมูลสมมติ กรุณาอย่ากรอกข้อมูลส่วนตัวจริง เช่น เบอร์โทร เลขบัตรประชาชน หรือเลขใบขับขี่
+          <strong>บัญชีทดลอง (DEMO):</strong> ข้อมูลในบัญชีนี้เป็นข้อมูลสมมติ
+          กรุณาอย่ากรอกข้อมูลส่วนตัวจริง เช่น เบอร์โทร เลขบัตรประชาชน หรือเลขใบขับขี่
         </div>
       )}
       {/* Header */}
@@ -174,11 +203,17 @@ function ProfilePage() {
         </div>
         <div>
           {isLicenseComplete ? (
-            <Badge variant="outline" className="border-success/30 bg-success/10 text-success gap-1.5 py-1 px-3">
+            <Badge
+              variant="outline"
+              className="border-success/30 bg-success/10 text-success gap-1.5 py-1 px-3"
+            >
               <CheckCircle2 className="h-4 w-4" /> ข้อมูลผู้ขับขี่พร้อมใช้งาน
             </Badge>
           ) : (
-            <Badge variant="outline" className="border-warning/30 bg-warning/10 text-warning gap-1.5 py-1 px-3">
+            <Badge
+              variant="outline"
+              className="border-warning/30 bg-warning/10 text-warning gap-1.5 py-1 px-3"
+            >
               <AlertCircle className="h-4 w-4" /> รอระบุข้อมูลใบขับขี่
             </Badge>
           )}
@@ -199,23 +234,30 @@ function ProfilePage() {
               </CardDescription>
             </CardHeader>
 
-            <form onSubmit={handleSaveProfile}>
+            <form onSubmit={handleSaveProfile} noValidate>
               <CardContent className="space-y-5">
                 {/* Full Name & Email */}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label htmlFor="prof-name" className="text-xs">ชื่อ-นามสกุล *</Label>
+                    <Label htmlFor="prof-name" className="text-xs">
+                      ชื่อ-นามสกุล *
+                    </Label>
                     <Input
                       id="prof-name"
                       placeholder="นายสมชาย มั่นคง"
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       required
+                      aria-invalid={!!errors.fullName}
+                      aria-describedby={errors.fullName ? "prof-name-error" : undefined}
                     />
+                    <FieldError id="prof-name-error" message={errors.fullName} />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="prof-email" className="text-xs">อีเมล (ใช้เข้าสู่ระบบ)</Label>
+                    <Label htmlFor="prof-email" className="text-xs">
+                      อีเมล (ใช้เข้าสู่ระบบ)
+                    </Label>
                     <div className="relative">
                       <Input
                         id="prof-email"
@@ -231,7 +273,9 @@ function ProfilePage() {
                 {/* Phone & National ID */}
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label htmlFor="prof-phone" className="text-xs">เบอร์โทรศัพท์ติดต่อ</Label>
+                    <Label htmlFor="prof-phone" className="text-xs">
+                      เบอร์โทรศัพท์ติดต่อ
+                    </Label>
                     <div className="relative">
                       <Input
                         id="prof-phone"
@@ -239,13 +283,22 @@ function ProfilePage() {
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         className="font-mono"
+                        type="tel"
+                        inputMode="tel"
+                        maxLength={15}
+                        autoComplete="tel"
+                        aria-invalid={!!errors.phone}
+                        aria-describedby={errors.phone ? "prof-phone-error" : undefined}
                       />
                       <Phone className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
                     </div>
+                    <FieldError id="prof-phone-error" message={errors.phone} />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="prof-idcard" className="text-xs">เลขบัตรประชาชน / พาสปอร์ต</Label>
+                    <Label htmlFor="prof-idcard" className="text-xs">
+                      เลขบัตรประชาชน / พาสปอร์ต
+                    </Label>
                     <div className="relative">
                       <Input
                         id="prof-idcard"
@@ -253,9 +306,13 @@ function ProfilePage() {
                         value={idCardNo}
                         onChange={(e) => setIdCardNo(e.target.value)}
                         className="font-mono"
+                        maxLength={17}
+                        aria-invalid={!!errors.idCardNo}
+                        aria-describedby={errors.idCardNo ? "prof-idcard-error" : undefined}
                       />
                       <CreditCard className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
                     </div>
+                    <FieldError id="prof-idcard-error" message={errors.idCardNo} />
                   </div>
                 </div>
 
@@ -274,9 +331,14 @@ function ProfilePage() {
                       value={licenseNo}
                       onChange={(e) => setLicenseNo(e.target.value)}
                       className="font-mono"
+                      required
+                      maxLength={24}
+                      aria-invalid={!!errors.licenseNo}
+                      aria-describedby={errors.licenseNo ? "prof-license-error" : undefined}
                     />
                     <FileText className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
                   </div>
+                  <FieldError id="prof-license-error" message={errors.licenseNo} />
                   <p className="text-xs text-muted-foreground">
                     ผู้เช่าต้องแสดงใบอนุญาตขับขี่ตัวจริงที่ยังไม่หมดอายุ ณ วันรับรถยนต์
                   </p>
@@ -284,7 +346,9 @@ function ProfilePage() {
 
                 {/* Contact Address */}
                 <div className="space-y-1.5">
-                  <Label htmlFor="prof-address" className="text-xs">ที่อยู่สำหรับออกเอกสาร</Label>
+                  <Label htmlFor="prof-address" className="text-xs">
+                    ที่อยู่สำหรับออกเอกสาร
+                  </Label>
                   <Textarea
                     id="prof-address"
                     rows={3}
@@ -317,7 +381,8 @@ function ProfilePage() {
               <span>การคุ้มครองข้อมูลส่วนบุคคล</span>
             </div>
             <p className="text-xs leading-relaxed">
-              ข้อมูลใบขับขี่และข้อมูลระบุตัวตนของคุณได้รับการปกป้องตามมาตรฐาน PDPA เพื่อใช้ในการทำสัญญาเช่ารถยนต์เท่านั้น และจะไม่ถูกนำไปเปิดเผยต่อบุคคลภายนอก
+              ข้อมูลใบขับขี่และข้อมูลระบุตัวตนของคุณได้รับการปกป้องตามมาตรฐาน PDPA
+              เพื่อใช้ในการทำสัญญาเช่ารถยนต์เท่านั้น และจะไม่ถูกนำไปเปิดเผยต่อบุคคลภายนอก
             </p>
           </div>
         </div>
