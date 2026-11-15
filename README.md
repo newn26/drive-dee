@@ -43,54 +43,83 @@ Asia/Bangkok time zone.
 ## 1. Project overview
 
 A customer books a car online. The booking holds the car while an administrator prepares a
-rental contract, the customer reviews and accepts it, and an administrator approves it. Only
-then can the customer pay (DEMO), which confirms the booking.
+rental contract. The customer confirms the contract (or asks for changes), pays a fixed
+1,000 THB booking fee (DEMO), and the booking is confirmed. On the pickup day the admin hands
+the car over, the customer pays the rest online (DEMO), and the admin closes the rental when
+the car comes back.
 
 ```mermaid
 flowchart LR
-  A[Customer books a car] --> B[Admin creates and sends contract]
-  B --> C[Customer accepts]
-  C --> D[Admin approves]
-  D --> E[Customer pays — DEMO]
-  E --> F[Booking confirmed]
+  A[Customer books a car<br/>needs ID card + licence] --> B[Admin creates and sends contract]
+  B --> C{Customer}
+  C -->|asks for changes, max 2| B
+  C -->|confirms| D[Pays 1,000 THB booking fee<br/>within 15 min — DEMO]
+  D --> E[Booking confirmed]
+  E --> F[Pickup day: admin hands over<br/>booking active]
+  F --> G[Customer pays rent + deposit − fee<br/>online — DEMO]
+  G --> H[Car returned<br/>booking completed]
 ```
 
 Every rule in this flow is enforced in PostgreSQL (functions, triggers and Row Level
-Security), not only in the user interface. The main implementation lives in
-[`drizzle/migrations/0004_contract_approval_workflow.sql`](drizzle/migrations/0004_contract_approval_workflow.sql).
+Security), not only in the user interface. The workflow comes from
+[`drizzle/migrations/0004_contract_approval_workflow.sql`](drizzle/migrations/0004_contract_approval_workflow.sql)
+and [`0007_booking_fee_flow.sql`](drizzle/migrations/0007_booking_fee_flow.sql), plus the SQL
+files in [`docs/database/`](docs/database/) listed in
+[Database architecture](#9-database-architecture).
 
 ## 2. Main features
 
 ### Customers
 
-- Sign-up, sign-in and password reset by email (Supabase Auth).
-- Profile with contact details, driving licence number and ID card number.
+- Sign-up, sign-in and password reset by email (Supabase Auth). Changing the password on the
+  profile page asks for the current password first.
+- Profile with contact details, address, ID card / passport number and driving licence
+  number. Formats are checked in the browser and in the database (Thai ID check digit,
+  passport, licence, phone).
+- **An ID card / passport number and a driving licence number are required to book.** The
+  car page shows what is missing with a link to the profile, and the database refuses the
+  booking otherwise.
 - Car search by date range, category and price; only cars free for the chosen dates are shown.
 - Car detail page with specifications, reviews and a booking form with five pickup points
-  (Bangkok Sukhumvit, Suvarnabhumi Airport, Don Mueang Airport, Chiang Mai, Phuket).
+  (Bangkok Sukhumvit, Suvarnabhumi Airport, Don Mueang Airport, Chiang Mai, Phuket), showing
+  the booking fee and the amount due at pickup.
 - Booking with a server-generated booking code and a price calculated by the database.
-- Contract review: read the contract sent by the administrator, **accept** it or **request a
-  revision** with a reason; see the version history and contract timeline; print the contract.
-- DEMO payment by QR code or test card once the contract is approved, with a countdown.
+- Contract review: read the contract sent by the administrator, **confirm** it or **ask for
+  changes** (name, pickup and return time; at most 2 requests per contract); see the version
+  history and contract timeline; print the contract.
+- DEMO payments by QR code or test card: the 1,000 THB booking fee within 15 minutes of
+  confirming, then the rest (rent + deposit − fee) once the admin has handed the car over.
+- Receipt with the customer's full details (name, email, phone, ID card / passport, licence,
+  address), booking code, contract number, the admin who created the contract, and both
+  payments.
 - Booking history with stage filters, and cancellation of pending or confirmed bookings.
 - One review (1–5 stars and a comment) per confirmed, active or completed booking.
-- **Demo Customer** mode: a one-click account with fictional details.
+- **Demo Customer** mode: a one-click account with a fictional name and fictional
+  `DEMO…` ID card and licence numbers, so it can book straight away.
 
 ### Administrators (`/admin`)
 
+Admins land on `/admin` after signing in.
+
 - **Overview** with a contract **work queue** (bookings waiting for a contract, drafts, waiting
-  for customer, waiting for approval, revision requested, approved, paid, cancelled) and key
-  metrics (revenue, fleet utilisation, active bookings, customers, maintenance cost).
-- **Contracts**: create, edit, send, approve or request revision; view versions and events.
+  for the customer, changes requested, waiting for payment, paid, cancelled), a card for
+  **overdue hand-overs and returns**, and key metrics (revenue, fleet use, active bookings,
+  customers, maintenance cost). Fleet counts come from today's bookings.
+- **Contracts**: create, edit and send; apply a customer's requested name change
+  (`admin_apply_requested_name`); view versions and events.
 - **Bookings**: view all bookings and move them through `confirmed → active → completed` or
-  cancel them. `pending → confirmed` is never offered by hand.
-- **Cars**: add, edit, delete, set status. Car status is recomputed from maintenance and
-  active bookings.
-- **Maintenance**: schedule and track jobs with costs.
+  cancel them. Hand-over (`active`) and return (`completed`) are allowed only from the
+  pickup day. `pending → confirmed` is never offered by hand.
+- **Customers**: view-only list of customers and their details.
+- **Cars**: add, edit, delete, set status. Price must be above 0; seats, mileage and year
+  have sane bounds.
+- **Maintenance**: schedule and track jobs with costs (no negative costs, no completion date
+  before the scheduled date).
 - **Reviews**: delete inappropriate reviews.
 - **Reports**: date-range filters (30 days, 90 days, this year, all time), monthly revenue
-  chart, CSV export (UTF-8 with BOM so Thai text opens in Excel). Revenue comes from recorded
-  payments, not bookings.
+  chart split into online fees and pickup payments, CSV export (UTF-8 with BOM so Thai text
+  opens in Excel). Revenue comes from recorded payments and excludes the refundable deposit;
+  booking fees kept from cancelled bookings are counted.
 
 ### Owner only
 
@@ -136,13 +165,13 @@ Roles are stored in `user_roles` (`app_role` enum: `admin`, `customer`). Adminis
 
 Each non-Owner admin has a subset of these permissions. The Owner implicitly has all of them.
 
-| Permission          | Allows                                                        |
-| ------------------- | ------------------------------------------------------------- |
-| `contracts_manage`  | Create, edit and send contracts                               |
-| `contracts_approve` | Approve contracts or request a revision after customer review |
-| `bookings_manage`   | Change booking status                                         |
-| `fleet_manage`      | Add, edit, delete cars; create, edit, delete maintenance jobs |
-| `reviews_moderate`  | Delete reviews                                                |
+| Permission          | Allows                                                                                                             |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `contracts_manage`  | Create, edit and send contracts                                                                                    |
+| `contracts_approve` | Approve or return legacy contracts left in `pending_admin_review` (no new contract reaches that status since 0007) |
+| `bookings_manage`   | Change booking status                                                                                              |
+| `fleet_manage`      | Add, edit, delete cars; create, edit, delete maintenance jobs                                                      |
+| `reviews_moderate`  | Delete reviews                                                                                                     |
 
 All active admins can read the dashboard, contracts, bookings, maintenance and reports.
 A **suspended** or **revoked** admin is not treated as an admin anywhere: `has_role()` returns
@@ -173,36 +202,44 @@ Contracts can only be changed through `security definer` database functions. Dir
 writes are revoked, and the trigger `guard_contract_update` rejects any status change outside
 the allowed transitions.
 
+Since migration 0007 the customer's confirmation opens payment directly; there is no
+separate admin approval step. (Migration 0005 briefly made contracts self-service and 0006
+rolled it back, so the live behaviour is 0004 plus 0007.)
+
 ```mermaid
 sequenceDiagram
   autonumber
   actor C as Customer
   participant DB as Database
   actor A as Admin
-  C->>DB: Insert booking (status pending, 24 h hold)
+  C->>DB: Insert booking (needs ID card + licence; pending, 24 h hold)
   A->>DB: admin_create_contract (contracts_manage) → draft v1
   A->>DB: admin_update_contract (optional edits while unsent)
   A->>DB: admin_send_contract → pending_customer
-  C->>DB: customer_accept_contract(version) → pending_admin_review
-  A->>DB: admin_approve_contract(version) (contracts_approve) → approved, 15 min payment window
-  C->>DB: pay_booking (DEMO) → payment paid, contract paid
+  C->>DB: customer_request_revision (optional, max 2) → revision_requested
+  C->>DB: customer_accept_contract(version) → approved, 15 min payment window
+  C->>DB: pay_booking (DEMO, 1,000 THB) → contract paid
   DB-->>C: Booking confirmed
+  A->>DB: booking → active (from the pickup day)
+  C->>DB: pay_pickup (DEMO, rent + deposit − fee)
+  A->>DB: booking → completed
 ```
 
-| Step                        | Function                   | Who                 | Result                                                                                                        |
-| --------------------------- | -------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------- |
-| 1. Admin creates contract   | `admin_create_contract`    | `contracts_manage`  | Contract `draft`, version 1. Pickup/return dates must match the booking; price and days come from the booking |
-| 2. Admin sends contract     | `admin_send_contract`      | `contracts_manage`  | Version stamped `sent_at` (now immutable); contract `pending_customer`                                        |
-| 3. Customer reviews/accepts | `customer_accept_contract` | Booking owner       | Version stamped `accepted_at`; contract `pending_admin_review`                                                |
-| 4. Admin reviews/approves   | `admin_approve_contract`   | `contracts_approve` | Version stamped `approved_at`; contract `approved`; 15-minute payment window starts                           |
-| 5. Customer pays (DEMO)     | `pay_booking`              | Booking owner       | `payments` row (`paid`, `DEMO-…` reference); contract `paid`                                                  |
-| 6. Booking confirmed        | (inside `pay_booking`)     | —                   | Booking `pending → confirmed`                                                                                 |
+| Step                         | Function                   | Who                | Result                                                                                                        |
+| ---------------------------- | -------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| 1. Admin creates contract    | `admin_create_contract`    | `contracts_manage` | Contract `draft`, version 1. Pickup/return dates must match the booking; price and days come from the booking |
+| 2. Admin sends contract      | `admin_send_contract`      | `contracts_manage` | Version stamped `sent_at` (now immutable); contract `pending_customer`                                        |
+| 3. Customer confirms         | `customer_accept_contract` | Booking owner      | Version stamped `accepted_at`; contract `approved`; 15-minute payment window starts                           |
+| 4. Customer pays fee (DEMO)  | `pay_booking`              | Booking owner      | `payments` row, `kind = 'booking_fee'`, 1,000 THB (`booking_fee()`); contract `paid`; booking `confirmed`     |
+| 5. Hand-over                 | booking status update      | `bookings_manage`  | Booking `active`, only on or after the pickup day                                                             |
+| 6. Customer pays rest (DEMO) | `pay_pickup`               | Booking owner      | `payments` row, `kind = 'pickup'`: rent + deposit − fee; `deposit` column holds the refundable part           |
+| 7. Return                    | booking status update      | `bookings_manage`  | Booking `completed`. The deposit refund is shown to the customer but not recorded                             |
 
 Contract snapshot fields: customer full name and phone, driving licence number **only** if
 the admin ticks "include licence", car, plate, pickup location, pickup/return time, rental
-days and price, deposit, mileage allowance, late-return penalty and optional additional
-conditions. The national ID number is never copied into contracts. The deposit is shown in the
-contract as payable at pickup; it is **not** part of the online (DEMO) payment.
+days and price, deposit (always equal to the rent), booking fee, amount due at pickup,
+mileage allowance, late-return penalty and optional additional conditions. The national ID
+number is never copied into contracts; it appears only on the receipt, from the profile.
 
 Customers never see unsent drafts: RLS shows a customer their contract only once it has been
 sent, only sent versions, and only customer-facing events.
@@ -213,10 +250,10 @@ sent, only sent versions, and only customer-facing events.
 stateDiagram-v2
   [*] --> draft
   draft --> pending_customer: send
-  pending_customer --> pending_admin_review: customer accepts
-  pending_customer --> revision_requested: customer requests revision
-  pending_admin_review --> approved: admin approves
-  pending_admin_review --> revision_requested: admin requests revision
+  pending_customer --> approved: customer confirms
+  pending_customer --> revision_requested: customer asks for changes
+  pending_admin_review --> approved: admin approves (legacy only)
+  pending_admin_review --> revision_requested: admin returns (legacy only)
   pending_customer --> draft: admin edits (new version)
   pending_admin_review --> draft: admin edits (new version)
   revision_requested --> draft: admin edits (new version)
@@ -245,21 +282,28 @@ Each contract has one or more rows in `contract_versions`. A version is a frozen
 - Only one live (non-superseded) version per contract (unique index).
 - Trigger `protect_contract_version` makes sent versions immutable, makes the
   sent/accepted/approved/superseded stamps write-once, and blocks deleting sent versions.
-- Customers accept, and admins approve, a **specific version number**. A stale page
+- Customers confirm a **specific version number**. A stale page
   (wrong version) is rejected.
-- Payment requires the current version to be sent, accepted by the booking's customer,
-  approved and not superseded. The amount charged is that version's `rental_price`.
+- Payment requires the current version to be sent, confirmed by the booking's customer
+  and not superseded. The booking fee is always `booking_fee()` (1,000 THB).
 
 ### Revision requests
 
-| Who      | Function                    | When allowed           | Permission          |
-| -------- | --------------------------- | ---------------------- | ------------------- |
-| Customer | `customer_request_revision` | `pending_customer`     | Booking owner       |
-| Admin    | `admin_request_revision`    | `pending_admin_review` | `contracts_approve` |
+| Who      | Function                    | When allowed                         | Permission          |
+| -------- | --------------------------- | ------------------------------------ | ------------------- |
+| Customer | `customer_request_revision` | `pending_customer`                   | Booking owner       |
+| Admin    | `admin_request_revision`    | `pending_admin_review` (legacy only) | `contracts_approve` |
 
-Both require a reason of at least 5 characters, stored in `contracts.revision_reason` with
-`revision_requested_by` (`customer` or `admin`) and logged as a `revision_requested` event.
-The admin then edits the contract, which creates a new version, and sends it again.
+- A customer may ask for changes **at most 2 times per contract** (each request renews the
+  hold, so the limit stops a car being held without paying).
+- The request must change something: the same name, pickup and return time as the sent
+  version is refused and does not use up a request.
+- The reason is stored in `contracts.revision_reason` with `revision_requested_by` and
+  logged as a `revision_requested` event.
+- A requested name change is **not** written to the profile by the customer. The admin
+  applies it with `admin_apply_requested_name`, which accepts only the exact name in the
+  open request.
+- The admin then edits the contract, which creates a new version, and sends it again.
 
 ### Contract events
 
@@ -343,17 +387,18 @@ A pending booking holds its car only while `bookings.hold_expires_at` is in the 
 | ------------------------------------------------- | -------------------------------------------------------- |
 | Booking created, waiting for the admin's contract | 24 h, capped at midnight after the pickup date (Bangkok) |
 | Sent, waiting for the customer                    | 24 h (same cap)                                          |
-| Accepted, waiting for admin approval              | 24 h (same cap)                                          |
 | Revision requested / new version                  | 24 h (same cap)                                          |
-| Approved, waiting for payment                     | **15 minutes** (not capped)                              |
+| Confirmed, waiting for the booking fee            | **15 minutes** (not capped)                              |
 
 When a hold runs out the car is released at once for availability checks, and every workflow
 step on that booking is refused. `expire_stale_bookings()` (called by the app when lists load)
 moves such bookings to `cancelled` and logs an `expired` contract event.
 
-`validate_booking` (trigger) also rejects past dates, unavailable cars and overlapping
-bookings, computes days and price, prevents customers from changing amount, dates or car,
-and locks those fields for admins once a contract exists.
+`validate_booking` (trigger) also rejects bookings from customers without an ID card /
+passport and a licence number in their profile, past dates, unavailable cars and overlapping
+bookings; computes days and price; prevents customers from changing amount, dates or car;
+locks those fields for admins once a contract exists; and allows `active` / `completed` only
+from the pickup day.
 
 ### Booking statuses
 
@@ -362,8 +407,8 @@ stateDiagram-v2
   [*] --> pending
   pending --> confirmed: DEMO payment or Owner manual confirm
   pending --> cancelled: customer, bookings_manage, or expiry
-  confirmed --> active: bookings_manage
-  confirmed --> completed: bookings_manage
+  confirmed --> active: bookings_manage, from pickup day
+  confirmed --> completed: bookings_manage, from pickup day
   confirmed --> cancelled
   active --> completed: bookings_manage
   active --> cancelled: bookings_manage
@@ -373,7 +418,12 @@ stateDiagram-v2
 
 > [!IMPORTANT]
 > **DEMO payments do not transfer real money.** There is no payment gateway, no card
-> processing, no bank transfer and no refund system.
+> processing and no bank transfer. Refunds are recorded only.
+
+| Payment (`payments.kind`) | When                                       | Amount                                | Function      |
+| ------------------------- | ------------------------------------------ | ------------------------------------- | ------------- |
+| `booking_fee`             | Within 15 minutes of confirming            | 1,000 THB (`booking_fee()`)           | `pay_booking` |
+| `pickup`                  | After the admin marks the booking `active` | rent + deposit (= rent) − booking fee | `pay_pickup`  |
 
 - **QR code:** contains a text marker (`SIAM-WHEELS-DEMO|NOT-A-PAYMENT|…`), deliberately not
   a PromptPay/EMVCo payload, so a banking app cannot turn it into a transfer. The customer
@@ -381,18 +431,36 @@ stateDiagram-v2
 - **Card:** test cards only. `4242 4242 4242 4242` succeeds; any number ending in `0002`
   (for example `4000 0000 0000 0002`) is declined in the browser and the database is not
   called. Use any future expiry and any 3-digit CVV. Only the last four digits are stored.
-- `pay_booking` locks the booking, checks the hold and the approved contract version, records
-  one `paid` payment with a `DEMO-` reference (a unique index allows only one per booking),
-  confirms the booking and marks the contract `paid`.
-- **Cancellation is not a refund.** Cancelling a paid booking keeps the payment as `paid` and
-  sets `refund_status = 'not_refunded'`. The `refund_status` column also accepts `refunded`,
-  but the application does **not** implement refunds yet: no function or screen sets it.
+- Each payment gets a `DEMO-` reference; a unique index allows one `paid` payment of each
+  kind per booking. `payments.deposit` is the refundable deposit inside a pickup payment and
+  is excluded from revenue.
+- **Cancellation:** the booking fee is never refunded (`refund_status = 'not_refunded'`).
+  `pickup-refund.sql` marks a pickup payment `refunded` if the booking is cancelled before
+  hand-over, but since `pickup-at-handover.sql` the pickup payment can only be made after
+  hand-over, so in practice nothing is refunded automatically. No money moves either way.
+- **Receipt:** once paid, the booking page shows a receipt with the customer's details, the
+  contract number, the admin who created the contract (`booking_receipt_details`) and both
+  payments.
 
 ## 9. Database architecture
 
-Schema `public`, created by `drizzle/migrations/0000`–`0004`. **All five migrations, including
-`0004_contract_approval_workflow`, are applied to production.** Other tables: `profiles`,
-`cars`, `reviews`, `maintenance`.
+Schema `public`, created by `drizzle/migrations/0000`–`0007`, all applied to production
+(0005 and 0006 cancel each other out). Other tables: `profiles`, `cars`, `reviews`,
+`maintenance`.
+
+These files in `docs/database/` are **also applied to production**. They were run directly
+with the database query tool and are **not yet recorded as Drizzle migrations**; each is
+re-runnable, and the live function bodies were checked against the files:
+
+| File                     | Adds                                                                                              |
+| ------------------------ | ------------------------------------------------------------------------------------------------- |
+| `revision-limits.sql`    | Max 2 customer change requests; `admin_apply_requested_name`                                      |
+| `pickup-day-status.sql`  | Hand-over / return only from the pickup day                                                       |
+| `pickup-payment.sql`     | `payments.kind`, `payments.deposit`, one paid payment per kind, `pay_pickup`                      |
+| `pickup-refund.sql`      | Pickup payment refunded when cancelled before hand-over (superseded in practice by the next file) |
+| `pickup-at-handover.sql` | `pay_pickup` only once the booking is `active`                                                    |
+| `input-validation.sql`   | Car CHECK constraints, profile field formats, "nothing changed" revision check                    |
+| `booking-documents.sql`  | ID card + licence required to book; `booking_receipt_details` for the receipt                     |
 
 ```mermaid
 erDiagram
@@ -415,25 +483,26 @@ erDiagram
 | `admin_invitations` | `email`, `token_hash` (SHA-256, never the token), `permissions`, `expires_at`, `accepted_at/by`, `revoked_at/by`. One open invitation per email. Acceptance and revocation update the row (not append-only).                                                                                            |
 | `admin_audit_log`   | Append-only log of admin-management actions and manual confirmations. Owner-readable only.                                                                                                                                                                                                              |
 | `bookings`          | `booking_code`, customer, car, dates, `days`, `pickup_location`, `total_amount`, `status`, `hold_expires_at`.                                                                                                                                                                                           |
-| `payments`          | DEMO payments: `method` (`qr`/`card`), `amount`, `status`, `reference`, `card_last4`, `refund_status` (`none`/`not_refunded`/`refunded`). Client writes revoked; at most one `paid` row per booking.                                                                                                    |
+| `payments`          | DEMO payments: `kind` (`booking_fee`/`pickup`), `method` (`qr`/`card`), `amount`, `deposit`, `status`, `reference`, `card_last4`, `refund_status` (`none`/`not_refunded`/`refunded`). Client writes revoked; one `paid` row per kind per booking.                                                       |
 | `user_roles`        | `(user_id, role)` with `app_role` = `admin` or `customer`. Client writes revoked; `admin` can only be granted by an accepted invitation or from the SQL editor.                                                                                                                                         |
 
 Key database functions:
 
-| Group             | Functions                                                                                                                                                                                                       |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Contract workflow | `admin_create_contract`, `admin_update_contract`, `admin_send_contract`, `customer_accept_contract`, `customer_request_revision`, `admin_approve_contract`, `admin_request_revision`                            |
-| Booking / payment | `pay_booking`, `owner_manual_confirm_booking`, `expire_stale_bookings`, `booked_car_ids`                                                                                                                        |
-| Admin management  | `owner_create_admin_invitation`, `owner_revoke_admin_invitation`, `accept_admin_invitation`, `owner_set_admin_permissions`, `owner_set_admin_status`, `bootstrap_owner` (SQL editor only)                       |
-| Authorisation     | `has_role`, `is_owner`, `has_admin_permission`                                                                                                                                                                  |
-| Triggers          | `validate_booking`, `cancel_contract_with_booking`, `guard_contract_update`, `protect_contract_version`, `append_only`, `guard_admin_role_grant`, `track_admin_member`, `prevent_demo_admin`, `handle_new_user` |
+| Group             | Functions                                                                                                                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Contract workflow | `admin_create_contract`, `admin_update_contract`, `admin_send_contract`, `customer_accept_contract`, `customer_request_revision`, `admin_apply_requested_name`, `admin_approve_contract` / `admin_request_revision` (legacy)               |
+| Booking / payment | `pay_booking`, `pay_pickup`, `booking_fee`, `booking_receipt_details`, `owner_manual_confirm_booking`, `expire_stale_bookings`, `booked_car_ids`                                                                                           |
+| Admin management  | `owner_create_admin_invitation`, `owner_revoke_admin_invitation`, `accept_admin_invitation`, `owner_set_admin_permissions`, `owner_set_admin_status`, `bootstrap_owner` (SQL editor only)                                                  |
+| Authorisation     | `has_role`, `is_owner`, `has_admin_permission`                                                                                                                                                                                             |
+| Triggers          | `validate_booking`, `cancel_contract_with_booking`, `guard_contract_update`, `protect_contract_version`, `append_only`, `guard_admin_role_grant`, `track_admin_member`, `prevent_demo_admin`, `handle_new_user`, `validate_profile_fields` |
 
 Migration 0004 is additive: existing contracts were kept as legacy version 1 and mapped to
 `paid` or `cancelled`, existing admins became active members with all permissions (none was
 made Owner), and existing pending bookings kept a 15-minute hold. A rollback script is kept in
 [`docs/database/contract-approval-workflow-rollback.sql`](docs/database/contract-approval-workflow-rollback.sql).
 
-> Schema changes are made through Lovable. Do not add or edit files in `drizzle/` by hand.
+> Schema changes are drafted in `docs/database/`, tested with the PGlite database tests, and
+> applied through Lovable. Do not add or edit files in `drizzle/` by hand.
 
 ## 10. Security and access control
 
@@ -501,7 +570,7 @@ Project layout:
 
 ```
 drizzle/migrations/       SQL migrations (managed by Lovable; do not edit)
-docs/database/            Workflow plan, rollback script, owner procedures
+docs/database/            Proposed / directly applied SQL, workflow plan, owner procedures
 src/routes/               One file per page (see src/routes/README.md)
 src/components/admin/     Contracts panel, admin management panel, reviews panel
 src/components/contract/  Contract view (versions, events, print)
@@ -544,17 +613,19 @@ src/test/                 Unit/UI tests; src/test/db/ holds database tests (PGli
 
 ## 13. Testing and quality checks
 
-24 test files, 252 tests (Vitest).
+39 test files, 366 tests (Vitest).
 
 - **Unit and UI tests** (`src/test/*.test.ts(x)`, jsdom): roles and dashboard permissions,
   protected routes, contract status rules and UI, contract terms, payment window and countdown,
   DEMO payment helpers, availability and dates, car status, reports and CSV, review moderation,
   password reset, prototype notice, error states.
 - **Database tests** (`src/test/db/*.db.test.ts`): boot an **in-memory PostgreSQL (PGlite)**
-  with Supabase stubs, apply migrations 0000–0004, and run queries as real `authenticated`
+  with Supabase stubs, apply migrations 0000–0004 (or 0000–0007 with `applyLater: true`),
+  apply the `docs/database/*.sql` file under test on top, and run queries as real `authenticated`
   users so RLS, grants, triggers and functions are exercised. They cover contract creation and
   review, versioning and revisions, payment, hold and booking rules, admin management and
-  invitations, legacy data migration (including re-running 0004), and the rollback script.
+  invitations, booking fee and pickup payments, refunds, revision limits, input validation,
+  ID card / licence and receipt details, legacy data migration, and the rollback script.
   They never connect to the live database.
 
 ```sh
@@ -571,14 +642,16 @@ The site is hosted by Lovable Cloud, which syncs the `main` branch of this repos
 1. Open a pull request into `main` and make sure `npm test`, `npx tsc --noEmit` and
    `npm run build` pass. Do not force-push or rewrite pushed history (see `AGENTS.md`).
 2. Merge. Lovable syncs the commit; confirm in the Lovable editor that the preview works.
-3. Database changes are applied by Lovable, not by hand. New migrations should be tested with
-   the PGlite database tests first.
+3. Apply database changes **before** merging UI that needs them. Draft the SQL in
+   `docs/database/`, test it with the PGlite database tests, then apply it through Lovable
+   and check that the live function bodies match the file.
 4. In Lovable Cloud → Auth settings, include the published domain in Site URL and Redirect URLs
    so confirmation and password-reset emails return to the site.
 5. Keep secrets in Lovable's secret store. Only the publishable key may reach the browser.
 6. Run Lovable's security scan and resolve critical findings.
 7. Publish from the Lovable editor and test the published URL signed out (home, search,
-   `/admin` access denied), as a customer (booking → contract → DEMO payment) and as an admin.
+   `/admin` access denied), as a customer (booking → contract → booking fee → pickup
+   payment) and as an admin.
 8. First deployment of the admin model only: run the one-time
    [Owner bootstrap](#owner-bootstrap-one-time-privileged-setup).
 
@@ -587,9 +660,13 @@ clients.
 
 ## 15. Current prototype limitations
 
-- **Payments are DEMO only.** No gateway, no real money, no receipts.
-- **No refunds.** `payments.refund_status` supports `refunded`, but no refund function or screen
-  exists; cancelled paid bookings are marked `not_refunded`.
+- **Payments are DEMO only.** No gateway, no real money. Refunds and the deposit return are
+  recorded or shown only.
+- **ID card and licence numbers are checked for format only**, not verified against any
+  official source.
+- **Seven `docs/database/*.sql` files are live but not Drizzle migrations** (see
+  [Database architecture](#9-database-architecture)); a fresh database built from
+  `drizzle/migrations/` alone would miss them.
 - **No email notifications.** Invitation links must be copied and delivered by the Owner;
   customers and admins are not notified of contract steps.
 - **Expiry is enforced on use.** Expired holds stop blocking cars immediately, but booking
@@ -606,7 +683,8 @@ clients.
 ## 16. Future improvements
 
 - Real payment provider (for example PromptPay and cards through a licensed gateway) with
-  refunds and receipts.
+  real refunds and deposit returns.
+- Record the `docs/database/*.sql` files as Lovable/Drizzle migrations.
 - Email notifications for invitations, contract sends, approvals and payment reminders.
 - Scheduled job for expiring holds and updating car status.
 - Owner transfer procedure.
